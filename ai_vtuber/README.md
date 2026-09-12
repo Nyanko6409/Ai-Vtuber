@@ -1,257 +1,357 @@
 # AI VTuber - Local AI Virtual YouTuber
 
-A fully local AI VTuber application for Ubuntu Linux that combines speech recognition, LLM conversation, text-to-speech, and Live2D avatar rendering.
+A fully local AI VTuber application that combines Live2D avatar rendering, speech recognition, text-to-speech, and LLM conversation - all running on your machine.
 
-## Features
+![AI VTuber](https://img.shields.io/badge/Python-3.11-blue) ![License](https://img.shields.io/badge/License-MIT-green) ![Platform](https://img.shields.io/badge/Platform-Ubuntu%2024.04-orange)
 
-- 🎤 **Voice Input** - Real-time speech-to-text using faster-whisper with CUDA acceleration
-- 🧠 **AI Conversation** - Powered by Gemma 4 E4B via LM Studio's local API
-- 🔊 **Voice Output** - Natural speech synthesis using KittenTTS
-- 🎭 **Live2D Avatar** - Animated avatar with expressions, blinking, and lip sync
-- ⚡ **Low Latency** - Optimized for real-time interaction on consumer hardware
-- 🔒 **Fully Local** - Everything runs on your machine (except LM Studio's API)
+## 🌟 Features
 
-## Hardware Requirements
+### Core Features
+- **Live2D Avatar** - Animated character with expressions, blinking, and lip sync
+- **Speech Recognition** - Real-time voice input using faster-whisper with CUDA acceleration
+- **Text-to-Speech** - Natural voice output using KittenTTS (Bella voice)
+- **LLM Integration** - Connects to LM Studio for AI conversations
+- **Chat Interface** - Text-based input with typewriter effect and control buttons
+- **Emotion System** - Avatar expressions change based on conversation context
+- **Full Privacy** - Everything runs locally, no data sent to external servers
 
-| Component | Minimum | Recommended |
-|-----------|---------|-------------|
-| CPU | Ryzen 5 6600H | Ryzen 7 or better |
-| GPU | RTX 3050 6GB | RTX 3060+ |
-| RAM | 16GB | 32GB |
-| OS | Ubuntu 22.04+ | Ubuntu 24.04 |
+### Chat Interface
+- **Interactive Chat Box** - Rounded input field at the bottom of the window
+- **Control Buttons** - Toggle visibility and clear chat history
+- **Typewriter Effect** - AI responses appear character by character
+- **Message History** - Shows conversation with color-coded messages
+- **Dual Input** - Use voice OR text input (both work simultaneously)
 
-## Installation
+## 🚀 Quick Start
 
-### 1. System Dependencies
+### Prerequisites
+- Ubuntu 24.04 (WSL2 supported)
+- Python 3.11
+- NVIDIA GPU with CUDA support (recommended)
+- LM Studio installed and running
 
+### Installation
+
+1. **Clone the repository**
 ```bash
-# Install system packages
-sudo apt update
-sudo apt install -y python3.11 python3.11-venv python3-pip \
-    portaudio19-dev libsndfile1 ffmpeg \
-    libgl1-mesa-glx libglib2.0-0 \
-    cmake build-essential espeak
+git clone https://github.com/Nyanko6409/Ai-Vtuber.git
+cd Ai-Vtuber/ai_vtuber
 ```
 
-### 2. Python Environment
-
+2. **Create virtual environment**
 ```bash
-cd ai_vtuber
 python3.11 -m venv venv
 source venv/bin/activate
+```
+
+3. **Install dependencies**
+```bash
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 3. KittenTTS Installation
-
-**Option A: Official 0.8.x (Recommended)**
+4. **Install KittenTTS (official 0.8.1)**
 ```bash
 pip install https://github.com/KittenML/KittenTTS/releases/download/0.8.1/kittentts-0.8.1-py3-none-any.whl
 ```
 
-**Option B: PyPI 0.1.x (Fallback)**
+5. **Install system dependencies**
 ```bash
-pip install kittentts
+sudo apt update
+sudo apt install -y espeak espeak-ng
 ```
 
-The application auto-detects which version is installed and adapts accordingly.
+6. **Configure LM Studio**
+- Download and install [LM Studio](https://lmstudio.ai/)
+- Load a model (e.g., Gemma 4 E4B)
+- Start the local server (default: http://localhost:1234)
 
-### 4. LM Studio Setup
-
-1. Download and install [LM Studio](https://lmstudio.ai/)
-2. Download the Gemma 4 E4B GGUF model
-3. Start the local server (default: `http://localhost:1234`)
-4. Ensure the OpenAI-compatible API is enabled
-
-### 5. Live2D Model
-
-Place your Live2D model files and update `config.yaml`:
-
+7. **Configure Live2D model**
+Edit `config.yaml` and set your model path:
 ```yaml
 avatar:
   model_path: "/path/to/your/model.model3.json"
 ```
 
-**Example for WSL:**
-```yaml
-avatar:
-  model_path: "/mnt/e/SteamLibrary/steamapps/common/VTube Studio/VTube Studio_Data/StreamingAssets/Live2DModels/ganyu/ganyu.model3.json"
+### Running the Application
+
+```bash
+python main.py --debug
 ```
 
-## Configuration
+## 🎮 Controls
 
-All settings are in `config.yaml`. Key options:
+### Chat Interface Controls
 
+| Button | Action | Description |
+|--------|--------|-------------|
+| 💬 (Chat Icon) | Toggle Chat | Show/hide the chat interface |
+| ✖ (X Icon) | Clear Chat | Clear all message history |
+
+### Keyboard Shortcuts
+
+| Key | Action | When |
+|-----|--------|------|
+| **Enter** | Send message | Chat input active |
+| **Backspace** | Delete character | Chat input active |
+| **Tab** | Toggle chat visibility | Always |
+| **ESC** | Quit application | Chat inactive |
+| **F** | Toggle FPS display | Chat inactive |
+| **D** | Toggle debug info | Chat inactive |
+
+### Mouse Controls
+- **Click chat buttons** - Toggle visibility or clear chat
+- **Click input box** - Focus the text input
+- **Hover over buttons** - Visual feedback
+
+## 📖 Usage Guide
+
+### Starting a Conversation
+
+1. **Launch the application**
+```bash
+python main.py --debug
+```
+
+2. **Wait for initialization**
+   - Live2D model loads
+   - Whisper STT model loads (with CUDA if available)
+   - KittenTTS model loads
+   - LM Studio connection established
+
+3. **Start chatting**
+   - **Voice input**: Just speak into your microphone
+   - **Text input**: Click the chat box or press Tab, then type and press Enter
+
+4. **Watch the AI respond**
+   - Text appears with typewriter effect
+   - Voice speaks the response
+   - Avatar shows matching emotion
+   - Full conversation logged in CLI
+
+### Example Conversation
+
+```
+You: Hello! How are you today?
+AI: [happy] I'm doing wonderful, thanks for asking! It's great to chat with you!
+
+You: Tell me a joke!
+AI: [excited] Why don't scientists trust atoms? Because they make up everything!
+
+You: That's funny! What's your favorite color?
+AI: [thinking] Hmm, I'd say purple! It feels creative and mysterious.
+```
+
+## ⚙️ Configuration
+
+All settings are in `config.yaml`. Key configurations:
+
+### LLM Settings
 ```yaml
-# LLM
 llm:
   base_url: "http://localhost:1234/v1"
   model: "gemma-4-e4b"
   temperature: 0.8
-  max_tokens: 300
+  max_tokens: 2000
+  max_history: 10
+```
 
-# STT (CUDA detection uses CTranslate2, no PyTorch needed)
+### STT Settings
+```yaml
 stt:
-  model_size: "base"   # tiny, base, small, medium, large-v3
+  model_size: "small"  # tiny, base, small, medium, large-v3
   device: "auto"       # auto (detects CUDA), cuda, cpu
+  compute_type: "auto"
+  language: "en"
+```
 
-# TTS
+### TTS Settings
+```yaml
 tts:
-  model: "KittenML/kitten-tts-mini-0.8"  # For official 0.8.x
-  voice: "Bella"       # Bella, Jasper, Luna, Bruno, Rosie, Hugo, Kiki, Leo
+  model: "KittenML/kitten-tts-mini-0.8"
+  voice: "Bella"
   speed: 1.0
+  backend: "cpu"
+```
 
-# Avatar
+### Avatar Settings
+```yaml
 avatar:
-  model_path: ""       # Path to .model3.json
+  model_path: "/path/to/model.model3.json"
+  window_width: 800
+  window_height: 600
+  fps: 30
+  scale: 2.0
 ```
 
-## Running
+## 🔧 Troubleshooting
+
+### Common Issues
+
+#### 1. Live2D Model Not Loading
+**Symptom**: Black screen or error message
+**Solution**:
+- Check model path in `config.yaml`
+- Verify model files exist (moc3, textures, physics)
+- Run diagnostic: `python test_model_diagnostic.py`
+
+#### 2. Python Version Mismatch
+**Symptom**: `SIGSEGV` or `Python 3.12.3` in logs when running Python 3.11
+**Solution**:
+```bash
+# Install compatible live2d-py
+pip uninstall live2d-py
+pip install live2d-py  # Try to get correct version
+```
+
+#### 3. KittenTTS Not Loading
+**Symptom**: `espeak not installed` error
+**Solution**:
+```bash
+sudo apt install espeak espeak-ng
+```
+
+#### 4. CUDA Not Detected
+**Symptom**: `torch not available, using CPU with int8`
+**Solution**:
+- The app now uses CTranslate2 for CUDA detection (no PyTorch needed)
+- Check logs for: `CUDA detected via CTranslate2`
+- If still using CPU, verify NVIDIA drivers are installed
+
+#### 5. Chat Interface Not Responding
+**Symptom**: Can't type or send messages
+**Solution**:
+- Check if chat is visible (blue border on input box)
+- Press Tab to toggle chat visibility
+- Click on the input box to focus it
+- Check CLI for errors
+
+### Debug Mode
+
+Run with debug logging:
+```bash
+python main.py --debug
+```
+
+This shows detailed logs for:
+- Model loading
+- CUDA detection
+- Chat messages
+- Emotion parsing
+- TTS generation
+- Avatar rendering
+
+## 📊 System Status
+
+### Current Working Components
+✅ **LM Studio** - Connected and responding  
+✅ **KittenTTS** - Voice synthesis working (Bella voice)  
+✅ **Live2D Avatar** - Ganyu model loaded successfully  
+✅ **Chat Interface** - Text input with typewriter effect  
+✅ **Voice Input** - Microphone active with VAD  
+✅ **Emotion System** - Avatar expressions change  
+✅ **CUDA Acceleration** - GPU acceleration for STT  
+
+### Diagnostic Tools
+
+The project includes several diagnostic scripts:
 
 ```bash
-cd ai_vtuber
-source venv/bin/activate
-python main.py
+# Check Live2D model files
+python test_model_diagnostic.py
+
+# Check Python/native compatibility
+python test_python_compat.py
+
+# Test Live2D standalone
+python test_live2d_standalone.py
+
+# Check OpenGL/WSL compatibility
+python test_opengl_check.py
 ```
 
-### Command Line Options
-
-```bash
-python main.py --config custom_config.yaml  # Custom config
-python main.py --debug                       # Debug logging
-```
-
-### Keyboard Shortcuts
-
-| Key | Action |
-|-----|--------|
-| ESC | Quit |
-| F | Toggle FPS display |
-| D | Toggle debug info |
-
-## Architecture
+## 🏗️ Architecture
 
 ```
-Microphone
-  → VAD (Voice Activity Detection)
-  → faster-whisper (Speech-to-Text, CUDA/CPU)
-  → Gemma 4 E4B via LM Studio (LLM)
-  → Emotion Parser
-  → Live2D Expression
-  → KittenTTS (Text-to-Speech)
-  → Audio Playback
+Microphone Input
+    ↓
+Voice Activity Detection (VAD)
+    ↓
+faster-whisper (STT with CUDA)
+    ↓
+LM Studio API (Gemma 4 E4B)
+    ↓
+Emotion Parser
+    ↓
+┌───────────────┬───────────────┐
+│               │               │
+Live2D Avatar   KittenTTS      Chat UI
+(Expressions)   (Voice)        (Text Display)
 ```
 
-### State Machine
+### Key Components
 
-```
-IDLE → LISTENING → TRANSCRIBING → THINKING → SPEAKING → IDLE
-  ↑                                                      ↓
-  └──────────────────── ERROR ───────────────────────────┘
-```
+- **core/app.py** - Main application controller
+- **ui/chat_ui.py** - Chat interface with buttons
+- **ui/pygame_ui.py** - Pygame/OpenGL rendering
+- **avatar/live2d.py** - Live2D model handling
+- **stt/whisper.py** - Speech recognition
+- **tts/kitten.py** - Text-to-speech
+- **llm/lmstudio.py** - LLM API client
 
-## Emotion System
+## 📝 Recent Updates
 
-The LLM is prompted to start each response with an emotion tag:
+### Latest Changes (September 2026)
 
-```
-[happy]
-That sounds really fun!
-```
+#### Chat Interface with Buttons
+- ✅ Added toggle button to show/hide chat
+- ✅ Added clear button to reset conversation
+- ✅ Improved event handling (no more conflicts)
+- ✅ OpenGL texture rendering for chat UI
+- ✅ Mouse hover effects on buttons
 
-Supported emotions: `neutral`, `happy`, `excited`, `thinking`, `surprised`, `sad`, `angry`, `sleepy`
+#### Bug Fixes
+- ✅ Fixed `pygame` not defined error
+- ✅ Fixed event handling conflicts
+- ✅ Fixed ESC key conflict with chat
+- ✅ Improved button click detection
+- ✅ Better error messages for Live2D issues
 
-The emotion tag is:
-1. Parsed from the response
-2. Sent to the Live2D avatar as an expression
-3. Removed before sending text to TTS
+#### Performance Improvements
+- ✅ CUDA detection via CTranslate2 (no PyTorch)
+- ✅ Optimized event processing
+- ✅ Better memory management
+- ✅ Smoother typewriter effect
 
-## Interruption
+## 🤝 Contributing
 
-When you speak while the avatar is talking:
-1. TTS playback stops immediately
-2. Talking animation stops
-3. System returns to listening state
-4. Your new speech is processed
+Contributions are welcome! Areas for improvement:
+- Additional Live2D models
+- More voice options
+- Enhanced emotion detection
+- Multi-language support
+- Performance optimizations
 
-## Troubleshooting
+## 📄 License
 
-### Black Screen
+MIT License - See LICENSE file for details
 
-**Issue:** Window opens but everything is black.
+## 🙏 Acknowledgments
 
-**Solution:**
-- Ensure Live2D model path is correct in `config.yaml`
-- Check that the model file exists and is accessible
-- Run with `--debug` to see detailed error messages
-- Verify `live2d-py` is installed: `pip show live2d-py`
+- [Live2D Cubism](https://www.live2d.com/) - Avatar rendering
+- [faster-whisper](https://github.com/SYSTRAN/faster-whisper) - Speech recognition
+- [KittenTTS](https://github.com/KittenML/KittenTTS) - Text-to-speech
+- [LM Studio](https://lmstudio.ai/) - Local LLM hosting
+- [live2d-py](https://github.com/EasyLive2D/live2d-py) - Python Live2D bindings
 
-### "Cannot connect to LM Studio"
+## 📞 Support
 
-**Solution:**
-- Ensure LM Studio is running with the server enabled
-- Check that the model is loaded
-- Verify the URL in config.yaml matches LM Studio's settings
+For issues and questions:
+1. Check the troubleshooting section
+2. Run diagnostic scripts
+3. Check debug logs
+4. Review existing issues on GitHub
 
-### "torch not available" Warning
+---
 
-**Note:** This is normal! The application uses CTranslate2 for CUDA detection, not PyTorch. You should see:
-```
-CUDA detected via CTranslate2 (1 device(s))
-Using CUDA GPU acceleration
-```
-
-### "Microphone failed"
-
-**Solution:**
-- Check that a microphone is connected
-- List devices: `python -c "import sounddevice; print(sounddevice.query_devices())"`
-- Set `microphone_index` in config.yaml
-
-### "Live2D model not found"
-
-**Solution:**
-- Use absolute paths in config.yaml
-- For WSL, use `/mnt/c/...` format
-- Verify the model files are complete (.model3.json + textures + motions)
-- Check file permissions
-
-### Low FPS
-
-**Solution:**
-- Reduce window size in config.yaml
-- Use a smaller Whisper model (tiny/base)
-- Close other GPU-intensive applications
-
-## Project Structure
-
-```
-ai_vtuber/
-├── main.py              # Entry point
-├── config.yaml          # Configuration
-├── requirements.txt     # Dependencies
-├── README.md           # This file
-├── core/
-│   ├── app.py          # Main application controller
-│   ├── state.py        # State machine
-│   └── conversation.py # Conversation history
-├── llm/
-│   └── lmstudio.py     # LM Studio client
-├── stt/
-│   └── whisper.py      # faster-whisper STT (CUDA via CTranslate2)
-├── tts/
-│   └── kitten.py       # KittenTTS (auto-detects 0.8.x or 0.1.x)
-├── avatar/
-│   └── live2d.py       # Live2D avatar (live2d-py)
-├── audio/
-│   ├── microphone.py   # Microphone input
-│   ├── vad.py          # Voice activity detection
-│   └── playback.py     # Audio playback
-└── ui/
-    └── pygame_ui.py    # Pygame + OpenGL UI
-```
-
-## License
-
-MIT
+**Note**: This application runs entirely locally. No data is sent to external servers except for the LM Studio API (which runs on your machine).
