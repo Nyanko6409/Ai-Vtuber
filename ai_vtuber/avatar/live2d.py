@@ -258,24 +258,141 @@ class Live2DAvatar:
             self._initialized = False
             return False
 
-        # Load model
+        # Validate model files before loading
+        if not self._validate_model_files():
+            return False
+
+        # Load model with enhanced error handling
         try:
             model_path_str = str(self._model_path)
             logger.info(f"Loading Live2D model: {model_path_str}")
 
+            logger.debug("Creating LAppModel instance...")
             self._model = self._live2d.LAppModel()
+            logger.debug("LAppModel instance created")
+            
+            logger.debug("Loading model JSON...")
             self._model.LoadModelJson(model_path_str)
+            logger.debug("Model JSON loaded successfully")
 
             self._initialized = True
-            logger.info(f"Live2D model loaded: {self._model_path.name}")
+            logger.info(f"✓ Live2D model loaded successfully: {self._model_path.name}")
+            logger.info(f"  Model directory: {self._model_path.parent}")
 
         except Exception as e:
-            error_msg = f"Failed to load Live2D model: {e}"
+            error_msg = f"Failed to load Live2D model: {type(e).__name__}: {e}"
             logger.error(error_msg, exc_info=True)
             self._error_message = error_msg
             self._initialized = False
+            self._model = None
+            return False
+        except BaseException as e:
+            # Catch SIGSEGV and other fatal errors
+            error_msg = f"Fatal error during model loading: {type(e).__name__}"
+            logger.error(error_msg)
+            self._error_message = error_msg
+            self._initialized = False
+            self._model = None
             return False
 
+        return True
+
+    def _validate_model_files(self) -> bool:
+        """Validate that all required model files exist."""
+        import json
+        
+        if not self._model_path or not self._model_path.exists():
+            self._error_message = f"Model file does not exist: {self._model_path}"
+            logger.error(self._error_message)
+            return False
+
+        model_dir = self._model_path.parent
+        logger.info(f"Validating model files in: {model_dir}")
+
+        try:
+            with open(self._model_path, 'r', encoding='utf-8') as f:
+                model_data = json.load(f)
+        except Exception as e:
+            self._error_message = f"Failed to read model JSON: {e}"
+            logger.error(self._error_message)
+            return False
+
+        # Check FileReferences
+        if 'FileReferences' not in model_data:
+            self._error_message = "Model JSON missing 'FileReferences' section"
+            logger.error(self._error_message)
+            return False
+
+        refs = model_data['FileReferences']
+        missing_files = []
+
+        # Check moc3 file (required)
+        if 'Moc' in refs:
+            moc_path = model_dir / refs['Moc']
+            if not moc_path.exists():
+                missing_files.append(f"Moc: {moc_path}")
+            else:
+                logger.debug(f"✓ Moc file exists: {moc_path.name}")
+
+        # Check textures (required)
+        if 'Textures' in refs:
+            for tex in refs['Textures']:
+                tex_path = model_dir / tex
+                if not tex_path.exists():
+                    missing_files.append(f"Texture: {tex_path}")
+                else:
+                    logger.debug(f"✓ Texture exists: {tex_path.name}")
+
+        # Check physics (optional but recommended)
+        if 'Physics' in refs:
+            phys_path = model_dir / refs['Physics']
+            if not phys_path.exists():
+                logger.warning(f"Physics file missing (optional): {phys_path}")
+            else:
+                logger.debug(f"✓ Physics file exists: {phys_path.name}")
+
+        # Check pose (optional)
+        if 'Pose' in refs:
+            pose_path = model_dir / refs['Pose']
+            if not pose_path.exists():
+                logger.warning(f"Pose file missing (optional): {pose_path}")
+            else:
+                logger.debug(f"✓ Pose file exists: {pose_path.name}")
+
+        # Check motions (optional)
+        if 'motions' in model_data:
+            motion_count = 0
+            for group_name, group_data in model_data['motions'].items():
+                if isinstance(group_data, list):
+                    for motion in group_data:
+                        if 'File' in motion:
+                            motion_path = model_dir / motion['File']
+                            if motion_path.exists():
+                                motion_count += 1
+                            else:
+                                logger.warning(f"Motion file missing: {motion_path}")
+            logger.debug(f"✓ Found {motion_count} motion files")
+
+        # Check expressions (optional)
+        if 'expressions' in model_data:
+            exp_count = 0
+            for exp in model_data['expressions']:
+                if 'File' in exp:
+                    exp_path = model_dir / exp['File']
+                    if exp_path.exists():
+                        exp_count += 1
+                    else:
+                        logger.warning(f"Expression file missing: {exp_path}")
+            logger.debug(f"✓ Found {exp_count} expression files")
+
+        # Report missing required files
+        if missing_files:
+            error_msg = "Missing required model files:\n" + "\n".join(f"  - {f}" for f in missing_files)
+            logger.error(error_msg)
+            self._error_message = error_msg
+            return False
+
+        logger.info("✓ All required model files validated")
         return True
 
     def resize(self, width: int, height: int) -> None:
