@@ -159,22 +159,12 @@ def main() -> None:
                 
                 elif event.type == pygame.MOUSEBUTTONDOWN:
                     if event.button == 1:  # Left click
-                        # Check if a button was clicked
                         mouse_pos = event.pos
-                        action = chat_ui.handle_button_click(mouse_pos)
-                        if action == 'toggle':
-                            chat_ui.toggle_chat()
-                        elif action == 'clear':
-                            chat_ui.clear_chat()
-                        elif chat_ui.chat_visible and chat_ui.input_active:
+                        if chat_ui.chat_visible and chat_ui.input_active:
                             # Click on input box to focus it
                             input_y = chat_ui.height - chat_ui.input_box_height - 10
                             if mouse_pos[1] >= input_y:
                                 chat_ui.input_active = True
-                
-                elif event.type == pygame.MOUSEMOTION:
-                    # Update button hover state
-                    chat_ui.update_hover(event.pos)
 
             if not running:
                 break

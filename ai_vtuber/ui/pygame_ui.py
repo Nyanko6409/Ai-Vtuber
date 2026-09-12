@@ -62,7 +62,6 @@ class PygameUI:
         self.text_color: tuple = tuple(config["ui"]["text_color"])
         self.font_size: int = config["ui"]["font_size"]
         self.status_bar_height: int = config["ui"]["status_bar_height"]
-        self.text_area_height: int = config["ui"]["text_area_height"]
 
         self._screen = None
         self._font = None
@@ -159,14 +158,11 @@ class PygameUI:
         # Draw status bar at top
         self._draw_status_bar(overlay, status)
 
-        # Draw text areas at bottom
-        self._draw_text_areas(overlay, status)
-
         # Draw FPS/debug info
         if self.show_fps:
             self._draw_fps(overlay)
 
-        # Draw error message
+        # Draw compact error notification (if any)
         if error_msg:
             self._draw_error(overlay, error_msg)
 
@@ -194,43 +190,7 @@ class PygameUI:
         emoji = EMOTION_EMOJI.get(emotion, "😐")
         full_label = f"{label}  {emoji}"
 
-        self._font.render_to(surface, (10, 10), full_label, color)
-
-    def _draw_text_areas(self, surface: pygame.Surface, status: dict) -> None:
-        """Draw transcription and response text areas."""
-        y_offset = self.height - self.text_area_height * 2 - 20
-
-        # Transcription area
-        transcription = status.get("transcription", "")
-        if transcription:
-            bg_rect = pygame.Rect(10, y_offset, self.width - 20, self.text_area_height - 10)
-            pygame.draw.rect(surface, (30, 30, 50, 180), bg_rect, border_radius=5)
-            self._small_font.render_to(
-                surface, (20, y_offset + 5),
-                "You:", (150, 200, 255)
-            )
-            # Word wrap the transcription
-            self._draw_wrapped_text(
-                surface, transcription,
-                (20, y_offset + 25), self.width - 40,
-                (220, 220, 240)
-            )
-
-        # Response area
-        y_offset += self.text_area_height
-        response = status.get("response", "")
-        if response:
-            bg_rect = pygame.Rect(10, y_offset, self.width - 20, self.text_area_height - 10)
-            pygame.draw.rect(surface, (30, 50, 30, 180), bg_rect, border_radius=5)
-            self._small_font.render_to(
-                surface, (20, y_offset + 5),
-                "AI:", (150, 255, 150)
-            )
-            self._draw_wrapped_text(
-                surface, response,
-                (20, y_offset + 25), self.width - 40,
-                (240, 240, 220)
-            )
+        self._font.render_to(surface, (10, 8), full_label, color)
 
     def _draw_wrapped_text(self, surface: pygame.Surface, text: str,
                            pos: tuple, max_width: int, color: tuple) -> None:
@@ -266,42 +226,25 @@ class PygameUI:
         )
 
     def _draw_error(self, surface: pygame.Surface, error_msg: str) -> None:
-        """Draw error message overlay. Handles multi-line messages."""
-        # Split message into lines
-        lines = error_msg.split('\n')
-        # Limit to 6 lines
-        lines = lines[:6]
+        """Draw compact error notification at the top."""
+        # Take first line only for compact display
+        first_line = error_msg.split('\n')[0]
+        # Truncate if too long
+        if len(first_line) > 60:
+            first_line = first_line[:57] + "..."
         
-        # Calculate box height based on content
-        line_height = 18
-        box_height = max(80, 40 + len(lines) * line_height)
+        # Compact error bar at top below status bar
+        bar_height = 30
+        bg_rect = pygame.Rect(0, self.status_bar_height, self.width, bar_height)
+        pygame.draw.rect(surface, (80, 20, 20, 230), bg_rect)
         
-        # Background
-        bg_rect = pygame.Rect(
-            self.width // 8, self.height // 4,
-            self.width * 3 // 4, box_height
-        )
-        pygame.draw.rect(surface, (60, 20, 20, 230), bg_rect, border_radius=8)
-        pygame.draw.rect(surface, (255, 80, 80, 255), bg_rect, width=2, border_radius=8)
-
-        # Error title
-        self._font.render_to(
+        # Error text
+        error_text = f"⚠ {first_line}"
+        self._small_font.render_to(
             surface,
-            (bg_rect.x + 12, bg_rect.y + 10),
-            "⚠ ERROR", (255, 100, 100)
+            (10, self.status_bar_height + 8),
+            error_text, (255, 150, 150)
         )
-        
-        # Error message lines
-        y = bg_rect.y + 35
-        for line in lines:
-            # Truncate long lines
-            display_line = line[:80] if len(line) > 80 else line
-            self._small_font.render_to(
-                surface,
-                (bg_rect.x + 12, y),
-                display_line, (255, 200, 200)
-            )
-            y += line_height
 
     def _render_overlay_texture(self, surface: pygame.Surface) -> None:
         """Render the overlay surface as an OpenGL texture.

@@ -84,5 +84,4 @@ ui:
   background_color: [30, 30, 40]
   text_color: [255, 255, 255]
   font_size: 14
-  status_bar_height: 40
-  text_area_height: 120
+  status_bar_height: 30
