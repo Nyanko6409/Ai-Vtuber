@@ -362,6 +362,70 @@ class App:
             self.state_machine.force_state(State.IDLE)
             logger.info("Speech interrupted")
 
+    def process_chat_message(self, text: str) -> None:
+        """Process a text message from the chat UI.
+        
+        This is similar to the voice pipeline but triggered by text input.
+        Runs in a background thread to avoid blocking the UI.
+        """
+        if not text or not text.strip():
+            return
+        
+        # Run in background thread
+        thread = threading.Thread(target=self._process_chat_message_thread, args=(text,), daemon=True)
+        thread.start()
+
+    def _process_chat_message_thread(self, text: str) -> None:
+        """Background thread for processing chat messages."""
+        try:
+            logger.info(f"Processing chat message: {text}")
+            
+            # Update state
+            self.state_machine.force_state(State.THINKING)
+            
+            # Update transcription display
+            with self._lock:
+                self.current_transcription = text
+            
+            # Add to conversation history
+            self.conversation.add_message("user", text)
+            
+            # Generate response
+            response_text, emotion = self._generate_response()
+            
+            if not response_text:
+                self.state_machine.force_state(State.IDLE)
+                return
+            
+            # Update UI state
+            with self._lock:
+                self.current_response = response_text
+                self.current_emotion = emotion
+            
+            logger.info(f"AI response: [{emotion}] {response_text}")
+            
+            # Update avatar expression
+            if self._avatar:
+                self.avatar.set_expression(emotion)
+                self.avatar.set_talking(True)
+            
+            # Generate and play TTS
+            self.state_machine.force_state(State.SPEAKING)
+            self._speak(response_text)
+            
+            # Done speaking
+            if self._avatar:
+                self.avatar.set_talking(False)
+                self.avatar.set_expression("neutral")
+            
+            self.state_machine.force_state(State.IDLE)
+            
+        except Exception as e:
+            logger.error(f"Chat message processing error: {e}", exc_info=True)
+            self.state_machine.set_error(str(e))
+            # Reset to idle after a delay
+            threading.Timer(3.0, self._recover_from_error).start()
+
     def get_status(self) -> dict:
         """Get current status for UI display."""
         with self._lock:

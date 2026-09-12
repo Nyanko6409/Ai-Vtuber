@@ -29,6 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from core.app import App
 from core.state import State
 from ui.pygame_ui import PygameUI
+from ui.chat_ui import ChatUI
 
 # Configure logging
 logging.basicConfig(
@@ -80,10 +81,20 @@ def main() -> None:
 
     app = App(config)
     ui = PygameUI(config)
+    chat_ui = ChatUI(config["avatar"]["window_width"], config["avatar"]["window_height"], config["ui"]["font_size"])
 
     try:
         # Initialize UI (creates window + OpenGL context)
         ui.init()
+        chat_ui.init_fonts()
+        
+        # Set up chat callback
+        def on_chat_message(text: str):
+            """Handle chat message from text input."""
+            logger.info(f"Chat message: {text}")
+            app.process_chat_message(text)
+        
+        chat_ui.on_send_message = on_chat_message
 
         # Start the application (loads STT/TTS models, starts microphone)
         # NOTE: Live2D model is NOT loaded yet - it needs the OpenGL context
@@ -112,6 +123,22 @@ def main() -> None:
             if not running:
                 break
 
+            # Handle chat events
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+                    break
+                elif event.type == pygame.KEYDOWN:
+                    # Let chat UI handle the event first
+                    message = chat_ui.handle_event(event)
+                    if message:
+                        # Message was sent via chat
+                        logger.info(f"Chat input: {message}")
+                        app.process_chat_message(message)
+
+            if not running:
+                break
+
             # Forward mouse position to avatar for eye tracking
             if app._avatar and app._avatar.is_initialized:
                 try:
@@ -122,6 +149,12 @@ def main() -> None:
 
             # Process VTuber pipeline
             app.process_cycle()
+            
+            # Update chat UI with current response for typewriter effect
+            delta_time = 1.0 / config["avatar"]["fps"]
+            status = app.get_status()
+            current_response = status.get("response", "")
+            chat_ui.update(delta_time, current_response)
 
             # Begin rendering frame
             ui.begin_frame()
@@ -141,6 +174,9 @@ def main() -> None:
             # Show Live2D error if avatar failed to initialize
             error_msg = status.get("error") or live2d_error
             ui.draw_overlay(status, error_msg)
+            
+            # Draw chat UI (on top of everything)
+            chat_ui.draw(ui._screen)
 
             # End frame
             ui.end_frame()
