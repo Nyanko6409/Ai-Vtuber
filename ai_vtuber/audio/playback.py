@@ -3,9 +3,42 @@
 import logging
 import numpy as np
 import threading
+import os
 from typing import Optional, Callable
 
 logger = logging.getLogger(__name__)
+
+
+def _setup_cuda_library_path():
+    """Setup library path for CUDA libraries if they exist in pip packages."""
+    import sys
+    cuda_lib_paths = [
+        os.path.join(sys.prefix, "lib/python3.12/site-packages/nvidia/cublas/lib"),
+        os.path.join(sys.prefix, "lib/python3.12/site-packages/nvidia/cudnn/lib"),
+        os.path.join(sys.prefix, "lib/python3.12/site-packages/nvidia/nvjitlink/lib"),
+        os.path.join(sys.prefix, "lib/python3.12/site-packages/nvidia/cuda_cupti/lib"),
+        os.path.join(sys.prefix, "lib/python3.12/site-packages/nvidia/cufft/lib"),
+        os.path.join(sys.prefix, "lib/python3.12/site-packages/nvidia/cuda_nvrtc/lib"),
+        os.path.join(sys.prefix, "lib/python3.12/site-packages/nvidia/cuda_runtime/lib"),
+        os.path.join(sys.prefix, "lib/python3.12/site-packages/nvidia/curand/lib"),
+        os.path.join(sys.prefix, "lib/python3.12/site-packages/nvidia/cusparse/lib"),
+        os.path.join(sys.prefix, "lib/python3.12/site-packages/nvidia/cusolver/lib"),
+        os.path.join(sys.prefix, "lib/python3.12/site-packages/nvidia/nccl/lib"),
+        os.path.join(sys.prefix, "lib/python3.12/site-packages/nvidia/nvtx/lib"),
+        os.path.join(sys.prefix, "lib/python3.12/site-packages/nvidia/cufile/lib"),
+    ]
+    
+    ld_path = os.environ.get('LD_LIBRARY_PATH', '')
+    for path in cuda_lib_paths:
+        if os.path.isdir(path) and path not in ld_path:
+            ld_path = path + ':' + ld_path if ld_path else path
+    
+    if ld_path:
+        os.environ['LD_LIBRARY_PATH'] = ld_path
+
+
+# Setup CUDA library paths at module load
+_setup_cuda_library_path()
 
 
 class AudioPlayer:
