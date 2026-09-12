@@ -423,9 +423,9 @@ class Live2DAvatar:
         if not self._initialized or not self._model:
             return
         try:
-            self._update_blink(delta_time)
+            self._model.Update()            # recalc breathing/motion/physics first
+            self._update_blink(delta_time)  # then apply our overrides
             self._update_lip_sync(delta_time)
-            self._model.Update()
         except Exception as e:
             logger.error(f"Live2D update error: {e}")
 
