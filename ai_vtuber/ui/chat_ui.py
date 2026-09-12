@@ -43,11 +43,8 @@ class ChatUI:
         self.input_box_padding: int = 10
         self.border_radius: int = 8
         
-        # Button state
+        # Chat visibility
         self.chat_visible: bool = True  # Whether chat UI is visible
-        self.button_size: int = 30
-        self.button_margin: int = 10
-        self.hover_button: Optional[str] = None  # Which button is being hovered
         
         # Colors
         self.bg_color = (30, 30, 40, 200)
@@ -57,9 +54,6 @@ class ChatUI:
         self.user_color = (100, 200, 255)
         self.ai_color = (200, 255, 150)
         self.border_color = (80, 80, 100)
-        self.button_color = (60, 60, 80)
-        self.button_hover_color = (80, 80, 110)
-        self.button_active_color = (100, 150, 255)
         
         # Fonts
         self._font: Optional[pygame.freetype.Font] = None
@@ -213,122 +207,6 @@ class ChatUI:
         
         return lines if lines else [""]
 
-    def _get_toggle_button_rect(self) -> pygame.Rect:
-        """Get the rectangle for the toggle chat button."""
-        x = self.width - self.button_size - self.button_margin
-        y = self.height - self.button_size - self.button_margin - self.input_box_height - 15
-        return pygame.Rect(x, y, self.button_size, self.button_size)
-
-    def _get_clear_button_rect(self) -> pygame.Rect:
-        """Get the rectangle for the clear chat button."""
-        x = self.width - self.button_size * 2 - self.button_margin * 2
-        y = self.height - self.button_size - self.button_margin - self.input_box_height - 15
-        return pygame.Rect(x, y, self.button_size, self.button_size)
-
-    def handle_button_click(self, mouse_pos: tuple[int, int]) -> Optional[str]:
-        """Handle button clicks.
-        
-        Returns:
-            'toggle' if toggle button clicked, 'clear' if clear button clicked, None otherwise.
-        """
-        if not self.chat_visible:
-            # Only check toggle button when chat is hidden
-            toggle_rect = self._get_toggle_button_rect()
-            if toggle_rect.collidepoint(mouse_pos):
-                return 'toggle'
-            return None
-        
-        # Check toggle button
-        toggle_rect = self._get_toggle_button_rect()
-        if toggle_rect.collidepoint(mouse_pos):
-            return 'toggle'
-        
-        # Check clear button
-        clear_rect = self._get_clear_button_rect()
-        if clear_rect.collidepoint(mouse_pos):
-            return 'clear'
-        
-        return None
-
-    def update_hover(self, mouse_pos: tuple[int, int]) -> None:
-        """Update which button is being hovered."""
-        self.hover_button = None
-        
-        if not self.chat_visible:
-            toggle_rect = self._get_toggle_button_rect()
-            if toggle_rect.collidepoint(mouse_pos):
-                self.hover_button = 'toggle'
-            return
-        
-        toggle_rect = self._get_toggle_button_rect()
-        if toggle_rect.collidepoint(mouse_pos):
-            self.hover_button = 'toggle'
-            return
-        
-        clear_rect = self._get_clear_button_rect()
-        if clear_rect.collidepoint(mouse_pos):
-            self.hover_button = 'clear'
-
-    def draw_buttons(self, surface: pygame.Surface) -> None:
-        """Draw the control buttons."""
-        if self._font is None:
-            return
-        
-        # Draw toggle button (always visible)
-        toggle_rect = self._get_toggle_button_rect()
-        if self.hover_button == 'toggle':
-            color = self.button_hover_color
-        elif self.chat_visible:
-            color = self.button_active_color
-        else:
-            color = self.button_color
-        
-        pygame.draw.rect(surface, color, toggle_rect, border_radius=6)
-        pygame.draw.rect(surface, self.border_color, toggle_rect, width=1, border_radius=6)
-        
-        # Draw icon (chat bubble or X)
-        if self.chat_visible:
-            # Chat bubble icon (simplified)
-            icon_color = self.text_color
-            center_x = toggle_rect.centerx
-            center_y = toggle_rect.centery
-            # Draw simple chat icon
-            pygame.draw.rect(surface, icon_color, (center_x - 8, center_y - 6, 16, 12), border_radius=2)
-            pygame.draw.polygon(surface, icon_color, [
-                (center_x - 4, center_y + 6),
-                (center_x - 2, center_y + 10),
-                (center_x, center_y + 6)
-            ])
-        else:
-            # Show icon to open chat
-            icon_color = self.text_color
-            center_x = toggle_rect.centerx
-            center_y = toggle_rect.centery
-            pygame.draw.rect(surface, icon_color, (center_x - 8, center_y - 6, 16, 12), border_radius=2)
-            pygame.draw.polygon(surface, icon_color, [
-                (center_x - 4, center_y + 6),
-                (center_x - 2, center_y + 10),
-                (center_x, center_y + 6)
-            ])
-        
-        # Draw clear button (only when chat is visible)
-        if self.chat_visible:
-            clear_rect = self._get_clear_button_rect()
-            if self.hover_button == 'clear':
-                color = self.button_hover_color
-            else:
-                color = self.button_color
-            
-            pygame.draw.rect(surface, color, clear_rect, border_radius=6)
-            pygame.draw.rect(surface, self.border_color, clear_rect, width=1, border_radius=6)
-            
-            # Draw X icon
-            icon_color = self.text_color
-            center_x = clear_rect.centerx
-            center_y = clear_rect.centery
-            pygame.draw.line(surface, icon_color, (center_x - 6, center_y - 6), (center_x + 6, center_y + 6), width=2)
-            pygame.draw.line(surface, icon_color, (center_x + 6, center_y - 6), (center_x - 6, center_y + 6), width=2)
-
     def toggle_chat(self) -> None:
         """Toggle chat visibility."""
         self.chat_visible = not self.chat_visible
@@ -352,12 +230,9 @@ class ChatUI:
         # Create a surface for the chat UI
         chat_surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
         
-        # Always draw buttons
-        self.draw_buttons(chat_surface)
-        
         # Only draw chat if visible
         if self.chat_visible:
-            # Draw input box only (no message history)
+            # Draw input box only (no message history, no buttons)
             self._draw_input_box(chat_surface)
         
         # Render the surface as an OpenGL texture
