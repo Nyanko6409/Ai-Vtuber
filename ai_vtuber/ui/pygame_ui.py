@@ -191,6 +191,9 @@ class PygameUI:
         # Draw compact error notification (if any)
         if error_msg:
             self._draw_error(overlay, error_msg)
+        
+        # Draw avatar controls help
+        self._draw_avatar_controls(overlay)
 
         # Render overlay to screen as OpenGL texture
         self._render_overlay_texture(overlay)
@@ -271,6 +274,27 @@ class PygameUI:
             (10, self.status_bar_height + 8),
             error_text, (255, 150, 150)
         )
+
+    def _draw_avatar_controls(self, surface: pygame.Surface) -> None:
+        """Draw avatar control instructions."""
+        controls_text = [
+            "🖱️ Avatar Controls:",
+            "  Left-click + drag: Move avatar",
+            "  Scroll wheel: Zoom in/out",
+        ]
+        
+        # Draw in bottom-right corner
+        x = self.width - 220
+        y = self.height - 80
+        
+        # Semi-transparent background
+        bg_rect = pygame.Rect(x - 5, y - 5, 220, 75)
+        pygame.draw.rect(surface, (20, 20, 30, 180), bg_rect, border_radius=5)
+        
+        # Draw text
+        for i, line in enumerate(controls_text):
+            color = (200, 200, 200) if i == 0 else (180, 180, 180)
+            self._small_font.render_to(surface, (x, y + i * 18), line, color)
 
     def _render_overlay_texture(self, surface: pygame.Surface) -> None:
         """Render the overlay surface as an OpenGL texture.

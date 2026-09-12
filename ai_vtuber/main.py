@@ -272,6 +272,15 @@ def main() -> None:
                             app.process_chat_message(message)
                 
                 elif event.type == pygame.MOUSEBUTTONDOWN:
+                    if event.button == 1:  # Left click - start dragging
+                        app._avatar_start_drag = True
+                    elif event.button == 4:  # Scroll up - zoom in
+                        if app._avatar and app._avatar.is_initialized:
+                            app.avatar.zoom_in(0.2)
+                    elif event.button == 5:  # Scroll down - zoom out
+                        if app._avatar and app._avatar.is_initialized:
+                            app.avatar.zoom_out(0.2)
+                    
                     if event.button == 1:  # Left click
                         mouse_pos = event.pos
                         if chat_ui.chat_visible and chat_ui.input_active:
@@ -279,6 +288,16 @@ def main() -> None:
                             input_y = chat_ui.height - chat_ui.input_box_height - 10
                             if mouse_pos[1] >= input_y:
                                 chat_ui.input_active = True
+
+                elif event.type == pygame.MOUSEBUTTONUP:
+                    if event.button == 1:  # Left click released
+                        app._avatar_start_drag = False
+
+                elif event.type == pygame.MOUSEMOTION:
+                    # Handle avatar dragging with left mouse button
+                    if app._avatar_start_drag and app._avatar and app._avatar.is_initialized:
+                        dx, dy = event.rel
+                        app.avatar.move_by(-dx, -dy)
 
             if not running:
                 break
