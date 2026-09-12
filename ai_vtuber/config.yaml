@@ -1,5 +1,11 @@
 # AI VTuber Configuration
 # All paths and settings are configurable here
+# 
+# Platform Support:
+#   - Windows 10/11 (native)
+#   - Linux (Ubuntu, Debian, etc.)
+#   - WSL (Windows Subsystem for Linux)
+#   - macOS (experimental)
 
 # LLM Settings (LM Studio OpenAI-compatible API)
 llm:
@@ -20,11 +26,13 @@ llm:
 
 # STT Settings (faster-whisper)
 # CUDA detection uses CTranslate2 directly (no PyTorch needed)
-# For WSL: Use "cpu" to avoid libcublas.so.12 errors
+# For WSL/Windows without CUDA: Use "cpu" to avoid library errors
 stt:
   model_size: "small"  # tiny, base, small, medium, large-v3
   device: "cpu"        # auto (detects CUDA via CTranslate2), cuda, cpu
+                       # Windows tip: Use "cpu" if you get cublas errors
   compute_type: "int8" # auto, float16, int8, float32
+                       # Windows tip: int8 works best on CPU
   language: "en"
   beam_size: 5
   vad_threshold: 0.5   # Voice activity detection threshold (0.0-1.0)
@@ -44,14 +52,19 @@ tts:
   voice: "Bella"  # Bella, Jasper, Luna, Bruno, Rosie, Hugo, Kiki, Leo
   speed: 1.0
   backend: "cpu"  # cpu or cuda (only for official 0.8.1)
+                  # Windows tip: Use "cpu" for better compatibility
   sample_rate: 24000
 
 # Avatar Settings (Live2D via live2d-py)
 # Model path supports:
 #   - Absolute paths: /home/user/models/model.model3.json
 #   - WSL paths: /mnt/e/SteamLibrary/...
+#   - Windows paths: C:/Users/Name/Models/model.model3.json or C:\\Users\\Name\\...
 #   - Paths with spaces: /home/user/My Models/model.model3.json
 avatar:
+  # Windows example: "C:/Users/YourName/VTubeStudio/Models/ganyu/ganyu.model3.json"
+  # WSL example: "/mnt/e/SteamLibrary/steamapps/common/VTube Studio/VTube Studio_Data/StreamingAssets/Live2DModels/ganyu/ganyu.model3.json"
+  # Linux example: "/home/user/models/ganyu/ganyu.model3.json"
   model_path: "/mnt/e/SteamLibrary/steamapps/common/VTube Studio/VTube Studio_Data/StreamingAssets/Live2DModels/ganyu/ganyu.model3.json"
   window_width: 800
   window_height: 600
@@ -72,6 +85,7 @@ avatar:
 # Audio Settings
 audio:
   microphone_index: -1  # -1 for default microphone
+                        # Windows: Run `python -c "import sounddevice; print(sounddevice.query_devices())"` to list devices
   chunk_size: 1024
   channels: 1
   dtype: "int16"

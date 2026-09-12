@@ -14,6 +14,11 @@ Requirements:
 
 Usage:
     python main.py [--config config.yaml]
+    
+Platform Support:
+    - Linux (native & WSL)
+    - Windows 10/11
+    - macOS (experimental)
 """
 
 import sys
@@ -26,34 +31,79 @@ import pygame
 
 # Setup CUDA library paths before importing any CUDA-dependent modules
 def _setup_cuda_library_path():
-    """Setup library path for CUDA libraries if they exist in pip packages."""
-    # Detect Python version dynamically
+    """Setup library path for CUDA libraries if they exist in pip packages.
+    
+    Works on:
+    - Linux: Uses LD_LIBRARY_PATH
+    - Windows: Adds to PATH
+    - WSL: Uses LD_LIBRARY_PATH
+    """
     import sys
+    
+    # Detect Python version dynamically
     python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
     
-    cuda_lib_paths = [
-        f"/usr/local/lib/python{python_version}/site-packages/nvidia/cublas/lib",
-        f"/usr/local/lib/python{python_version}/site-packages/nvidia/cudnn/lib",
-        f"/usr/local/lib/python{python_version}/site-packages/nvidia/nvjitlink/lib",
-        f"/usr/local/lib/python{python_version}/site-packages/nvidia/cuda_cupti/lib",
-        f"/usr/local/lib/python{python_version}/site-packages/nvidia/cufft/lib",
-        f"/usr/local/lib/python{python_version}/site-packages/nvidia/cuda_nvrtc/lib",
-        f"/usr/local/lib/python{python_version}/site-packages/nvidia/cuda_runtime/lib",
-        f"/usr/local/lib/python{python_version}/site-packages/nvidia/curand/lib",
-        f"/usr/local/lib/python{python_version}/site-packages/nvidia/cusparse/lib",
-        f"/usr/local/lib/python{python_version}/site-packages/nvidia/cusolver/lib",
-        f"/usr/local/lib/python{python_version}/site-packages/nvidia/nccl/lib",
-        f"/usr/local/lib/python{python_version}/site-packages/nvidia/nvtx/lib",
-        f"/usr/local/lib/python{python_version}/site-packages/nvidia/cufile/lib",
-    ]
+    # Platform-specific library names and paths
+    if sys.platform == 'win32':
+        # Windows: Add to PATH environment variable
+        env_var_name = 'PATH'
+        path_sep = ';'
+        
+        # Windows-specific CUDA paths
+        cuda_paths = [
+            os.path.join(sys.prefix, f"Lib\\site-packages\\nvidia\\cublas\\bin"),
+            os.path.join(sys.prefix, f"Lib\\site-packages\\nvidia\\cudnn\\bin"),
+            os.path.join(sys.prefix, f"Lib\\site-packages\\nvidia\\nvjitlink\\bin"),
+            os.path.join(sys.prefix, f"Lib\\site-packages\\nvidia\\cuda_cupti\\bin"),
+            os.path.join(sys.prefix, f"Lib\\site-packages\\nvidia\\cufft\\bin"),
+            os.path.join(sys.prefix, f"Lib\\site-packages\\nvidia\\cuda_nvrtc\\bin"),
+            os.path.join(sys.prefix, f"Lib\\site-packages\\nvidia\\cuda_runtime\\bin"),
+            os.path.join(sys.prefix, f"Lib\\site-packages\\nvidia\\curand\\bin"),
+            os.path.join(sys.prefix, f"Lib\\site-packages\\nvidia\\cusparse\\bin"),
+            os.path.join(sys.prefix, f"Lib\\site-packages\\nvidia\\cusolver\\bin"),
+            os.path.join(sys.prefix, f"Lib\\site-packages\\nvidia\\nccl\\bin"),
+            os.path.join(sys.prefix, f"Lib\\site-packages\\nvidia\\nvtx\\bin"),
+            os.path.join(sys.prefix, f"Lib\\site-packages\\nvidia\\cufile\\bin"),
+            # Standard CUDA installation paths
+            r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6\bin",
+            r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.5\bin",
+            r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4\bin",
+            r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.3\bin",
+            r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.2\bin",
+            r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.1\bin",
+            r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.0\bin",
+            r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.8\bin",
+        ]
+    else:
+        # Linux/WSL/macOS: Use LD_LIBRARY_PATH
+        env_var_name = 'LD_LIBRARY_PATH'
+        path_sep = ':'
+        
+        cuda_paths = [
+            f"/usr/local/lib/python{python_version}/site-packages/nvidia/cublas/lib",
+            f"/usr/local/lib/python{python_version}/site-packages/nvidia/cudnn/lib",
+            f"/usr/local/lib/python{python_version}/site-packages/nvidia/nvjitlink/lib",
+            f"/usr/local/lib/python{python_version}/site-packages/nvidia/cuda_cupti/lib",
+            f"/usr/local/lib/python{python_version}/site-packages/nvidia/cufft/lib",
+            f"/usr/local/lib/python{python_version}/site-packages/nvidia/cuda_nvrtc/lib",
+            f"/usr/local/lib/python{python_version}/site-packages/nvidia/cuda_runtime/lib",
+            f"/usr/local/lib/python{python_version}/site-packages/nvidia/curand/lib",
+            f"/usr/local/lib/python{python_version}/site-packages/nvidia/cusparse/lib",
+            f"/usr/local/lib/python{python_version}/site-packages/nvidia/cusolver/lib",
+            f"/usr/local/lib/python{python_version}/site-packages/nvidia/nccl/lib",
+            f"/usr/local/lib/python{python_version}/site-packages/nvidia/nvtx/lib",
+            f"/usr/local/lib/python{python_version}/site-packages/nvidia/cufile/lib",
+        ]
     
-    ld_path = os.environ.get('LD_LIBRARY_PATH', '')
-    for path in cuda_lib_paths:
-        if os.path.isdir(path) and path not in ld_path:
-            ld_path = path + ':' + ld_path if ld_path else path
+    current_path = os.environ.get(env_var_name, '')
     
-    if ld_path:
-        os.environ['LD_LIBRARY_PATH'] = ld_path
+    for path in cuda_paths:
+        if os.path.isdir(path) and path not in current_path:
+            current_path = path + path_sep + current_path if current_path else path
+    
+    if current_path:
+        os.environ[env_var_name] = current_path
+        logging.getLogger("ai_vtuber").debug(f"Updated {env_var_name} for CUDA libraries")
 
 # Setup CUDA paths early
 _setup_cuda_library_path()
