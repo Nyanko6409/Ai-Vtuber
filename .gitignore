@@ -10,7 +10,10 @@ venv/
 .env.local
 *.env.*
 
-# Build/dist directories
+# Dependencies
+node_modules/
+
+# Build artifacts
 build/
 dist/
 *.egg-info/
@@ -26,12 +29,16 @@ dist/
 .vscode/
 .idea/
 
-# Coverage reports
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Coverage
 .coverage
 coverage/
 htmlcov/
 
-# Python cache
-.mypy_cache/
+# Testing
 .pytest_cache/
+.mypy_cache/
 ```

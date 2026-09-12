@@ -313,7 +313,8 @@ def main() -> None:
                 elif event.type == pygame.MOUSEMOTION:
                     # Handle avatar dragging with left mouse button
                     # Only drag if not over chat input area
-                    if app._avatar_start_drag and app._avatar and app._avatar.is_initialized:
+                    buttons = pygame.mouse.get_pressed()
+                    if buttons[0] and app._avatar_start_drag and app._avatar and app._avatar.is_initialized:
                         dx, dy = event.rel
                         app.avatar.move_by(-dx, -dy)
 

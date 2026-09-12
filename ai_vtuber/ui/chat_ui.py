@@ -88,6 +88,7 @@ class ChatUI:
                 # Delete character
                 self.input_text = self.input_text[:-1]
             # Skip avatar control keys - they should not appear in chat input
+            # These keys control the avatar and should never be typed into chat
             elif event.key in (pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT,
                                pygame.K_w, pygame.K_a, pygame.K_s, pygame.K_d,
                                pygame.K_PLUS, pygame.K_EQUALS, pygame.K_MINUS, pygame.K_r,
@@ -96,10 +97,12 @@ class ChatUI:
                 pass
             else:
                 # Handle text input via unicode attribute
-                if event.unicode and len(self.input_text) < 200:
-                    # Only add printable characters
-                    if event.unicode.isprintable():
-                        self.input_text += event.unicode
+                # Only process unicode for non-control keys
+                if hasattr(event, 'unicode') and event.unicode:
+                    char = event.unicode
+                    # Only add printable characters that aren't control characters
+                    if char.isprintable() and len(self.input_text) < 200:
+                        self.input_text += char
         
         return None
 
