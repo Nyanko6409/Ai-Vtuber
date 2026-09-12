@@ -11,6 +11,8 @@ import time
 from pathlib import Path
 from typing import Optional, Any
 
+import numpy as np
+
 logger = logging.getLogger(__name__)
 
 # Emotion → expression file name mapping
@@ -168,6 +170,12 @@ class Live2DAvatar:
         self._gl_initialized: bool = False
         self._error_message: Optional[str] = None
         self._model_path: Optional[Path] = None
+        
+        # Lip sync audio data
+        self._lipsync_audio: Optional[np.ndarray] = None
+        self._lipsync_rate: int = 0
+        self._lipsync_start: float = 0.0
+        self._lipsync_last_offset: int = 0
         
         # Zoom and position controls
         self._zoom: float = self.scale
@@ -470,7 +478,7 @@ class Live2DAvatar:
         params = EMOTION_PARAMS.get(emotion, EMOTION_PARAMS["neutral"])
         for param_id, value in params.items():
             try:
-                self._model.SetParameterFloat(param_id, value)
+                self._model.SetParameterValueById(param_id, value)
             except Exception:
                 pass
 
@@ -480,7 +488,7 @@ class Live2DAvatar:
         if not talking and self._model:
             self._mouth_value = 0.0
             try:
-                self._model.SetParameterFloat("ParamMouthOpenY", 0.0)
+                self._model.SetParameterValueById("ParamMouthOpenY", 0.0)
             except Exception:
                 pass
 
@@ -496,45 +504,53 @@ class Live2DAvatar:
                 self._is_blinking = False
                 self._blink_timer = 0.0
                 try:
-                    self._model.SetParameterFloat("ParamEyeLOpen", 1.0)
-                    self._model.SetParameterFloat("ParamEyeROpen", 1.0)
+                    self._model.SetParameterValueById("ParamEyeLOpen", 1.0)
+                    self._model.SetParameterValueById("ParamEyeROpen", 1.0)
                 except Exception:
                     pass
         elif self._blink_timer >= self._blink_interval:
             self._is_blinking = True
             self._blink_timer = 0.0
             try:
-                self._model.SetParameterFloat("ParamEyeLOpen", 0.0)
-                self._model.SetParameterFloat("ParamEyeROpen", 0.0)
+                self._model.SetParameterValueById("ParamEyeLOpen", 0.0)
+                self._model.SetParameterValueById("ParamEyeROpen", 0.0)
             except Exception:
                 pass
 
     def _update_lip_sync(self, delta_time: float) -> None:
-        """Update lip sync animation."""
+        """Update lip sync animation driven by actual TTS audio amplitude."""
         if not self._model:
             return
 
-        if self._is_talking:
-            t = time.time()
-            mouth = (
-                math.sin(t * 12.0) * 0.3
-                + math.sin(t * 7.5) * 0.2
-                + math.sin(t * 18.0) * 0.1
-                + 0.4
-            )
-            mouth = max(0.0, min(1.0, mouth))
-            self._mouth_value = mouth
-            try:
-                self._model.SetParameterFloat("ParamMouthOpenY", mouth)
-            except Exception:
-                pass
+        if self._is_talking and self._lipsync_audio is not None:
+            elapsed = time.time() - self._lipsync_start
+            offset = int(elapsed * self._lipsync_rate)
+            offset = min(offset, len(self._lipsync_audio))
+            chunk = self._lipsync_audio[self._lipsync_last_offset:offset]
+            self._lipsync_last_offset = offset
+            if len(chunk) > 0:
+                rms = float(np.sqrt(np.mean(chunk.astype(np.float32) ** 2)))
+                mouth = max(0.0, min(1.0, rms * 4.0))
+                self._mouth_value = mouth
+                try:
+                    self._model.SetParameterValueById("ParamMouthOpenY", mouth)
+                except Exception:
+                    pass
         else:
             if self._mouth_value > 0.01:
                 self._mouth_value *= 0.8
                 try:
-                    self._model.SetParameterFloat("ParamMouthOpenY", self._mouth_value)
+                    self._model.SetParameterValueById("ParamMouthOpenY", self._mouth_value)
                 except Exception:
                     pass
+
+    def start_lip_sync(self, audio_data: np.ndarray, sample_rate: int) -> None:
+        """Begin real lip sync driven by actual TTS audio amplitude."""
+        self._lipsync_audio = audio_data
+        self._lipsync_rate = sample_rate
+        self._lipsync_start = time.time()
+        self._lipsync_last_offset = 0
+        self._is_talking = True
 
     def drag(self, x: int, y: int) -> None:
         """Handle mouse drag for eye tracking."""

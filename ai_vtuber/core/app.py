@@ -328,9 +328,9 @@ class App:
 
             # Play audio (with interruption support and lip sync callback)
             def on_playback_start():
-                """Called when playback starts - enable lip sync."""
+                """Called when playback starts - enable real lip sync."""
                 if self._avatar:
-                    self.avatar.set_talking(True)
+                    self.avatar.start_lip_sync(audio_data, self.tts.sample_rate)
             
             def on_playback_end():
                 """Called when playback ends - disable lip sync."""
