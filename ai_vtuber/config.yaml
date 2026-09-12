@@ -6,7 +6,7 @@ llm:
   base_url: "http://localhost:1234/v1"
   model: "gemma-4-e4b"
   temperature: 0.8
-  max_tokens: 300
+  max_tokens: 2000
   max_history: 10  # Number of messages to keep in conversation history
   system_prompt: |
     You are a friendly AI VTuber assistant. You are chatting with a user in real-time.
@@ -21,7 +21,7 @@ llm:
 # STT Settings (faster-whisper)
 # CUDA detection uses CTranslate2 directly (no PyTorch needed)
 stt:
-  model_size: "base"   # tiny, base, small, medium, large-v3
+  model_size: "small"  # tiny, base, small, medium, large-v3
   device: "auto"       # auto (detects CUDA via CTranslate2), cuda, cpu
   compute_type: "auto" # auto, float16, int8, float32
   language: "en"
@@ -32,16 +32,17 @@ stt:
   sample_rate: 16000
 
 # TTS Settings (KittenTTS)
-# Install official 0.8.x:
+# IMPORTANT: Install official 0.8.1 package from GitHub:
 #   pip install https://github.com/KittenML/KittenTTS/releases/download/0.8.1/kittentts-0.8.1-py3-none-any.whl
-# OR PyPI 0.1.x:
-#   pip install kittentts
+# NOT the PyPI kittentts package (which is 0.1.x and incompatible)
 tts:
-  model: "KittenML/kitten-tts-mini-0.8"  # For official 0.8.x
-  voice: "Bella"  # Official: Bella, Jasper, Luna, Bruno, Rosie, Hugo, Kiki, Leo
-                  # PyPI 0.1.x: auto-mapped from official names
+  model: "KittenML/kitten-tts-mini-0.8"  # 80M params, best quality
+  # Alternative models:
+  #   "KittenML/kitten-tts-micro-0.8"  # 40M params, balanced
+  #   "KittenML/kitten-tts-nano-0.8"   # 15M params, fastest
+  voice: "Bella"  # Bella, Jasper, Luna, Bruno, Rosie, Hugo, Kiki, Leo
   speed: 1.0
-  backend: "cpu"  # cpu or cuda (only for official 0.8.x)
+  backend: "cpu"  # cpu or cuda (only for official 0.8.1)
   sample_rate: 24000
 
 # Avatar Settings (Live2D via live2d-py)
