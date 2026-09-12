@@ -126,9 +126,10 @@ class App:
 
         try:
             _ = self.avatar
-            logger.info("Avatar loaded")
+            logger.info("Avatar module loaded (model will load after OpenGL context)")
         except Exception as e:
             logger.warning(f"Avatar not available: {e}")
+            self._avatar = None  # Ensure it's None so main.py can check
 
         # Start microphone
         try:

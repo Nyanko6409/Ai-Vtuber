@@ -321,11 +321,24 @@ sudo apt install -y python3.11 python3.11-venv python3-pip \\
                   <CodeBlock id="py-env" code={`cd ai_vtuber
 python3.11 -m venv venv
 source venv/bin/activate
+pip install --upgrade pip
 pip install -r requirements.txt`} />
                 </div>
 
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-200 mb-2">3. LM Studio Setup</h3>
+                  <h3 className="text-lg font-semibold text-gray-200 mb-2">3. KittenTTS (Important!)</h3>
+                  <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
+                    <p className="text-gray-300 text-sm">The PyPI <code className="bg-gray-800 px-1 rounded">kittentts</code> package only has v0.1.x. For the full v0.8.x API, install from GitHub:</p>
+                    <CodeBlock id="kittentts-install" code={`# Option A: Official 0.8.x (recommended)
+pip install https://github.com/KittenML/KittenTTS/releases/download/0.8.1/kittentts-0.8.1-py3-none-any.whl
+
+# Option B: PyPI 0.1.x (fallback - auto-detected)
+pip install kittentts`} />
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-200 mb-2">4. LM Studio Setup</h3>
                   <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-2">
                     <p className="text-gray-300">1. Download <a href="https://lmstudio.ai/" className="text-purple-400 hover:underline">LM Studio</a></p>
                     <p className="text-gray-300">2. Download Gemma 4 E4B GGUF model</p>
@@ -335,14 +348,14 @@ pip install -r requirements.txt`} />
                 </div>
 
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-200 mb-2">4. Live2D Model</h3>
+                  <h3 className="text-lg font-semibold text-gray-200 mb-2">5. Live2D Model</h3>
                   <p className="text-gray-400 mb-2">Place your Live2D model files and update <code className="bg-gray-800 px-1 rounded">config.yaml</code>:</p>
                   <CodeBlock id="model-config" lang="yaml" code={`avatar:
   model_path: "/path/to/your/model.model3.json"`} />
                 </div>
 
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-200 mb-2">5. Run</h3>
+                  <h3 className="text-lg font-semibold text-gray-200 mb-2">6. Run</h3>
                   <CodeBlock id="run" code={`cd ai_vtuber
 source venv/bin/activate
 python main.py
@@ -534,7 +547,7 @@ response = llm.chat(messages)
                 </div>
 
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-200 mb-2">🎤 STT Module</h3>
+                  <h3 className="text-lg font-semibold text-gray-200 mb-2">🎤 STT Module (CUDA via CTranslate2)</h3>
                   <CodeBlock id="stt-api" lang="python" code={`from stt.whisper import WhisperSTT
 import numpy as np
 
