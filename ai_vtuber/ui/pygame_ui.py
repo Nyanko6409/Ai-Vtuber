@@ -142,12 +142,19 @@ class PygameUI:
         return True
 
     def begin_frame(self) -> None:
-        """Begin a new frame - clear buffer and update timing."""
-        # Clear the OpenGL color buffer and reset matrices
+        """Begin a new frame - clear buffer and setup matrices for 3D rendering."""
+        # Clear the OpenGL color buffer and setup matrices
         try:
             from OpenGL import GL
             
-            # Reset modelview matrix to identity before clearing
+            # Setup projection matrix for 3D perspective (Live2D expects this)
+            GL.glMatrixMode(GL.GL_PROJECTION)
+            GL.glLoadIdentity()
+            # Use orthographic projection matching window size
+            # Live2D models are typically in -1 to 1 coordinate space
+            GL.glOrtho(-self.width/2, self.width/2, -self.height/2, self.height/2, -1000, 1000)
+            
+            # Setup modelview matrix
             GL.glMatrixMode(GL.GL_MODELVIEW)
             GL.glLoadIdentity()
             

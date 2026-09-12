@@ -426,32 +426,28 @@ class Live2DAvatar:
         if not self._initialized or not self._model:
             return
         try:
-            # Apply zoom and position transforms using OpenGL matrix operations
             import OpenGL.GL as gl
             
-            # Save current matrix state
-            gl.glMatrixMode(gl.GL_MODELVIEW)
+            # Save projection matrix state
+            gl.glMatrixMode(gl.GL_PROJECTION)
             gl.glPushMatrix()
             
-            # Apply translation (position offset)
-            gl.glTranslatef(self._offset_x, self._offset_y, 0.0)
-            
-            # Apply scaling (zoom)
+            # Apply zoom (scale) first, then translation
+            # Translation is divided by zoom to maintain consistent movement speed at any zoom level
             gl.glScalef(self._zoom, self._zoom, 1.0)
+            gl.glTranslatef(self._offset_x / max(self._zoom, 0.001), self._offset_y / max(self._zoom, 0.001), 0.0)
             
-            # Draw the model
+            # Draw the model with transforms applied
             self._model.Draw()
             
-            # Restore matrix state
+            # Restore projection matrix
             gl.glPopMatrix()
             
         except ImportError:
-            # OpenGL not available, draw without transforms
             logger.warning("OpenGL not available for transforms, drawing without zoom/position")
             self._model.Draw()
         except Exception as e:
             logger.error(f"Live2D draw error: {e}")
-            # Fallback to basic draw
             try:
                 self._model.Draw()
             except Exception:
