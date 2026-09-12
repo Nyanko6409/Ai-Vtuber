@@ -92,8 +92,9 @@ class WhisperSTT:
             )
             logger.info(f"Whisper model loaded successfully on {device}")
         except Exception as e:
-            # If CUDA fails, fall back to CPU
-            if device == "cuda":
+            error_msg = str(e)
+            # Check if it's a CUDA library error
+            if "libcublas" in error_msg or "libcuBLAS" in error_msg or "CUDA" in error_msg or device == "cuda":
                 logger.warning(f"CUDA model load failed: {e}")
                 logger.info("Falling back to CPU...")
                 try:
@@ -154,6 +155,12 @@ class WhisperSTT:
             return result
 
         except Exception as e:
+            error_msg = str(e)
+            # Check if it's a CUDA library error during inference
+            if "libcublas" in error_msg or "libcuBLAS" in error_msg or "CUDA" in error_msg:
+                logger.warning(f"CUDA inference failed: {e}")
+                logger.warning("This is a WSL limitation - CUDA libraries not accessible at runtime")
+                logger.info("Please set 'device: cpu' in config.yaml for STT section")
             logger.error(f"Transcription failed: {e}")
             raise
 

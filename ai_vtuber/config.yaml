@@ -20,10 +20,11 @@ llm:
 
 # STT Settings (faster-whisper)
 # CUDA detection uses CTranslate2 directly (no PyTorch needed)
+# For WSL: Use "cpu" to avoid libcublas.so.12 errors
 stt:
   model_size: "small"  # tiny, base, small, medium, large-v3
-  device: "auto"       # auto (detects CUDA via CTranslate2), cuda, cpu
-  compute_type: "auto" # auto, float16, int8, float32
+  device: "cpu"        # auto (detects CUDA via CTranslate2), cuda, cpu
+  compute_type: "int8" # auto, float16, int8, float32
   language: "en"
   beam_size: 5
   vad_threshold: 0.5   # Voice activity detection threshold (0.0-1.0)
