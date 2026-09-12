@@ -429,6 +429,8 @@ class Live2DAvatar:
             # Apply zoom and position transforms using OpenGL matrix operations
             import OpenGL.GL as gl
             
+            # Save current matrix state
+            gl.glMatrixMode(gl.GL_MODELVIEW)
             gl.glPushMatrix()
             
             # Apply translation (position offset)
@@ -440,6 +442,7 @@ class Live2DAvatar:
             # Draw the model
             self._model.Draw()
             
+            # Restore matrix state
             gl.glPopMatrix()
             
         except ImportError:

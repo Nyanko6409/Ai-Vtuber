@@ -218,7 +218,10 @@ def main() -> None:
                         pygame.DOUBLEBUF | pygame.OPENGL | pygame.RESIZABLE
                     )
                 elif event.type == pygame.KEYDOWN:
-                    # Handle special keys first (always work, even when chat is active)
+                    # AVATAR CONTROL KEYS HAVE PRIORITY OVER CHAT INPUT
+                    # These keys always control the avatar, never go to chat input
+                    
+                    # Handle special keys first (always work)
                     if event.key == pygame.K_ESCAPE:
                         running = False
                         break
@@ -236,34 +239,34 @@ def main() -> None:
                     elif event.key in (pygame.K_PLUS, pygame.K_EQUALS):
                         if app._avatar and app._avatar.is_initialized:
                             app.avatar.zoom_in(0.2)
-                        continue
+                        continue  # Don't pass to chat input
                     elif event.key == pygame.K_MINUS:
                         if app._avatar and app._avatar.is_initialized:
                             app.avatar.zoom_out(0.2)
-                        continue
+                        continue  # Don't pass to chat input
                     elif event.key == pygame.K_r:
                         if app._avatar and app._avatar.is_initialized:
                             app.avatar.reset_zoom()
-                        continue
+                        continue  # Don't pass to chat input
                     # Movement controls (arrow keys or WASD)
                     elif event.key in (pygame.K_UP, pygame.K_w):
                         if app._avatar and app._avatar.is_initialized:
                             app.avatar.move_up(20.0)
-                        continue
+                        continue  # Don't pass to chat input
                     elif event.key in (pygame.K_DOWN, pygame.K_s):
                         if app._avatar and app._avatar.is_initialized:
                             app.avatar.move_down(20.0)
-                        continue
+                        continue  # Don't pass to chat input
                     elif event.key in (pygame.K_LEFT, pygame.K_a):
                         if app._avatar and app._avatar.is_initialized:
                             app.avatar.move_left(20.0)
-                        continue
+                        continue  # Don't pass to chat input
                     elif event.key in (pygame.K_RIGHT, pygame.K_d):
                         if app._avatar and app._avatar.is_initialized:
                             app.avatar.move_right(20.0)
-                        continue
+                        continue  # Don't pass to chat input
                     
-                    # Let chat UI handle typing keys (if input is active)
+                    # Non-control keys: only pass to chat if input is active
                     if chat_ui.input_active:
                         message = chat_ui.handle_event(event)
                         if message:
@@ -272,22 +275,33 @@ def main() -> None:
                             app.process_chat_message(message)
                 
                 elif event.type == pygame.MOUSEBUTTONDOWN:
-                    if event.button == 1:  # Left click - start dragging
-                        app._avatar_start_drag = True
+                    mouse_pos = event.pos
+                    input_y = chat_ui.height - chat_ui.input_box_height - 10
+                    
+                    # Check if clicking inside chat input box
+                    clicked_chat_input = (
+                        chat_ui.chat_visible and
+                        mouse_pos[1] >= input_y and
+                        20 <= mouse_pos[0] <= chat_ui.width - 20
+                    )
+                    
+                    if event.button == 1:  # Left click
+                        if clicked_chat_input:
+                            # Focus chat input, do NOT start dragging
+                            chat_ui.input_active = True
+                        else:
+                            # Start avatar dragging (unless chat is already focused)
+                            if not chat_ui.input_active:
+                                app._avatar_start_drag = True
+                            else:
+                                # Chat is focused but clicked outside - unfocus it
+                                chat_ui.input_active = False
                     elif event.button == 4:  # Scroll up - zoom in
                         if app._avatar and app._avatar.is_initialized:
                             app.avatar.zoom_in(0.2)
                     elif event.button == 5:  # Scroll down - zoom out
                         if app._avatar and app._avatar.is_initialized:
                             app.avatar.zoom_out(0.2)
-                    
-                    if event.button == 1:  # Left click
-                        mouse_pos = event.pos
-                        if chat_ui.chat_visible and chat_ui.input_active:
-                            # Click on input box to focus it
-                            input_y = chat_ui.height - chat_ui.input_box_height - 10
-                            if mouse_pos[1] >= input_y:
-                                chat_ui.input_active = True
 
                 elif event.type == pygame.MOUSEBUTTONUP:
                     if event.button == 1:  # Left click released
@@ -295,6 +309,7 @@ def main() -> None:
 
                 elif event.type == pygame.MOUSEMOTION:
                     # Handle avatar dragging with left mouse button
+                    # Only drag if not over chat input area
                     if app._avatar_start_drag and app._avatar and app._avatar.is_initialized:
                         dx, dy = event.rel
                         app.avatar.move_by(-dx, -dy)
@@ -303,7 +318,8 @@ def main() -> None:
                 break
 
             # Forward mouse position to avatar for eye tracking
-            if app._avatar and app._avatar.is_initialized:
+            # Only do eye tracking when NOT dragging the avatar
+            if app._avatar and app._avatar.is_initialized and not app._avatar_start_drag:
                 try:
                     mx, my = ui.get_mouse_pos()
                     app.avatar.drag(mx, my)
