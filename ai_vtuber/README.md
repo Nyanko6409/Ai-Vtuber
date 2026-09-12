@@ -95,11 +95,9 @@ python main.py --debug
 | **Enter** | Send message | Chat input active |
 | **Backspace** | Delete character | Chat input active |
 | **Tab** | Toggle chat visibility | Always |
-| **ESC** | Quit application | Always |
-| **F** | Toggle FPS display | Always |
-| **D** | Toggle debug info | Always |
-
-**Note:** Special keys (Tab, ESC, F, D) now work even when chat input is active. You don't need to deactivate chat to use these shortcuts.
+| **ESC** | Quit application | Chat inactive |
+| **F** | Toggle FPS display | Chat inactive |
+| **D** | Toggle debug info | Chat inactive |
 
 ### Mouse Controls
 - **Click chat buttons** - Toggle visibility or clear chat
@@ -227,28 +225,6 @@ sudo apt install espeak espeak-ng
 - Press Tab to toggle chat visibility
 - Click on the input box to focus it
 - Check CLI for errors
-
-#### 6. CUDA Library Error
-**Symptom**: `RuntimeError: Library libcublas.so.12 is not found or cannot be loaded`
-**Solution**:
-
-**Option 1: Install CUDA libraries**
-```bash
-sudo apt install nvidia-cuda-toolkit
-```
-
-**Option 2: Use CPU instead of CUDA**
-Edit `config.yaml`:
-```yaml
-stt:
-  device: "cpu"  # Change from "auto" to "cpu"
-  compute_type: "int8"
-```
-
-**Option 3: Add CUDA to library path**
-```bash
-export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
-```
 
 ### Debug Mode
 

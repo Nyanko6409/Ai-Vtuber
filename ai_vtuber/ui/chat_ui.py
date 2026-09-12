@@ -451,16 +451,15 @@ class ChatUI:
             GL.glDisable(GL.GL_DEPTH_TEST)
             
             # Draw textured quad covering the entire window
-            # Note: Texture Y-axis is flipped because pygame surface and OpenGL have different Y orientations
             GL.glEnable(GL.GL_TEXTURE_2D)
             GL.glBindTexture(GL.GL_TEXTURE_2D, tex_id)
             GL.glColor4f(1.0, 1.0, 1.0, 1.0)
             
             GL.glBegin(GL.GL_QUADS)
-            GL.glTexCoord2f(0, 1); GL.glVertex2f(0, 0)
-            GL.glTexCoord2f(1, 1); GL.glVertex2f(self.width, 0)
-            GL.glTexCoord2f(1, 0); GL.glVertex2f(self.width, self.height)
-            GL.glTexCoord2f(0, 0); GL.glVertex2f(0, self.height)
+            GL.glTexCoord2f(0, 0); GL.glVertex2f(0, 0)
+            GL.glTexCoord2f(1, 0); GL.glVertex2f(self.width, 0)
+            GL.glTexCoord2f(1, 1); GL.glVertex2f(self.width, self.height)
+            GL.glTexCoord2f(0, 1); GL.glVertex2f(0, self.height)
             GL.glEnd()
             
             GL.glDisable(GL.GL_TEXTURE_2D)

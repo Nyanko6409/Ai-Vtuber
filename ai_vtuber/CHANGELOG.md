@@ -2,17 +2,6 @@
 
 All notable changes to the AI VTuber project will be documented in this file.
 
-## [1.2.1] - 2026-09-12
-
-### Fixed
-- **Upside down text rendering**: Fixed OpenGL texture coordinates in both chat UI and overlay to properly orient text (flipped Y-axis texture coordinates)
-- **Keyboard shortcuts not working**: Special keys (Tab, ESC, F, D) now work even when chat input is active by giving them priority over chat input handling
-- **CUDA library error**: Added troubleshooting guide for `libcublas.so.12` missing error with three solution options
-
-### Changed
-- Keyboard event handling now processes special keys (Tab, ESC, F, D) before chat input, ensuring shortcuts always work
-- Updated README with improved keyboard shortcuts documentation and CUDA troubleshooting section
-
 ## [1.2.0] - 2026-09-12
 
 ### Added

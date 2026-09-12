@@ -134,28 +134,27 @@ def main() -> None:
                         pygame.DOUBLEBUF | pygame.OPENGL | pygame.RESIZABLE
                     )
                 elif event.type == pygame.KEYDOWN:
-                    # Handle special keys first (always work, even when chat is active)
-                    if event.key == pygame.K_ESCAPE:
-                        running = False
-                        break
-                    elif event.key == pygame.K_TAB:
-                        # Toggle chat visibility with Tab
-                        chat_ui.toggle_chat()
-                        continue  # Don't pass Tab to chat input
-                    elif event.key == pygame.K_f:
-                        ui.show_fps = not ui.show_fps
-                        continue  # Don't pass F to chat input
-                    elif event.key == pygame.K_d:
-                        ui.show_debug = not ui.show_debug
-                        continue  # Don't pass D to chat input
-                    
-                    # Let chat UI handle typing keys (if input is active)
+                    # Let chat UI handle the event first (if input is active)
                     if chat_ui.input_active:
                         message = chat_ui.handle_event(event)
                         if message:
                             # Message was sent via chat
                             logger.info(f"Chat input: {message}")
                             app.process_chat_message(message)
+                        # Don't process other keys if chat is active
+                        continue
+                    
+                    # Handle other keys when chat is not active
+                    if event.key == pygame.K_ESCAPE:
+                        running = False
+                        break
+                    elif event.key == pygame.K_f:
+                        ui.show_fps = not ui.show_fps
+                    elif event.key == pygame.K_d:
+                        ui.show_debug = not ui.show_debug
+                    elif event.key == pygame.K_TAB:
+                        # Toggle chat visibility with Tab
+                        chat_ui.toggle_chat()
                 
                 elif event.type == pygame.MOUSEBUTTONDOWN:
                     if event.button == 1:  # Left click
