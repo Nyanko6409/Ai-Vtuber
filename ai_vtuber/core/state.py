@@ -1,0 +1,106 @@
+"""AI VTuber - State Machine Module"""
+
+from enum import Enum, auto
+from typing import Callable, Optional
+import threading
+
+
+class State(Enum):
+    """Application states."""
+    IDLE = auto()
+    LISTENING = auto()
+    TRANSCRIBING = auto()
+    THINKING = auto()
+    SPEAKING = auto()
+    ERROR = auto()
+
+
+class StateMachine:
+    """Thread-safe state machine for the VTuber pipeline."""
+
+    # Valid state transitions
+    VALID_TRANSITIONS = {
+        State.IDLE: [State.LISTENING, State.ERROR],
+        State.LISTENING: [State.TRANSCRIBING, State.IDLE, State.ERROR],
+        State.TRANSCRIBING: [State.THINKING, State.IDLE, State.ERROR],
+        State.THINKING: [State.SPEAKING, State.IDLE, State.LISTENING, State.ERROR],
+        State.SPEAKING: [State.IDLE, State.LISTENING, State.ERROR],
+        State.ERROR: [State.IDLE],
+    }
+
+    def __init__(self) -> None:
+        self._state: State = State.IDLE
+        self._lock = threading.Lock()
+        self._callbacks: list[Callable[[State, State], None]] = []
+        self._error_message: Optional[str] = None
+
+    @property
+    def state(self) -> State:
+        """Get current state."""
+        with self._lock:
+            return self._state
+
+    @property
+    def error_message(self) -> Optional[str]:
+        """Get current error message."""
+        with self._lock:
+            return self._error_message
+
+    def transition(self, new_state: State) -> bool:
+        """Attempt to transition to a new state.
+        
+        Returns True if transition was valid and executed.
+        """
+        with self._lock:
+            valid = self.VALID_TRANSITIONS.get(self._state, [])
+            if new_state not in valid:
+                return False
+            old_state = self._state
+            self._state = new_state
+            if new_state != State.ERROR:
+                self._error_message = None
+
+        # Notify callbacks outside lock
+        for callback in self._callbacks:
+            try:
+                callback(old_state, new_state)
+            except Exception:
+                pass
+        return True
+
+    def force_state(self, new_state: State) -> None:
+        """Force a state transition (for error recovery)."""
+        with self._lock:
+            old_state = self._state
+            self._state = new_state
+
+        for callback in self._callbacks:
+            try:
+                callback(old_state, new_state)
+            except Exception:
+                pass
+
+    def set_error(self, message: str) -> None:
+        """Set error state with message."""
+        with self._lock:
+            self._error_message = message
+            old_state = self._state
+            self._state = State.ERROR
+
+        for callback in self._callbacks:
+            try:
+                callback(old_state, State.ERROR)
+            except Exception:
+                pass
+
+    def on_transition(self, callback: Callable[[State, State], None]) -> None:
+        """Register a state transition callback."""
+        self._callbacks.append(callback)
+
+    def is_active(self) -> bool:
+        """Check if the system is actively processing (not idle or error)."""
+        with self._lock:
+            return self._state not in (State.IDLE, State.ERROR)
+
+    def __repr__(self) -> str:
+        return f"StateMachine(state={self._state.name})"
