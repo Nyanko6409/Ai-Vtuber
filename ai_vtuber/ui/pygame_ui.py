@@ -147,14 +147,15 @@ class PygameUI:
         try:
             from OpenGL import GL
             
-            # Setup projection matrix for 3D perspective (Live2D expects this)
+            # Setup projection matrix for Live2D coordinate system
+            # Live2D uses normalized device coordinates (-1 to 1)
             GL.glMatrixMode(GL.GL_PROJECTION)
             GL.glLoadIdentity()
             # Use orthographic projection matching window size
-            # Live2D models are typically in -1 to 1 coordinate space
+            # This creates a coordinate system where (0,0) is center of screen
             GL.glOrtho(-self.width/2, self.width/2, -self.height/2, self.height/2, -1000, 1000)
             
-            # Setup modelview matrix
+            # Setup modelview matrix - DO NOT reset here, let avatar.draw() handle it
             GL.glMatrixMode(GL.GL_MODELVIEW)
             GL.glLoadIdentity()
             
@@ -307,6 +308,12 @@ class PygameUI:
         for i, line in enumerate(controls_text):
             color = (200, 200, 200) if i == 0 else (180, 180, 180)
             self._small_font.render_to(surface, (x, y + i * 18), line, color)
+        
+        # Add debug info if enabled
+        if self.show_debug and hasattr(self, '_avatar'):
+            debug_y = self.height - 40
+            debug_text = f"Avatar: zoom={self._avatar.zoom:.2f}, pos=({self._avatar.offset_x:.0f}, {self._avatar.offset_y:.0f})"
+            self._small_font.render_to(surface, (10, debug_y), debug_text, (255, 255, 100))
 
     def _render_overlay_texture(self, surface: pygame.Surface) -> None:
         """Render the overlay surface as an OpenGL texture.
