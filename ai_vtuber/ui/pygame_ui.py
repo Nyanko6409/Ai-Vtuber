@@ -266,26 +266,42 @@ class PygameUI:
         )
 
     def _draw_error(self, surface: pygame.Surface, error_msg: str) -> None:
-        """Draw error message overlay."""
+        """Draw error message overlay. Handles multi-line messages."""
+        # Split message into lines
+        lines = error_msg.split('\n')
+        # Limit to 6 lines
+        lines = lines[:6]
+        
+        # Calculate box height based on content
+        line_height = 18
+        box_height = max(80, 40 + len(lines) * line_height)
+        
         # Background
         bg_rect = pygame.Rect(
-            self.width // 4, self.height // 3,
-            self.width // 2, 80
+            self.width // 8, self.height // 4,
+            self.width * 3 // 4, box_height
         )
-        pygame.draw.rect(surface, (60, 20, 20, 220), bg_rect, border_radius=8)
+        pygame.draw.rect(surface, (60, 20, 20, 230), bg_rect, border_radius=8)
         pygame.draw.rect(surface, (255, 80, 80, 255), bg_rect, width=2, border_radius=8)
 
-        # Error text
+        # Error title
         self._font.render_to(
             surface,
-            (bg_rect.x + 10, bg_rect.y + 10),
-            "ERROR", (255, 100, 100)
+            (bg_rect.x + 12, bg_rect.y + 10),
+            "⚠ ERROR", (255, 100, 100)
         )
-        self._small_font.render_to(
-            surface,
-            (bg_rect.x + 10, bg_rect.y + 35),
-            error_msg[:60], (255, 200, 200)
-        )
+        
+        # Error message lines
+        y = bg_rect.y + 35
+        for line in lines:
+            # Truncate long lines
+            display_line = line[:80] if len(line) > 80 else line
+            self._small_font.render_to(
+                surface,
+                (bg_rect.x + 12, y),
+                display_line, (255, 200, 200)
+            )
+            y += line_height
 
     def _render_overlay_texture(self, surface: pygame.Surface) -> None:
         """Render the overlay surface as an OpenGL texture.
