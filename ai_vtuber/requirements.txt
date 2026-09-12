@@ -11,17 +11,23 @@ sounddevice>=0.4.6
 soundfile>=0.12.0
 webrtcvad>=2.0.10
 
-# STT
+# STT (faster-whisper uses CTranslate2, no PyTorch needed)
 faster-whisper>=1.0.0
 
-# TTS
-kittentts>=0.8.0
+# TTS - KittenTTS
+# Official 0.8.x from GitHub (recommended):
+# pip install https://github.com/KittenML/KittenTTS/releases/download/0.8.1/kittentts-0.8.1-py3-none-any.whl
+#
+# OR PyPI 0.1.x (fallback):
+kittentts>=0.1.0
 
 # Avatar (Live2D)
 live2d-py>=0.7.0
 
 # UI
 pygame>=2.5.0
+PyOpenGL>=3.1.0
 
-# Optional: CUDA support for faster-whisper
-# ctranslate2[cuda]>=4.0.0
+# Optional: CUDA support for faster-whisper (CTranslate2)
+# If you have CUDA, install ctranslate2 with CUDA support:
+# pip install ctranslate2  # CUDA version included by default on supported systems

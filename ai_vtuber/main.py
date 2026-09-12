@@ -85,13 +85,18 @@ def main() -> None:
         # Initialize UI (creates window + OpenGL context)
         ui.init()
 
-        # Initialize Live2D with OpenGL context
-        if app._avatar and app._avatar.is_initialized:
-            app.avatar.gl_init()
-            app.avatar.resize(ui.width, ui.height)
-
-        # Start the application (loads models, starts microphone)
+        # Start the application (loads STT/TTS models, starts microphone)
+        # NOTE: Live2D model is NOT loaded yet - it needs the OpenGL context
         app.start()
+
+        # NOW initialize Live2D (OpenGL context exists)
+        if app._avatar:
+            success = app.avatar.init_gl()
+            if success:
+                app.avatar.resize(ui.width, ui.height)
+                logger.info("Live2D avatar initialized with OpenGL context")
+            else:
+                logger.warning("Live2D avatar failed to initialize - UI will work without avatar")
 
         # Main loop
         logger.info("Entering main loop. Press ESC or close window to quit.")
@@ -104,17 +109,29 @@ def main() -> None:
             if not running:
                 break
 
+            # Forward mouse position to avatar for eye tracking
+            if app._avatar and app._avatar.is_initialized:
+                try:
+                    mx, my = ui.get_mouse_pos()
+                    app.avatar.drag(mx, my)
+                except Exception:
+                    pass
+
             # Process VTuber pipeline
             app.process_cycle()
 
             # Begin rendering frame
             ui.begin_frame()
 
-            # Draw Live2D avatar
+            # Draw Live2D avatar (if initialized)
             if app._avatar and app._avatar.is_initialized:
-                delta_time = 1.0 / config["avatar"]["fps"]
-                app.avatar.update(delta_time)
-                app.avatar.draw()
+                try:
+                    delta_time = 1.0 / config["avatar"]["fps"]
+                    app.avatar.update(delta_time)
+                    app.avatar.draw()
+                except Exception as e:
+                    if config.get("ui", {}).get("show_debug", False):
+                        logger.debug(f"Avatar render error: {e}")
 
             # Draw UI overlay
             status = app.get_status()

@@ -1,4 +1,8 @@
-"""AI VTuber - faster-whisper STT Module"""
+"""AI VTuber - faster-whisper STT Module
+
+Uses CTranslate2 for CUDA detection (no PyTorch dependency).
+Supports automatic GPU/CPU fallback.
+"""
 
 import logging
 import numpy as np
@@ -7,11 +11,36 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
+def _detect_cuda() -> bool:
+    """Detect CUDA availability using CTranslate2 directly.
+
+    Does NOT require PyTorch. Uses ctranslate2's built-in CUDA check.
+    """
+    try:
+        import ctranslate2
+        # CTranslate2 exposes CUDA availability
+        cuda_supported = ctranslate2.get_cuda_device_count() > 0
+        if cuda_supported:
+            logger.info(f"CUDA detected via CTranslate2 ({ctranslate2.get_cuda_device_count()} device(s))")
+        else:
+            logger.info("No CUDA devices found via CTranslate2")
+        return cuda_supported
+    except ImportError:
+        logger.warning("ctranslate2 not available for CUDA detection")
+        return False
+    except Exception as e:
+        logger.warning(f"CUDA detection failed: {e}")
+        return False
+
+
 class WhisperSTT:
-    """Speech-to-text using faster-whisper with CUDA/CPU support."""
+    """Speech-to-text using faster-whisper with CUDA/CPU support.
+
+    CUDA detection uses CTranslate2 directly (no PyTorch required).
+    """
 
     def __init__(self, config: dict) -> None:
-        self.model_size: str = config["model_size"]
+        self.model_size: str = config.get("model_size", "base")
         self.device: str = config.get("device", "auto")
         self.compute_type: str = config.get("compute_type", "auto")
         self.language: str = config.get("language", "en")
@@ -22,48 +51,70 @@ class WhisperSTT:
         self._load_model()
 
     def _load_model(self) -> None:
-        """Load the faster-whisper model."""
+        """Load the faster-whisper model with proper CUDA detection."""
         try:
             from faster_whisper import WhisperModel
+        except ImportError:
+            logger.error("faster-whisper not installed. Install with: pip install faster-whisper")
+            raise
 
-            # Determine device and compute type
-            device = self.device
-            compute_type = self.compute_type
+        # Determine device and compute type
+        device = self.device
+        compute_type = self.compute_type
 
-            if device == "auto":
-                try:
-                    import torch
-                    if torch.cuda.is_available():
-                        device = "cuda"
-                        compute_type = "float16" if compute_type == "auto" else compute_type
-                        logger.info("CUDA detected, using GPU acceleration")
-                    else:
-                        device = "cpu"
-                        compute_type = "int8" if compute_type == "auto" else compute_type
-                        logger.info("No CUDA detected, using CPU")
-                except ImportError:
-                    device = "cpu"
-                    compute_type = "int8" if compute_type == "auto" else compute_type
-                    logger.info("torch not available, using CPU with int8")
+        if device == "auto":
+            # Use CTranslate2 for CUDA detection (no PyTorch needed)
+            if _detect_cuda():
+                device = "cuda"
+                if compute_type == "auto":
+                    compute_type = "float16"
+                logger.info("Using CUDA GPU acceleration")
+            else:
+                device = "cpu"
+                if compute_type == "auto":
+                    compute_type = "int8"
+                logger.info("Using CPU (no CUDA available)")
+        else:
+            # User specified device explicitly
+            if compute_type == "auto":
+                if device == "cuda":
+                    compute_type = "float16"
+                else:
+                    compute_type = "int8"
 
-            logger.info(f"Loading Whisper model '{self.model_size}' on {device} ({compute_type})")
+        logger.info(f"Loading Whisper model '{self.model_size}' on {device} ({compute_type})")
+
+        try:
             self._model = WhisperModel(
                 self.model_size,
                 device=device,
                 compute_type=compute_type
             )
-            logger.info("Whisper model loaded successfully")
-
+            logger.info(f"Whisper model loaded successfully on {device}")
         except Exception as e:
-            logger.error(f"Failed to load Whisper model: {e}")
-            raise
+            # If CUDA fails, fall back to CPU
+            if device == "cuda":
+                logger.warning(f"CUDA model load failed: {e}")
+                logger.info("Falling back to CPU...")
+                try:
+                    self._model = WhisperModel(
+                        self.model_size,
+                        device="cpu",
+                        compute_type="int8"
+                    )
+                    logger.info("Whisper model loaded on CPU (fallback)")
+                except Exception as e2:
+                    logger.error(f"CPU fallback also failed: {e2}")
+                    raise
+            else:
+                raise
 
-    def transcribe(self, audio_data: np.ndarray) -> str:
+    def transcribe(self, audio_: np.ndarray) -> str:
         """Transcribe audio data to text.
-        
+
         Args:
-            audio_data: numpy array of audio samples (float32, mono, at sample_rate)
-            
+            audio_ numpy array of audio samples (float32 or int16, mono, 16kHz)
+
         Returns:
             Transcribed text string.
         """
@@ -71,12 +122,15 @@ class WhisperSTT:
             raise RuntimeError("Whisper model not loaded")
 
         try:
-            # Ensure audio is float32
-            if audio_data.dtype != np.float32:
-                if audio_data.dtype == np.int16:
-                    audio_data = audio_data.astype(np.float32) / 32768.0
-                else:
-                    audio_data = audio_data.astype(np.float32)
+            # Ensure audio is float32 normalized to [-1, 1]
+            if audio_.dtype == np.int16:
+                audio_data = audio_.astype(np.float32) / 32768.0
+            elif audio_.dtype == np.float64:
+                audio_data = audio_.astype(np.float32)
+            elif audio_.dtype != np.float32:
+                audio_data = audio_.astype(np.float32)
+            else:
+                audio_data = audio_
 
             # Transcribe
             segments, info = self._model.transcribe(
@@ -110,5 +164,4 @@ class WhisperSTT:
 
     @property
     def is_loaded(self) -> bool:
-        """Check if model is loaded."""
         return self._model is not None

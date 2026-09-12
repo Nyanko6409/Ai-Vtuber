@@ -19,9 +19,10 @@ llm:
     That sounds really fun! Tell me more!
 
 # STT Settings (faster-whisper)
+# CUDA detection uses CTranslate2 directly (no PyTorch needed)
 stt:
-  model_size: "small"  # tiny, base, small, medium, large-v3
-  device: "auto"       # auto, cuda, cpu
+  model_size: "base"   # tiny, base, small, medium, large-v3
+  device: "auto"       # auto (detects CUDA via CTranslate2), cuda, cpu
   compute_type: "auto" # auto, float16, int8, float32
   language: "en"
   beam_size: 5
@@ -31,21 +32,31 @@ stt:
   sample_rate: 16000
 
 # TTS Settings (KittenTTS)
+# Install official 0.8.x:
+#   pip install https://github.com/KittenML/KittenTTS/releases/download/0.8.1/kittentts-0.8.1-py3-none-any.whl
+# OR PyPI 0.1.x:
+#   pip install kittentts
 tts:
-  model: "KittenML/kitten-tts-mini-0.8"
-  voice: "Bella"
+  model: "KittenML/kitten-tts-mini-0.8"  # For official 0.8.x
+  voice: "Bella"  # Official: Bella, Jasper, Luna, Bruno, Rosie, Hugo, Kiki, Leo
+                  # PyPI 0.1.x: auto-mapped from official names
   speed: 1.0
-  backend: "cpu"  # cpu or cuda
+  backend: "cpu"  # cpu or cuda (only for official 0.8.x)
   sample_rate: 24000
 
 # Avatar Settings (Live2D via live2d-py)
+# Model path supports:
+#   - Absolute paths: /home/user/models/model.model3.json
+#   - WSL paths: /mnt/e/SteamLibrary/...
+#   - Paths with spaces: /home/user/My Models/model.model3.json
 avatar:
-  model_path: ""  # Path to .model3.json or .model.json file
+  model_path: "/mnt/e/SteamLibrary/steamapps/common/VTube Studio/VTube Studio_Data/StreamingAssets/Live2DModels/ganyu/ganyu.model3.json"
   window_width: 800
   window_height: 600
   fps: 30
   scale: 2.0
-  # Expression mapping: emotion -> expression file name or group
+  # Expression mapping: emotion -> expression file name
+  # Files are searched in model directory and expressions/ subdirectory
   expressions:
     neutral: "neutral"
     happy: "happy"

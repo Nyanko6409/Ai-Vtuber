@@ -118,15 +118,21 @@ class PygameUI:
 
     def begin_frame(self) -> None:
         """Begin a new frame - clear buffer and update timing."""
-        import live2d.v3 as live2d
+        # Clear the OpenGL color buffer
         try:
-            live2d.clearBuffer()
-        except Exception:
-            try:
-                import live2d.v2 as live2d
-                live2d.clearBuffer()
-            except Exception:
-                pass
+            from OpenGL import GL
+            GL.glClearColor(
+                self.bg_color[0] / 255.0,
+                self.bg_color[1] / 255.0,
+                self.bg_color[2] / 255.0,
+                1.0
+            )
+            GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
+        except ImportError:
+            # PyOpenGL not available, skip clearing
+            pass
+        except Exception as e:
+            logger.debug(f"OpenGL clear failed: {e}")
 
         # Update FPS counter
         delta = self._clock.tick(self.fps) / 1000.0
@@ -139,9 +145,10 @@ class PygameUI:
 
     def draw_overlay(self, status: dict, error_msg: Optional[str] = None) -> None:
         """Draw UI overlay on top of the avatar.
-        
-        This is drawn using Pygame's 2D surface overlaid on the OpenGL context.
-        
+
+        Renders text using Pygame freetype onto a transparent surface,
+        then uploads it as an OpenGL texture for display.
+
         Args:
             status: Status dict from App.get_status()
             error_msg: Optional error message to display.
@@ -163,8 +170,7 @@ class PygameUI:
         if error_msg:
             self._draw_error(overlay, error_msg)
 
-        # Render overlay to screen
-        # Convert surface to texture and draw as OpenGL quad
+        # Render overlay to screen as OpenGL texture
         self._render_overlay_texture(overlay)
 
     def _draw_status_bar(self, surface: pygame.Surface, status: dict) -> None:
@@ -283,8 +289,9 @@ class PygameUI:
 
     def _render_overlay_texture(self, surface: pygame.Surface) -> None:
         """Render the overlay surface as an OpenGL texture.
-        
-        Uses OpenGL to draw the Pygame surface as a textured quad.
+
+        Uses OpenGL to draw the Pygame surface as a textured quad
+        in an orthographic 2D projection over the 3D scene.
         """
         try:
             from OpenGL import GL
@@ -304,11 +311,14 @@ class PygameUI:
                 GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, raw_data
             )
 
-            # Save current state
+            # Save current OpenGL state
             GL.glPushAttrib(GL.GL_ALL_ATTRIB_BITS)
+            GL.glMatrixMode(GL.GL_PROJECTION)
+            GL.glPushMatrix()
+            GL.glMatrixMode(GL.GL_MODELVIEW)
             GL.glPushMatrix()
 
-            # Set up orthographic projection
+            # Set up orthographic projection for 2D overlay
             GL.glMatrixMode(GL.GL_PROJECTION)
             GL.glLoadIdentity()
             GL.glOrtho(0, self.width, self.height, 0, -1, 1)
@@ -322,7 +332,7 @@ class PygameUI:
             # Disable depth test for overlay
             GL.glDisable(GL.GL_DEPTH_TEST)
 
-            # Draw textured quad
+            # Draw textured quad covering the entire window
             GL.glEnable(GL.GL_TEXTURE_2D)
             GL.glBindTexture(GL.GL_TEXTURE_2D, tex_id)
             GL.glColor4f(1.0, 1.0, 1.0, 1.0)
@@ -336,7 +346,10 @@ class PygameUI:
 
             GL.glDisable(GL.GL_TEXTURE_2D)
 
-            # Restore state
+            # Restore OpenGL state
+            GL.glMatrixMode(GL.GL_MODELVIEW)
+            GL.glPopMatrix()
+            GL.glMatrixMode(GL.GL_PROJECTION)
             GL.glPopMatrix()
             GL.glPopAttrib()
 
@@ -344,8 +357,8 @@ class PygameUI:
             GL.glDeleteTextures([tex_id])
 
         except ImportError:
-            # OpenGL not available, skip overlay
-            pass
+            # PyOpenGL not available, skip overlay rendering
+            logger.debug("PyOpenGL not available, overlay disabled")
         except Exception as e:
             logger.debug(f"Overlay render error: {e}")
 
