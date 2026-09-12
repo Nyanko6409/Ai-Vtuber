@@ -218,9 +218,6 @@ def main() -> None:
                         pygame.DOUBLEBUF | pygame.OPENGL | pygame.RESIZABLE
                     )
                 elif event.type == pygame.KEYDOWN:
-                    # AVATAR CONTROL KEYS HAVE PRIORITY OVER CHAT INPUT
-                    # These keys always control the avatar, never go to chat input
-                    
                     # Handle special keys first (always work regardless of chat focus)
                     if event.key == pygame.K_ESCAPE:
                         running = False
@@ -235,38 +232,9 @@ def main() -> None:
                     elif event.key == pygame.K_d:
                         ui.show_debug = not ui.show_debug
                         continue  # Don't pass D to chat input
-                    # Zoom controls (+/= zoom in, - zoom out, R reset)
-                    elif event.key in (pygame.K_PLUS, pygame.K_EQUALS):
-                        if app._avatar and app._avatar.is_initialized:
-                            app.avatar.zoom_in(0.2)
-                        continue  # Don't pass to chat input
-                    elif event.key == pygame.K_MINUS:
-                        if app._avatar and app._avatar.is_initialized:
-                            app.avatar.zoom_out(0.2)
-                        continue  # Don't pass to chat input
-                    elif event.key == pygame.K_r:
-                        if app._avatar and app._avatar.is_initialized:
-                            app.avatar.reset_zoom()
-                        continue  # Don't pass to chat input
-                    # Movement controls (arrow keys or WASD)
-                    elif event.key in (pygame.K_UP, pygame.K_w):
-                        if app._avatar and app._avatar.is_initialized:
-                            app.avatar.move_up(20.0)
-                        continue  # Don't pass to chat input
-                    elif event.key in (pygame.K_DOWN, pygame.K_s):
-                        if app._avatar and app._avatar.is_initialized:
-                            app.avatar.move_down(20.0)
-                        continue  # Don't pass to chat input
-                    elif event.key in (pygame.K_LEFT, pygame.K_a):
-                        if app._avatar and app._avatar.is_initialized:
-                            app.avatar.move_left(20.0)
-                        continue  # Don't pass to chat input
-                    elif event.key in (pygame.K_RIGHT, pygame.K_d):
-                        if app._avatar and app._avatar.is_initialized:
-                            app.avatar.move_right(20.0)
-                        continue  # Don't pass to chat input
                     
-                    # Non-control keys: pass to chat input if active
+                    # All other keys: pass to chat input if active
+                    # Keyboard is ONLY for chat input - no avatar movement controls
                     if chat_ui.input_active:
                         message = chat_ui.handle_event(event)
                         if message:
@@ -293,11 +261,10 @@ def main() -> None:
                             # Focus chat input, do NOT start dragging
                             chat_ui.input_active = True
                         else:
-                            # Start avatar dragging (unless chat is already focused)
-                            if not chat_ui.input_active:
-                                app._avatar_start_drag = True
-                            else:
-                                # Chat is focused but clicked outside - unfocus it
+                            # Start avatar dragging
+                            app._avatar_start_drag = True
+                            # Unfocus chat if clicking outside
+                            if chat_ui.input_active:
                                 chat_ui.input_active = False
                     elif event.button == 4:  # Scroll up - zoom in
                         if app._avatar and app._avatar.is_initialized:
