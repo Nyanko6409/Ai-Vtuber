@@ -39,10 +39,9 @@ class ChatUI:
         self.is_typing: bool = False
         
         # UI dimensions
-        self.input_box_height: int = 50
-        self.input_box_padding: int = 15
-        self.message_area_height: int = 200
-        self.border_radius: int = 12
+        self.input_box_height: int = 35
+        self.input_box_padding: int = 10
+        self.border_radius: int = 8
         
         # Button state
         self.chat_visible: bool = True  # Whether chat UI is visible
@@ -155,45 +154,6 @@ class ChatUI:
                 else:
                     self.is_typing = False
 
-    def _draw_message_area(self, surface: pygame.Surface) -> None:
-        """Draw the message history area."""
-        y_offset = self.height - self.input_box_height - self.message_area_height - 20
-        
-        # Background
-        bg_rect = pygame.Rect(
-            20, y_offset,
-            self.width - 40, self.message_area_height
-        )
-        pygame.draw.rect(surface, self.bg_color, bg_rect, border_radius=self.border_radius)
-        pygame.draw.rect(surface, self.border_color, bg_rect, width=2, border_radius=self.border_radius)
-        
-        # Draw messages
-        y = y_offset + 15
-        for msg in self.messages[-6:]:  # Show last 6 messages
-            role = msg["role"]
-            text = msg["text"]
-            
-            # Color based on role
-            color = self.user_color if role == "user" else self.ai_color
-            prefix = "You: " if role == "user" else "AI: "
-            
-            # For AI messages, show typewriter effect
-            if role == "ai" and self.is_typing:
-                display_text = self.typewriter_text
-            else:
-                display_text = text
-            
-            # Word wrap
-            lines = self._wrap_text(prefix + display_text, self.width - 80)
-            for line in lines[:3]:  # Max 3 lines per message
-                self._small_font.render_to(surface, (35, y), line, color)
-                y += 18
-            
-            y += 8  # Space between messages
-            
-            if y > y_offset + self.message_area_height - 20:
-                break
-
     def _draw_input_box(self, surface: pygame.Surface) -> None:
         """Draw the text input box at the bottom."""
         y_offset = self.height - self.input_box_height - 10
@@ -211,26 +171,23 @@ class ChatUI:
         
         # Text or placeholder
         if self.input_text:
-            text_x = 35
-            self._font.render_to(surface, (text_x, y_offset + 15), self.input_text, self.text_color)
+            text_x = 30
+            text_y = y_offset + 10
+            self._font.render_to(surface, (text_x, text_y), self.input_text, self.text_color)
             
             # Cursor
             if self.input_active and self.cursor_visible:
                 cursor_x = text_x + len(self.input_text) * 8  # Approximate
                 pygame.draw.line(
                     surface, self.text_color,
-                    (cursor_x, y_offset + 15),
-                    (cursor_x, y_offset + 35),
+                    (cursor_x, text_y),
+                    (cursor_x, text_y + 16),
                     width=2
                 )
         else:
             # Placeholder text
-            placeholder = "Type a message... (Enter to send, Tab to toggle focus)"
-            self._font.render_to(surface, (35, y_offset + 15), placeholder, self.placeholder_color)
-        
-        # Hint text
-        hint = "Press Enter to send | Tab to toggle chat | Voice input also active"
-        self._small_font.render_to(surface, (35, y_offset + 35), hint, (120, 120, 140))
+            placeholder = "Type a message... (Enter to send)"
+            self._font.render_to(surface, (30, y_offset + 10), placeholder, self.placeholder_color)
 
     def _wrap_text(self, text: str, max_width: int) -> list[str]:
         """Wrap text to fit within max_width."""
@@ -259,13 +216,13 @@ class ChatUI:
     def _get_toggle_button_rect(self) -> pygame.Rect:
         """Get the rectangle for the toggle chat button."""
         x = self.width - self.button_size - self.button_margin
-        y = self.height - self.button_size - self.button_margin - self.input_box_height - 20
+        y = self.height - self.button_size - self.button_margin - self.input_box_height - 15
         return pygame.Rect(x, y, self.button_size, self.button_size)
 
     def _get_clear_button_rect(self) -> pygame.Rect:
         """Get the rectangle for the clear chat button."""
         x = self.width - self.button_size * 2 - self.button_margin * 2
-        y = self.height - self.button_size - self.button_margin - self.input_box_height - 20
+        y = self.height - self.button_size - self.button_margin - self.input_box_height - 15
         return pygame.Rect(x, y, self.button_size, self.button_size)
 
     def handle_button_click(self, mouse_pos: tuple[int, int]) -> Optional[str]:
@@ -400,10 +357,7 @@ class ChatUI:
         
         # Only draw chat if visible
         if self.chat_visible:
-            # Draw message area
-            self._draw_message_area(chat_surface)
-            
-            # Draw input box
+            # Draw input box only (no message history)
             self._draw_input_box(chat_surface)
         
         # Render the surface as an OpenGL texture
