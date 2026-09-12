@@ -1,1 +1,2 @@
-Nothing should be ignored based on the provided file changes, as they only include source/config files (.md, .py) and no build artifacts, dependencies, or temporary files.
+# Documentation
+LIVE2D_NATIVE_TRANSFORM_FIX.md
