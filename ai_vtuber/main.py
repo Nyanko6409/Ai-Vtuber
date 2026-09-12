@@ -22,6 +22,7 @@ import logging
 import argparse
 import time
 import yaml
+import pygame
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -117,24 +118,43 @@ def main() -> None:
         running = True
 
         while running:
-            # Handle events
-            running = ui.handle_events()
-
-            if not running:
-                break
-
-            # Handle chat events
-            for event in pygame.event.get():
+            # Get all events once
+            events = pygame.event.get()
+            
+            # Handle UI events (window close, resize, etc.)
+            for event in events:
                 if event.type == pygame.QUIT:
                     running = False
                     break
+                elif event.type == pygame.VIDEORESIZE:
+                    ui.width = event.w
+                    ui.height = event.h
+                    ui._screen = pygame.display.set_mode(
+                        (ui.width, ui.height),
+                        pygame.DOUBLEBUF | pygame.OPENGL | pygame.RESIZABLE
+                    )
                 elif event.type == pygame.KEYDOWN:
-                    # Let chat UI handle the event first
-                    message = chat_ui.handle_event(event)
-                    if message:
-                        # Message was sent via chat
-                        logger.info(f"Chat input: {message}")
-                        app.process_chat_message(message)
+                    # Let chat UI handle the event first (if input is active)
+                    if chat_ui.input_active:
+                        message = chat_ui.handle_event(event)
+                        if message:
+                            # Message was sent via chat
+                            logger.info(f"Chat input: {message}")
+                            app.process_chat_message(message)
+                        # Don't process other keys if chat is active
+                        continue
+                    
+                    # Handle other keys when chat is not active
+                    if event.key == pygame.K_ESCAPE:
+                        running = False
+                        break
+                    elif event.key == pygame.K_f:
+                        ui.show_fps = not ui.show_fps
+                    elif event.key == pygame.K_d:
+                        ui.show_debug = not ui.show_debug
+                    elif event.key == pygame.K_TAB:
+                        # Toggle chat input focus with Tab
+                        chat_ui.input_active = not chat_ui.input_active
 
             if not running:
                 break

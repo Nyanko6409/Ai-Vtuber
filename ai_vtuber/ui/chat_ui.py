@@ -85,9 +85,6 @@ class ChatUI:
             elif event.key == pygame.K_BACKSPACE:
                 # Delete character
                 self.input_text = self.input_text[:-1]
-            elif event.key == pygame.K_ESCAPE:
-                # Toggle input focus
-                self.input_active = not self.input_active
             elif event.key <= 127:  # Printable ASCII
                 # Add character
                 char = chr(event.key)
@@ -230,11 +227,11 @@ class ChatUI:
                 )
         else:
             # Placeholder text
-            placeholder = "Type a message... (Enter to send, Esc to toggle)"
+            placeholder = "Type a message... (Enter to send, Tab to toggle focus)"
             self._font.render_to(surface, (35, y_offset + 15), placeholder, self.placeholder_color)
         
         # Hint text
-        hint = "Press Enter to send | Voice input also active"
+        hint = "Press Enter to send | Tab to toggle chat | Voice input also active"
         self._small_font.render_to(surface, (35, y_offset + 35), hint, (120, 120, 140))
 
     def _wrap_text(self, text: str, max_width: int) -> list[str]:
