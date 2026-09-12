@@ -33,6 +33,7 @@ function App() {
     { id: 'installation', label: 'Installation', icon: '📦' },
     { id: 'configuration', label: 'Configuration', icon: '⚙️' },
     { id: 'troubleshooting', label: 'Live2D Fix', icon: '🔧' },
+    { id: 'status', label: 'Status', icon: '✅' },
     { id: 'code', label: 'Source Code', icon: '💻' },
   ]
 
@@ -582,6 +583,133 @@ python main.py --debug
                     <span className="text-sm">{improvement}</span>
                   </div>
                 ))}
+              </div>
+            </section>
+          </div>
+        )}
+
+        {activeTab === 'status' && (
+          <div className="space-y-8">
+            <section>
+              <h2 className="text-2xl font-bold text-gray-100 mb-4">✅ Current Status</h2>
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+                <p className="text-gray-300 mb-4">
+                  Last updated: September 12, 2026
+                </p>
+                
+                <div className="space-y-4">
+                  <div className="flex items-start gap-3">
+                    <span className="text-green-400 text-xl">✓</span>
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-200">STT (Speech-to-Text)</h3>
+                      <p className="text-gray-400 text-sm">CUDA detection fixed - now uses CTranslate2 directly</p>
+                      <p className="text-green-400 text-sm mt-1">Status: Working</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3">
+                    <span className="text-green-400 text-xl">✓</span>
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-200">TTS (Text-to-Speech)</h3>
+                      <p className="text-gray-400 text-sm">KittenTTS 0.8.1 installed from GitHub</p>
+                      <p className="text-green-400 text-sm mt-1">Status: Working</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3">
+                    <span className="text-green-400 text-xl">✓</span>
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-200">LLM (Language Model)</h3>
+                      <p className="text-gray-400 text-sm">LM Studio connection working</p>
+                      <p className="text-green-400 text-sm mt-1">Status: Working</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3">
+                    <span className="text-yellow-400 text-xl">⚠</span>
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-200">Live2D Avatar</h3>
+                      <p className="text-gray-400 text-sm">Model loading crash - Python version mismatch or missing files</p>
+                      <p className="text-yellow-400 text-sm mt-1">Status: Needs Fix</p>
+                      <div className="mt-2 text-sm text-gray-400">
+                        <p>Next steps:</p>
+                        <ol className="list-decimal list-inside mt-1 space-y-1">
+                          <li>Run <code className="bg-gray-800 px-1 rounded">python test_model_diagnostic.py</code></li>
+                          <li>Check for missing model files</li>
+                          <li>Fix Python version mismatch if detected</li>
+                          <li>See <span className="text-purple-400">Live2D Fix</span> tab for details</li>
+                        </ol>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3">
+                    <span className="text-green-400 text-xl">✓</span>
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-200">Error Handling</h3>
+                      <p className="text-gray-400 text-sm">Enhanced to prevent crashes and show clear errors</p>
+                      <p className="text-green-400 text-sm mt-1">Status: Working</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section>
+              <h2 className="text-2xl font-bold text-gray-100 mb-4">📊 Recent Fixes</h2>
+              <div className="space-y-3">
+                {[
+                  { date: 'Sep 12, 2026', fix: 'Added model file validation before loading', status: 'complete' },
+                  { date: 'Sep 12, 2026', fix: 'Enhanced error handling to catch SIGSEGV', status: 'complete' },
+                  { date: 'Sep 12, 2026', fix: 'Created model diagnostic script', status: 'complete' },
+                  { date: 'Sep 12, 2026', fix: 'Fixed KittenTTS package installation', status: 'complete' },
+                  { date: 'Sep 12, 2026', fix: 'Fixed STT CUDA detection (CTranslate2)', status: 'complete' },
+                  { date: 'Sep 12, 2026', fix: 'Added Python version compatibility check', status: 'complete' },
+                ].map((item, i) => (
+                  <div key={i} className="flex items-center gap-3 bg-gray-900 border border-gray-800 rounded-lg p-3">
+                    <span className="text-green-400">✓</span>
+                    <div className="flex-1">
+                      <p className="text-gray-200 text-sm">{item.fix}</p>
+                      <p className="text-gray-500 text-xs">{item.date}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section>
+              <h2 className="text-2xl font-bold text-gray-100 mb-4">🎯 Next Steps</h2>
+              <div className="bg-gradient-to-r from-purple-900/20 to-blue-900/20 border border-purple-500/30 rounded-xl p-6">
+                <ol className="space-y-3 text-gray-300">
+                  <li className="flex gap-3">
+                    <span className="text-purple-400 font-bold">1.</span>
+                    <div>
+                      <p className="font-semibold">Run diagnostic script</p>
+                      <code className="text-sm bg-gray-800 px-2 py-1 rounded mt-1 inline-block">python test_model_diagnostic.py</code>
+                    </div>
+                  </li>
+                  <li className="flex gap-3">
+                    <span className="text-purple-400 font-bold">2.</span>
+                    <div>
+                      <p className="font-semibold">Check for missing files</p>
+                      <p className="text-sm text-gray-400">Ensure all required model files are present</p>
+                    </div>
+                  </li>
+                  <li className="flex gap-3">
+                    <span className="text-purple-400 font-bold">3.</span>
+                    <div>
+                      <p className="font-semibold">Fix Python version if needed</p>
+                      <p className="text-sm text-gray-400">Install compatible live2d-py or use Python 3.12</p>
+                    </div>
+                  </li>
+                  <li className="flex gap-3">
+                    <span className="text-purple-400 font-bold">4.</span>
+                    <div>
+                      <p className="font-semibold">Test the application</p>
+                      <code className="text-sm bg-gray-800 px-2 py-1 rounded mt-1 inline-block">python main.py --debug</code>
+                    </div>
+                  </li>
+                </ol>
               </div>
             </section>
           </div>
