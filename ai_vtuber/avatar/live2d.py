@@ -428,19 +428,26 @@ class Live2DAvatar:
         try:
             import OpenGL.GL as gl
             
-            # Save projection matrix state
-            gl.glMatrixMode(gl.GL_PROJECTION)
+            # VTube Studio style: Use MODELVIEW matrix for camera-like transforms
+            # This is the standard approach for 2D character rendering
+            
+            # Save current matrix state
+            gl.glMatrixMode(gl.GL_MODELVIEW)
             gl.glPushMatrix()
             
-            # Apply zoom (scale) first, then translation
-            # Translation is divided by zoom to maintain consistent movement speed at any zoom level
-            gl.glScalef(self._zoom, self._zoom, 1.0)
-            gl.glTranslatef(self._offset_x / max(self._zoom, 0.001), self._offset_y / max(self._zoom, 0.001), 0.0)
+            # Clear any existing transform and apply our custom camera
+            gl.glLoadIdentity()
             
-            # Draw the model with transforms applied
+            # Apply transforms in correct order:
+            # 1. Scale (zoom) - applied first so translation happens in scaled space
+            # 2. Translate (position offset)
+            gl.glScalef(self._zoom, self._zoom, 1.0)
+            gl.glTranslatef(self._offset_x, self._offset_y, 0.0)
+            
+            # Draw the model - transforms are now active
             self._model.Draw()
             
-            # Restore projection matrix
+            # Restore previous matrix state
             gl.glPopMatrix()
             
         except ImportError:
