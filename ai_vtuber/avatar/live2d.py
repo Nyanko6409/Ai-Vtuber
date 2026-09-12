@@ -422,13 +422,37 @@ class Live2DAvatar:
             logger.error(f"Live2D update error: {e}")
 
     def draw(self) -> None:
-        """Draw the Live2D model."""
+        """Draw the Live2D model with zoom and position transforms."""
         if not self._initialized or not self._model:
             return
         try:
+            # Apply zoom and position transforms using OpenGL matrix operations
+            import OpenGL.GL as gl
+            
+            gl.glPushMatrix()
+            
+            # Apply translation (position offset)
+            gl.glTranslatef(self._offset_x, self._offset_y, 0.0)
+            
+            # Apply scaling (zoom)
+            gl.glScalef(self._zoom, self._zoom, 1.0)
+            
+            # Draw the model
+            self._model.Draw()
+            
+            gl.glPopMatrix()
+            
+        except ImportError:
+            # OpenGL not available, draw without transforms
+            logger.warning("OpenGL not available for transforms, drawing without zoom/position")
             self._model.Draw()
         except Exception as e:
             logger.error(f"Live2D draw error: {e}")
+            # Fallback to basic draw
+            try:
+                self._model.Draw()
+            except Exception:
+                pass
 
     def set_expression(self, emotion: str) -> None:
         """Set avatar expression based on emotion."""
@@ -571,6 +595,12 @@ class Live2DAvatar:
         """Move model right."""
         self._offset_x += amount
         logger.debug(f"Offset X: {self._offset_x:.1f}")
+
+    def move_by(self, dx: float, dy: float) -> None:
+        """Move model by delta x and y (for mouse dragging)."""
+        self._offset_x += dx
+        self._offset_y += dy
+        logger.debug(f"Offset X: {self._offset_x:.1f}, Y: {self._offset_y:.1f}")
 
     @property
     def zoom(self) -> float:

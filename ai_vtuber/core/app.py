@@ -53,6 +53,9 @@ class App:
         # Threading
         self._pipeline_thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
+        
+        # Avatar drag state for mouse controls
+        self._avatar_start_drag: bool = False
 
     @property
     def llm(self) -> LMStudioClient:
