@@ -158,6 +158,9 @@ class PygameUI:
             self._fps_value = self._frame_count / self._fps_timer
             self._frame_count = 0
             self._fps_timer = 0.0
+        
+        # NOTE: Do NOT reset avatar transforms here - they must persist across frames
+        # The avatar's draw() method will apply its own zoom/offset via projection matrix
 
     def draw_overlay(self, status: dict, error_msg: Optional[str] = None) -> None:
         """Draw UI overlay on top of the avatar.

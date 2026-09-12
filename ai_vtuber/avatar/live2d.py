@@ -428,20 +428,49 @@ class Live2DAvatar:
         try:
             import OpenGL.GL as gl
             
-            # Save current matrix state
+            # Live2D-py renders using its own shader pipeline.
+            # We need to set up an orthographic projection with our transforms baked in.
+            # This is the standard approach used by VTube Studio and similar applications.
+            
+            # Get current viewport dimensions
+            viewport = gl.glGetIntegerv(gl.GL_VIEWPORT)
+            width = viewport[2]
+            height = viewport[3]
+            
+            # Save projection matrix
+            gl.glMatrixMode(gl.GL_PROJECTION)
+            gl.glPushMatrix()
+            gl.glLoadIdentity()
+            
+            # Set up orthographic projection centered at (0,0)
+            # Apply zoom and offset to the projection itself
+            half_w = (width / 2.0) / self._zoom
+            half_h = (height / 2.0) / self._zoom
+            
+            # Apply offset in normalized coordinates
+            offset_x_norm = self._offset_x / (width / 2.0) * self._zoom
+            offset_y_norm = self._offset_y / (height / 2.0) * self._zoom
+            
+            left = -half_w - offset_x_norm * half_w
+            right = half_w - offset_x_norm * half_w
+            bottom = -half_h - offset_y_norm * half_h
+            top = half_h - offset_y_norm * half_h
+            
+            gl.glOrtho(left, right, bottom, top, -1.0, 1.0)
+            
+            # ModelView matrix should be identity for Live2D
             gl.glMatrixMode(gl.GL_MODELVIEW)
             gl.glPushMatrix()
+            gl.glLoadIdentity()
             
-            # Apply transforms in correct order:
-            # 1. Scale (zoom)
-            # 2. Translate (position offset)
-            gl.glScalef(self._zoom, self._zoom, 1.0)
-            gl.glTranslatef(self._offset_x, self._offset_y, 0.0)
-            
-            # Draw the model - transforms are now active
+            # Draw the model with our projection applied
             self._model.Draw()
             
-            # Restore previous matrix state
+            # Restore matrices
+            gl.glMatrixMode(gl.GL_MODELVIEW)
+            gl.glPopMatrix()
+            
+            gl.glMatrixMode(gl.GL_PROJECTION)
             gl.glPopMatrix()
             
         except ImportError:
