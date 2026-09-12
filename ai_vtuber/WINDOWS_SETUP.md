@@ -62,6 +62,8 @@ avatar:
   model_path: "C:/Users/YourName/VTubeStudio/Models/ganyu/ganyu.model3.json"
   # Use forward slashes OR double backslashes:
   # "C:\\Users\\YourName\\Models\\ganyu\\ganyu.model3.json"
+  # Windows Steam example:
+  # "E:/SteamLibrary/steamapps/common/VTube Studio/VTube Studio_Data/StreamingAssets/Live2DModels/ganyu/ganyu.model3.json"
 
 # For CPU-only mode (recommended for most Windows users)
 stt:
@@ -89,6 +91,34 @@ tts:
 # Run with debug logging
 python main.py --debug
 ```
+
+## Controls
+
+### Avatar Movement and Zoom
+
+| Key | Action |
+|-----|--------|
+| `+` / `=` | Zoom in |
+| `-` | Zoom out |
+| `R` | Reset zoom and position |
+| `↑` / `W` | Move up |
+| `↓` / `S` | Move down |
+| `←` / `A` | Move left |
+| `→` / `D` | Move right |
+
+### UI Controls
+
+| Key | Action |
+|-----|--------|
+| `ESC` | Quit application |
+| `F` | Toggle FPS display |
+| `D` | Toggle debug info |
+| `TAB` | Toggle chat input |
+
+### Mouse
+
+- **Left Click**: Focus chat input (when chat is visible)
+- **Mouse Movement**: Avatar eye tracking
 
 ## Troubleshooting
 
@@ -180,7 +210,7 @@ If you see errors like `Library libcublas.so.12 is not found` or similar:
 - [ ] All dependencies installed (`pip install -r requirements.txt`)
 - [ ] KittenTTS 0.8.1 installed from GitHub
 - [ ] LM Studio running with model loaded
-- [ ] `config.yaml` updated with correct model path
+- [ ] `config.yaml` updated with correct model path (use Windows path format)
 - [ ] STT/TTS set to `"cpu"` mode (unless you have CUDA configured)
 - [ ] Audio output device working
 - [ ] Microphone accessible
@@ -226,3 +256,4 @@ If you encounter issues:
    - Python version
    - Error messages
    - Steps to reproduce
+
