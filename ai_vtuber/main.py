@@ -24,6 +24,36 @@ import time
 import yaml
 import pygame
 
+# Setup CUDA library paths before importing any CUDA-dependent modules
+def _setup_cuda_library_path():
+    """Setup library path for CUDA libraries if they exist in pip packages."""
+    cuda_lib_paths = [
+        "/usr/local/lib/python3.12/site-packages/nvidia/cublas/lib",
+        "/usr/local/lib/python3.12/site-packages/nvidia/cudnn/lib",
+        "/usr/local/lib/python3.12/site-packages/nvidia/nvjitlink/lib",
+        "/usr/local/lib/python3.12/site-packages/nvidia/cuda_cupti/lib",
+        "/usr/local/lib/python3.12/site-packages/nvidia/cufft/lib",
+        "/usr/local/lib/python3.12/site-packages/nvidia/cuda_nvrtc/lib",
+        "/usr/local/lib/python3.12/site-packages/nvidia/cuda_runtime/lib",
+        "/usr/local/lib/python3.12/site-packages/nvidia/curand/lib",
+        "/usr/local/lib/python3.12/site-packages/nvidia/cusparse/lib",
+        "/usr/local/lib/python3.12/site-packages/nvidia/cusolver/lib",
+        "/usr/local/lib/python3.12/site-packages/nvidia/nccl/lib",
+        "/usr/local/lib/python3.12/site-packages/nvidia/nvtx/lib",
+        "/usr/local/lib/python3.12/site-packages/nvidia/cufile/lib",
+    ]
+    
+    ld_path = os.environ.get('LD_LIBRARY_PATH', '')
+    for path in cuda_lib_paths:
+        if os.path.isdir(path) and path not in ld_path:
+            ld_path = path + ':' + ld_path if ld_path else path
+    
+    if ld_path:
+        os.environ['LD_LIBRARY_PATH'] = ld_path
+
+# Setup CUDA paths early
+_setup_cuda_library_path()
+
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
