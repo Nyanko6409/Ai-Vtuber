@@ -90,13 +90,16 @@ def main() -> None:
         app.start()
 
         # NOW initialize Live2D (OpenGL context exists)
+        live2d_error = None
         if app._avatar:
             success = app.avatar.init_gl()
             if success:
                 app.avatar.resize(ui.width, ui.height)
                 logger.info("Live2D avatar initialized with OpenGL context")
             else:
-                logger.warning("Live2D avatar failed to initialize - UI will work without avatar")
+                live2d_error = app.avatar.error_message or "Live2D initialization failed"
+                logger.warning(f"Live2D avatar failed to initialize: {live2d_error}")
+                logger.warning("UI will work without avatar")
 
         # Main loop
         logger.info("Entering main loop. Press ESC or close window to quit.")
@@ -135,7 +138,9 @@ def main() -> None:
 
             # Draw UI overlay
             status = app.get_status()
-            ui.draw_overlay(status, status.get("error"))
+            # Show Live2D error if avatar failed to initialize
+            error_msg = status.get("error") or live2d_error
+            ui.draw_overlay(status, error_msg)
 
             # End frame
             ui.end_frame()

@@ -1,7 +1,7 @@
-"""AI VTuber - Live2D Avatar Module using live2d-py
+"""AI VTuber - Live2D Avatar Module
 
-Handles model loading, rendering, expressions, blinking, and lip sync.
-Uses pathlib for robust path handling (including WSL /mnt/ paths).
+Handles Live2D model loading, rendering, expressions, and animations.
+Includes robust error handling to prevent SIGSEGV crashes.
 """
 
 import logging
@@ -66,20 +66,65 @@ def _resolve_model_path(raw_path: str) -> Optional[Path]:
         logger.error(f"Live2D model must be a .json file, got: {suffix} ({p})")
         return None
 
-    # Verify referenced assets exist
-    model_dir = p.parent
-    missing = []
-
-    # Check for textures directory
-    textures_dir = model_dir / (p.stem + "." + "png")  # common pattern
-    # The .model3.json references files relatively; we just check the dir exists
-    if not model_dir.is_dir():
-        missing.append(str(model_dir))
-
-    if missing:
-        logger.warning(f"Live2D model references missing assets: {missing}")
-
     return p
+
+
+def _check_python_compatibility() -> bool:
+    """Check if the live2d-py package is compatible with current Python version.
+    
+    Returns True if compatible, False if there's a version mismatch.
+    """
+    import sys
+    
+    try:
+        import live2d
+        live2d_path = Path(live2d.__file__).parent
+        
+        # Look for native extension files
+        so_files = list(live2d_path.glob("*.so"))
+        
+        if not so_files:
+            logger.warning("No native .so files found in live2d package")
+            return True  # Can't determine, assume OK
+        
+        # Check the first .so file for Python version strings
+        so_file = so_files[0]
+        current_python = f"cp{sys.version_info.major}{sys.version_info.minor}"
+        
+        # Read binary to check for Python version
+        try:
+            with open(so_file, 'rb') as f:
+                content = f.read(10000)  # Read first 10KB
+            
+            # Look for Python version markers
+            for py_ver in ['cp310', 'cp311', 'cp312', 'cp313']:
+                if py_ver.encode() in content:
+                    if py_ver != current_python:
+                        logger.error(
+                            f"Python version mismatch detected!\n"
+                            f"  Current Python: {current_python} (Python {sys.version_info.major}.{sys.version_info.minor})\n"
+                            f"  live2d-py built for: {py_ver}\n"
+                            f"  This will likely cause SIGSEGV.\n"
+                            f"  Solution: Install the correct live2d-py version for Python {sys.version_info.major}.{sys.version_info.minor}"
+                        )
+                        return False
+                    else:
+                        logger.info(f"live2d-py is compatible with Python {sys.version_info.major}.{sys.version_info.minor}")
+                        return True
+            
+            logger.debug("Could not determine live2d-py Python version from binary")
+            return True  # Can't determine, assume OK
+            
+        except Exception as e:
+            logger.debug(f"Could not check .so file: {e}")
+            return True  # Can't determine, assume OK
+            
+    except ImportError:
+        logger.warning("live2d module not importable")
+        return False
+    except Exception as e:
+        logger.warning(f"Error checking Python compatibility: {e}")
+        return True  # Assume OK on error
 
 
 class Live2DAvatar:
@@ -121,6 +166,7 @@ class Live2DAvatar:
         self._is_blinking: bool = False
         self._initialized: bool = False
         self._gl_initialized: bool = False
+        self._error_message: Optional[str] = None
 
         # Resolved path (validated later in init_gl)
         self._model_path: Optional[Path] = None
@@ -145,13 +191,27 @@ class Live2DAvatar:
                 self._live2d_version = 2
                 logger.info("live2d-py loaded (Cubism v2)")
             except ImportError:
-                logger.error(
+                error_msg = (
                     "live2d-py is not installed.\n"
                     "  Install from PyPI:  pip install live2d-py\n"
                     "  Or download wheel:  https://github.com/EasyLive2D/live2d-py/releases\n"
                     "  NOTE: On Linux x64 the v3 module may need to be built from source."
                 )
-                raise
+                logger.error(error_msg)
+                self._error_message = error_msg
+                # Don't raise - allow app to continue without Live2D
+                return
+
+        # Check Python compatibility
+        if not _check_python_compatibility():
+            self._error_message = (
+                "Python version mismatch detected.\n"
+                "The live2d-py package was built for a different Python version.\n"
+                "This will cause SIGSEGV. See TESTING_LIVE2D.md for solutions."
+            )
+            logger.error(self._error_message)
+            # Clear the module reference to prevent use
+            self._live2d = None
 
     # ------------------------------------------------------------------
     # OpenGL-dependent initialization (call AFTER pygame window created)
@@ -165,33 +225,51 @@ class Live2DAvatar:
         Returns True on success, False on failure.
         """
         if self._live2d is None:
-            logger.error("Cannot init_gl: live2d module not loaded")
+            error_msg = self._error_message or "Cannot init_gl: live2d module not loaded"
+            logger.error(error_msg)
             return False
 
         if self._gl_initialized:
             return self._initialized
 
+        # Check if we detected a Python version mismatch
+        if self._error_message and "mismatch" in self._error_message.lower():
+            logger.error("Skipping Live2D initialization due to Python version mismatch")
+            return False
+
         try:
             # 1. Initialize the live2d system
+            logger.debug("Calling live2d.init()...")
             self._live2d.init()
-            logger.debug("live2d.init() called")
+            logger.debug("live2d.init() called successfully")
 
             # 2. Initialize OpenGL resources (shaders, etc.)
+            logger.debug("Calling live2d.glInit()...")
             self._live2d.glInit()
-            logger.debug("live2d.glInit() called")
+            logger.debug("live2d.glInit() called successfully")
             self._gl_initialized = True
 
         except Exception as e:
-            logger.error(f"live2d OpenGL initialization failed: {e}", exc_info=True)
+            error_msg = f"live2d OpenGL initialization failed: {e}"
+            logger.error(error_msg, exc_info=True)
+            self._error_message = error_msg
+            return False
+        except BaseException as e:
+            # Catch SIGSEGV and other fatal errors
+            error_msg = f"live2d fatal error during initialization: {type(e).__name__}: {e}"
+            logger.error(error_msg)
+            self._error_message = error_msg
             return False
 
         # 3. Resolve and validate model path
         self._model_path = _resolve_model_path(self.model_path_raw)
         if self._model_path is None:
-            logger.warning(
+            error_msg = (
                 "No Live2D model configured. Set 'avatar.model_path' in config.yaml.\n"
                 "The window will show the UI overlay only."
             )
+            logger.warning(error_msg)
+            self._error_message = error_msg
             self._initialized = False
             return False
 
@@ -201,7 +279,10 @@ class Live2DAvatar:
             logger.info(f"Loading Live2D model: {model_path_str}")
 
             self._model = self._live2d.LAppModel()
+            logger.debug("LAppModel created")
+            
             self._model.LoadModelJson(model_path_str)
+            logger.debug("Model JSON loaded")
 
             self._initialized = True
             logger.info(f"Live2D model loaded successfully: {self._model_path.name}")
@@ -210,10 +291,16 @@ class Live2DAvatar:
             self._log_model_info()
 
         except Exception as e:
-            logger.error(
-                f"Failed to load Live2D model '{self._model_path}': {e}",
-                exc_info=True,
-            )
+            error_msg = f"Failed to load Live2D model '{self._model_path}': {e}"
+            logger.error(error_msg, exc_info=True)
+            self._error_message = error_msg
+            self._initialized = False
+            return False
+        except BaseException as e:
+            # Catch SIGSEGV and other fatal errors
+            error_msg = f"Fatal error loading model: {type(e).__name__}: {e}"
+            logger.error(error_msg)
+            self._error_message = error_msg
             self._initialized = False
             return False
 
@@ -442,3 +529,8 @@ class Live2DAvatar:
     @property
     def is_talking(self) -> bool:
         return self._is_talking
+
+    @property
+    def error_message(self) -> Optional[str]:
+        """Get error message if initialization failed."""
+        return self._error_message

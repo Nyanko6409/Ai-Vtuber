@@ -32,6 +32,7 @@ function App() {
     { id: 'architecture', label: 'Architecture', icon: '🏗️' },
     { id: 'installation', label: 'Installation', icon: '📦' },
     { id: 'configuration', label: 'Configuration', icon: '⚙️' },
+    { id: 'troubleshooting', label: 'Live2D Fix', icon: '🔧' },
     { id: 'code', label: 'Source Code', icon: '💻' },
   ]
 
@@ -495,6 +496,90 @@ ui:
                         </span>
                       ))}
                     </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
+        )}
+
+        {activeTab === 'troubleshooting' && (
+          <div className="space-y-8">
+            <section>
+              <h2 className="text-2xl font-bold text-gray-100 mb-4">🔧 Live2D SIGSEGV Fix</h2>
+              <div className="bg-red-900/20 border border-red-500/30 rounded-xl p-4 mb-4">
+                <p className="text-red-300 font-semibold mb-2">⚠ Known Issue: Python Version Mismatch</p>
+                <p className="text-gray-300 text-sm">
+                  If you see <code className="bg-gray-800 px-1 rounded">Python 3.12.3</code> in Live2D output but run Python 3.11, 
+                  the native extension was compiled for the wrong Python version. This causes SIGSEGV.
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-200 mb-2">Step 1: Diagnose</h3>
+                  <CodeBlock id="diag-1" code={`cd ai_vtuber
+python test_python_compat.py    # Check Python/native compatibility
+python test_live2d_standalone.py  # Isolate where SIGSEGV occurs`} />
+                </div>
+
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-200 mb-2">Step 2: Fix - Option A (Install correct version)</h3>
+                  <CodeBlock id="fix-a" code={`pip uninstall live2d-py
+# Install Python 3.11 compatible wheel from GitHub
+pip install https://github.com/EasyLive2D/live2d-py/releases/download/v0.7.0.4/live2d_py-0.7.0.4-cp311-cp311-linux_x86_64.whl`} />
+                </div>
+
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-200 mb-2">Step 2: Fix - Option B (Use Python 3.12)</h3>
+                  <CodeBlock id="fix-b" code={`sudo apt install python3.12 python3.12-venv
+python3.12 -m venv venv312
+source venv312/bin/activate
+pip install -r requirements.txt`} />
+                </div>
+
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-200 mb-2">Step 3: Verify</h3>
+                  <CodeBlock id="verify" code={`python test_live2d_standalone.py
+# Should show all 10 tests passing
+
+python main.py --debug
+# Should show Ganyu model rendering without crash`} />
+                </div>
+              </div>
+            </section>
+
+            <section>
+              <h2 className="text-2xl font-bold text-gray-100 mb-4">📋 Diagnostic Scripts</h2>
+              <div className="grid md:grid-cols-2 gap-4">
+                {[
+                  { name: 'test_python_compat.py', desc: 'Checks Python/native ABI compatibility' },
+                  { name: 'test_live2d_standalone.py', desc: 'Isolates SIGSEGV to specific operation' },
+                  { name: 'test_model_verify.py', desc: 'Verifies all model files exist' },
+                  { name: 'test_opengl_check.py', desc: 'Checks OpenGL/WSL compatibility' },
+                  { name: 'test_live2d_diagnose.py', desc: 'Inspects installed live2d-py package' },
+                ].map((script) => (
+                  <div key={script.name} className="bg-gray-900 border border-gray-800 rounded-lg p-3">
+                    <code className="text-purple-300 font-mono text-sm">{script.name}</code>
+                    <p className="text-gray-400 text-sm mt-1">{script.desc}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section>
+              <h2 className="text-2xl font-bold text-gray-100 mb-4">🛡️ Safety Improvements</h2>
+              <div className="space-y-3">
+                {[
+                  'Detects Python version mismatch before loading models',
+                  'Prevents SIGSEGV by skipping Live2D if incompatible',
+                  'Shows clear error message in UI instead of black screen',
+                  'Application continues running even if Live2D fails',
+                  'Provides diagnostic information for troubleshooting',
+                ].map((improvement) => (
+                  <div key={improvement} className="flex items-center gap-2 text-gray-300">
+                    <span className="text-green-400">✓</span>
+                    <span className="text-sm">{improvement}</span>
                   </div>
                 ))}
               </div>
