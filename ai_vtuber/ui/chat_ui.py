@@ -90,14 +90,16 @@ class ChatUI:
             # Skip avatar control keys - they should not appear in chat input
             elif event.key in (pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT,
                                pygame.K_w, pygame.K_a, pygame.K_s, pygame.K_d,
-                               pygame.K_PLUS, pygame.K_EQUALS, pygame.K_MINUS, pygame.K_r):
+                               pygame.K_PLUS, pygame.K_EQUALS, pygame.K_MINUS, pygame.K_r,
+                               pygame.K_ESCAPE, pygame.K_TAB, pygame.K_f):
                 # These are avatar control keys - ignore them in chat input
                 pass
-            elif event.key <= 127:  # Printable ASCII
-                # Add character
-                char = chr(event.key)
-                if len(self.input_text) < 200:  # Limit input length
-                    self.input_text += char
+            else:
+                # Handle text input via unicode attribute
+                if event.unicode and len(self.input_text) < 200:
+                    # Only add printable characters
+                    if event.unicode.isprintable():
+                        self.input_text += event.unicode
         
         return None
 

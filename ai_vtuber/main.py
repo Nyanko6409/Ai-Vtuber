@@ -221,7 +221,7 @@ def main() -> None:
                     # AVATAR CONTROL KEYS HAVE PRIORITY OVER CHAT INPUT
                     # These keys always control the avatar, never go to chat input
                     
-                    # Handle special keys first (always work)
+                    # Handle special keys first (always work regardless of chat focus)
                     if event.key == pygame.K_ESCAPE:
                         running = False
                         break
@@ -266,7 +266,7 @@ def main() -> None:
                             app.avatar.move_right(20.0)
                         continue  # Don't pass to chat input
                     
-                    # Non-control keys: only pass to chat if input is active
+                    # Non-control keys: pass to chat input if active
                     if chat_ui.input_active:
                         message = chat_ui.handle_event(event)
                         if message:
@@ -278,11 +278,14 @@ def main() -> None:
                     mouse_pos = event.pos
                     input_y = chat_ui.height - chat_ui.input_box_height - 10
                     
-                    # Check if clicking inside chat input box
+                    # Check if clicking inside chat input box using proper rect collision
+                    chat_input_rect = pygame.Rect(
+                        20, input_y,
+                        chat_ui.width - 40, chat_ui.input_box_height
+                    )
                     clicked_chat_input = (
                         chat_ui.chat_visible and
-                        mouse_pos[1] >= input_y and
-                        20 <= mouse_pos[0] <= chat_ui.width - 20
+                        chat_input_rect.collidepoint(mouse_pos)
                     )
                     
                     if event.button == 1:  # Left click
