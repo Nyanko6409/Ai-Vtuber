@@ -87,6 +87,12 @@ class ChatUI:
             elif event.key == pygame.K_BACKSPACE:
                 # Delete character
                 self.input_text = self.input_text[:-1]
+            # Skip avatar control keys - they should not appear in chat input
+            elif event.key in (pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT,
+                               pygame.K_w, pygame.K_a, pygame.K_s, pygame.K_d,
+                               pygame.K_PLUS, pygame.K_EQUALS, pygame.K_MINUS, pygame.K_r):
+                # These are avatar control keys - ignore them in chat input
+                pass
             elif event.key <= 127:  # Printable ASCII
                 # Add character
                 char = chr(event.key)

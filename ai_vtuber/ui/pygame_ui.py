@@ -143,9 +143,14 @@ class PygameUI:
 
     def begin_frame(self) -> None:
         """Begin a new frame - clear buffer and update timing."""
-        # Clear the OpenGL color buffer
+        # Clear the OpenGL color buffer and reset matrices
         try:
             from OpenGL import GL
+            
+            # Reset modelview matrix to identity before clearing
+            GL.glMatrixMode(GL.GL_MODELVIEW)
+            GL.glLoadIdentity()
+            
             GL.glClearColor(
                 self.bg_color[0] / 255.0,
                 self.bg_color[1] / 255.0,
