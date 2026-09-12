@@ -116,29 +116,7 @@ class PygameUI:
                     self.show_fps = not self.show_fps
                 elif event.key == pygame.K_d:
                     self.show_debug = not self.show_debug
-                # Zoom controls
-                elif event.key == pygame.K_PLUS or event.key == pygame.K_EQUALS:
-                    if avatar:
-                        avatar.zoom_in(0.2)
-                elif event.key == pygame.K_MINUS:
-                    if avatar:
-                        avatar.zoom_out(0.2)
-                elif event.key == pygame.K_r:
-                    if avatar:
-                        avatar.reset_zoom()
-                # Movement controls
-                elif event.key == pygame.K_UP or event.key == pygame.K_w:
-                    if avatar:
-                        avatar.move_up(20.0)
-                elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
-                    if avatar:
-                        avatar.move_down(20.0)
-                elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
-                    if avatar:
-                        avatar.move_left(20.0)
-                elif event.key == pygame.K_RIGHT or event.key == pygame.K_d:
-                    if avatar:
-                        avatar.move_right(20.0)
+                # No keyboard avatar controls - mouse only
         return True
 
     def begin_frame(self) -> None:
@@ -155,7 +133,7 @@ class PygameUI:
             # This creates a coordinate system where (0,0) is center of screen
             GL.glOrtho(-self.width/2, self.width/2, -self.height/2, self.height/2, -1000, 1000)
             
-            # Setup modelview matrix - DO NOT reset here, let avatar.draw() handle it
+            # Setup modelview matrix - reset to identity for clean transform state
             GL.glMatrixMode(GL.GL_MODELVIEW)
             GL.glLoadIdentity()
             
