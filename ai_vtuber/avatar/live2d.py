@@ -168,6 +168,13 @@ class Live2DAvatar:
         self._gl_initialized: bool = False
         self._error_message: Optional[str] = None
         self._model_path: Optional[Path] = None
+        
+        # Zoom and position controls
+        self._zoom: float = self.scale
+        self._offset_x: float = 0.0
+        self._offset_y: float = 0.0
+        self._min_zoom: float = 0.5
+        self._max_zoom: float = 5.0
 
         # CRITICAL: Check compatibility BEFORE importing
         self._safe_import_live2d()
@@ -527,6 +534,58 @@ class Live2DAvatar:
                 self._model.Drag(x, y)
             except Exception:
                 pass
+
+    def zoom_in(self, amount: float = 0.1) -> None:
+        """Zoom in the model."""
+        self._zoom = min(self._max_zoom, self._zoom + amount)
+        logger.debug(f"Zoom: {self._zoom:.2f}")
+
+    def zoom_out(self, amount: float = 0.1) -> None:
+        """Zoom out the model."""
+        self._zoom = max(self._min_zoom, self._zoom - amount)
+        logger.debug(f"Zoom: {self._zoom:.2f}")
+
+    def reset_zoom(self) -> None:
+        """Reset zoom to default scale."""
+        self._zoom = self.scale
+        self._offset_x = 0.0
+        self._offset_y = 0.0
+        logger.debug("Zoom reset")
+
+    def move_up(self, amount: float = 10.0) -> None:
+        """Move model up."""
+        self._offset_y -= amount
+        logger.debug(f"Offset Y: {self._offset_y:.1f}")
+
+    def move_down(self, amount: float = 10.0) -> None:
+        """Move model down."""
+        self._offset_y += amount
+        logger.debug(f"Offset Y: {self._offset_y:.1f}")
+
+    def move_left(self, amount: float = 10.0) -> None:
+        """Move model left."""
+        self._offset_x -= amount
+        logger.debug(f"Offset X: {self._offset_x:.1f}")
+
+    def move_right(self, amount: float = 10.0) -> None:
+        """Move model right."""
+        self._offset_x += amount
+        logger.debug(f"Offset X: {self._offset_x:.1f}")
+
+    @property
+    def zoom(self) -> float:
+        """Get current zoom level."""
+        return self._zoom
+
+    @property
+    def offset_x(self) -> float:
+        """Get current X offset."""
+        return self._offset_x
+
+    @property
+    def offset_y(self) -> float:
+        """Get current Y offset."""
+        return self._offset_y
 
     def dispose(self) -> None:
         """Clean up Live2D resources."""

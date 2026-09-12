@@ -63,13 +63,19 @@ tts:
 #   - Paths with spaces: /home/user/My Models/model.model3.json
 avatar:
   # Windows example: "C:/Users/YourName/VTubeStudio/Models/ganyu/ganyu.model3.json"
+  # Windows Steam example: "E:/SteamLibrary/steamapps/common/VTube Studio/VTube Studio_Data/StreamingAssets/Live2DModels/ganyu/ganyu.model3.json"
   # WSL example: "/mnt/e/SteamLibrary/steamapps/common/VTube Studio/VTube Studio_Data/StreamingAssets/Live2DModels/ganyu/ganyu.model3.json"
   # Linux example: "/home/user/models/ganyu/ganyu.model3.json"
-  model_path: "/mnt/e/SteamLibrary/steamapps/common/VTube Studio/VTube Studio_Data/StreamingAssets/Live2DModels/ganyu/ganyu.model3.json"
+  model_path: "E:/SteamLibrary/steamapps/common/VTube Studio/VTube Studio_Data/StreamingAssets/Live2DModels/ganyu/ganyu.model3.json"
   window_width: 800
   window_height: 600
   fps: 30
   scale: 2.0
+  # Zoom and movement controls:
+  #   +/= : Zoom in
+  #   -   : Zoom out
+  #   R   : Reset zoom and position
+  #   Arrow keys / WASD: Move avatar
   # Expression mapping: emotion -> expression file name
   # Files are searched in model directory and expressions/ subdirectory
   expressions:

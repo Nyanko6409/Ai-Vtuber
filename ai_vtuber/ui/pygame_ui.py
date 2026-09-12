@@ -90,9 +90,12 @@ class PygameUI:
         self._clock = pygame.time.Clock()
         logger.info(f"Pygame UI initialized ({self.width}x{self.height} @ {self.fps}fps)")
 
-    def handle_events(self) -> bool:
+    def handle_events(self, avatar=None) -> bool:
         """Handle Pygame events.
         
+        Args:
+            avatar: Optional Live2DAvatar instance for zoom/move controls
+            
         Returns:
             False if window was closed, True otherwise.
         """
@@ -113,6 +116,29 @@ class PygameUI:
                     self.show_fps = not self.show_fps
                 elif event.key == pygame.K_d:
                     self.show_debug = not self.show_debug
+                # Zoom controls
+                elif event.key == pygame.K_PLUS or event.key == pygame.K_EQUALS:
+                    if avatar:
+                        avatar.zoom_in(0.2)
+                elif event.key == pygame.K_MINUS:
+                    if avatar:
+                        avatar.zoom_out(0.2)
+                elif event.key == pygame.K_r:
+                    if avatar:
+                        avatar.reset_zoom()
+                # Movement controls
+                elif event.key == pygame.K_UP or event.key == pygame.K_w:
+                    if avatar:
+                        avatar.move_up(20.0)
+                elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
+                    if avatar:
+                        avatar.move_down(20.0)
+                elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
+                    if avatar:
+                        avatar.move_left(20.0)
+                elif event.key == pygame.K_RIGHT or event.key == pygame.K_d:
+                    if avatar:
+                        avatar.move_right(20.0)
         return True
 
     def begin_frame(self) -> None:
