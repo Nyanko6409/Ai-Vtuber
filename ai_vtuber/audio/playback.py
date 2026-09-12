@@ -12,20 +12,23 @@ logger = logging.getLogger(__name__)
 def _setup_cuda_library_path():
     """Setup library path for CUDA libraries if they exist in pip packages."""
     import sys
+    # Detect Python version dynamically
+    python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+    
     cuda_lib_paths = [
-        os.path.join(sys.prefix, "lib/python3.12/site-packages/nvidia/cublas/lib"),
-        os.path.join(sys.prefix, "lib/python3.12/site-packages/nvidia/cudnn/lib"),
-        os.path.join(sys.prefix, "lib/python3.12/site-packages/nvidia/nvjitlink/lib"),
-        os.path.join(sys.prefix, "lib/python3.12/site-packages/nvidia/cuda_cupti/lib"),
-        os.path.join(sys.prefix, "lib/python3.12/site-packages/nvidia/cufft/lib"),
-        os.path.join(sys.prefix, "lib/python3.12/site-packages/nvidia/cuda_nvrtc/lib"),
-        os.path.join(sys.prefix, "lib/python3.12/site-packages/nvidia/cuda_runtime/lib"),
-        os.path.join(sys.prefix, "lib/python3.12/site-packages/nvidia/curand/lib"),
-        os.path.join(sys.prefix, "lib/python3.12/site-packages/nvidia/cusparse/lib"),
-        os.path.join(sys.prefix, "lib/python3.12/site-packages/nvidia/cusolver/lib"),
-        os.path.join(sys.prefix, "lib/python3.12/site-packages/nvidia/nccl/lib"),
-        os.path.join(sys.prefix, "lib/python3.12/site-packages/nvidia/nvtx/lib"),
-        os.path.join(sys.prefix, "lib/python3.12/site-packages/nvidia/cufile/lib"),
+        os.path.join(sys.prefix, f"lib/python{python_version}/site-packages/nvidia/cublas/lib"),
+        os.path.join(sys.prefix, f"lib/python{python_version}/site-packages/nvidia/cudnn/lib"),
+        os.path.join(sys.prefix, f"lib/python{python_version}/site-packages/nvidia/nvjitlink/lib"),
+        os.path.join(sys.prefix, f"lib/python{python_version}/site-packages/nvidia/cuda_cupti/lib"),
+        os.path.join(sys.prefix, f"lib/python{python_version}/site-packages/nvidia/cufft/lib"),
+        os.path.join(sys.prefix, f"lib/python{python_version}/site-packages/nvidia/cuda_nvrtc/lib"),
+        os.path.join(sys.prefix, f"lib/python{python_version}/site-packages/nvidia/cuda_runtime/lib"),
+        os.path.join(sys.prefix, f"lib/python{python_version}/site-packages/nvidia/curand/lib"),
+        os.path.join(sys.prefix, f"lib/python{python_version}/site-packages/nvidia/cusparse/lib"),
+        os.path.join(sys.prefix, f"lib/python{python_version}/site-packages/nvidia/cusolver/lib"),
+        os.path.join(sys.prefix, f"lib/python{python_version}/site-packages/nvidia/nccl/lib"),
+        os.path.join(sys.prefix, f"lib/python{python_version}/site-packages/nvidia/nvtx/lib"),
+        os.path.join(sys.prefix, f"lib/python{python_version}/site-packages/nvidia/cufile/lib"),
     ]
     
     ld_path = os.environ.get('LD_LIBRARY_PATH', '')

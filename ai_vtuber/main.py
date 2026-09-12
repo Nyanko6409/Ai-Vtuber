@@ -27,20 +27,24 @@ import pygame
 # Setup CUDA library paths before importing any CUDA-dependent modules
 def _setup_cuda_library_path():
     """Setup library path for CUDA libraries if they exist in pip packages."""
+    # Detect Python version dynamically
+    import sys
+    python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+    
     cuda_lib_paths = [
-        "/usr/local/lib/python3.12/site-packages/nvidia/cublas/lib",
-        "/usr/local/lib/python3.12/site-packages/nvidia/cudnn/lib",
-        "/usr/local/lib/python3.12/site-packages/nvidia/nvjitlink/lib",
-        "/usr/local/lib/python3.12/site-packages/nvidia/cuda_cupti/lib",
-        "/usr/local/lib/python3.12/site-packages/nvidia/cufft/lib",
-        "/usr/local/lib/python3.12/site-packages/nvidia/cuda_nvrtc/lib",
-        "/usr/local/lib/python3.12/site-packages/nvidia/cuda_runtime/lib",
-        "/usr/local/lib/python3.12/site-packages/nvidia/curand/lib",
-        "/usr/local/lib/python3.12/site-packages/nvidia/cusparse/lib",
-        "/usr/local/lib/python3.12/site-packages/nvidia/cusolver/lib",
-        "/usr/local/lib/python3.12/site-packages/nvidia/nccl/lib",
-        "/usr/local/lib/python3.12/site-packages/nvidia/nvtx/lib",
-        "/usr/local/lib/python3.12/site-packages/nvidia/cufile/lib",
+        f"/usr/local/lib/python{python_version}/site-packages/nvidia/cublas/lib",
+        f"/usr/local/lib/python{python_version}/site-packages/nvidia/cudnn/lib",
+        f"/usr/local/lib/python{python_version}/site-packages/nvidia/nvjitlink/lib",
+        f"/usr/local/lib/python{python_version}/site-packages/nvidia/cuda_cupti/lib",
+        f"/usr/local/lib/python{python_version}/site-packages/nvidia/cufft/lib",
+        f"/usr/local/lib/python{python_version}/site-packages/nvidia/cuda_nvrtc/lib",
+        f"/usr/local/lib/python{python_version}/site-packages/nvidia/cuda_runtime/lib",
+        f"/usr/local/lib/python{python_version}/site-packages/nvidia/curand/lib",
+        f"/usr/local/lib/python{python_version}/site-packages/nvidia/cusparse/lib",
+        f"/usr/local/lib/python{python_version}/site-packages/nvidia/cusolver/lib",
+        f"/usr/local/lib/python{python_version}/site-packages/nvidia/nccl/lib",
+        f"/usr/local/lib/python{python_version}/site-packages/nvidia/nvtx/lib",
+        f"/usr/local/lib/python{python_version}/site-packages/nvidia/cufile/lib",
     ]
     
     ld_path = os.environ.get('LD_LIBRARY_PATH', '')
