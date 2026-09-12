@@ -318,7 +318,7 @@ class App:
             return ("Sorry, I had trouble thinking of a response.", "sad")
 
     def _speak(self, text: str) -> None:
-        """Generate and play TTS audio."""
+        """Generate and play TTS audio with lip sync."""
         try:
             # Generate audio
             audio_data = self.tts.generate(text)
@@ -326,8 +326,23 @@ class App:
                 logger.warning("TTS returned no audio")
                 return
 
-            # Play audio (with interruption support)
-            self.player.play(audio_data, interrupt_check=self._check_interruption)
+            # Play audio (with interruption support and lip sync callback)
+            def on_playback_start():
+                """Called when playback starts - enable lip sync."""
+                if self._avatar:
+                    self.avatar.set_talking(True)
+            
+            def on_playback_end():
+                """Called when playback ends - disable lip sync."""
+                if self._avatar:
+                    self.avatar.set_talking(False)
+            
+            self.player.play(
+                audio_data, 
+                interrupt_check=self._check_interruption,
+                on_start=on_playback_start,
+                on_end=on_playback_end
+            )
 
         except Exception as e:
             logger.error(f"TTS playback error: {e}")

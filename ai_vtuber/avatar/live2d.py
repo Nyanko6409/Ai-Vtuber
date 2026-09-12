@@ -587,8 +587,8 @@ class Live2DAvatar:
         SetOffset expects screen-space pixel coordinates.
         We apply a sensitivity factor to make dragging feel natural.
         """
-        # Sensitivity factor: 1.0 = 1:1 mouse movement to avatar movement
-        sensitivity = 1.0
+        # Sensitivity factor: 0.01 = very slow/precise movement, 1.0 = 1:1 movement
+        sensitivity = 0.01
         self._offset_x += dx * sensitivity
         self._offset_y += dy * sensitivity
         logger.debug(f"Offset X: {self._offset_x:.1f}, Y: {self._offset_y:.1f}")
