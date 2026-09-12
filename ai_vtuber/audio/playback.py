@@ -113,13 +113,17 @@ class AudioPlayer:
 
     def play(self, audio_data: np.ndarray,
              interrupt_check: Optional[Callable[[], bool]] = None,
-             check_interval: float = 0.1) -> None:
-        """Play audio data with optional interruption support using pygame.mixer.
+             check_interval: float = 0.1,
+             on_start: Optional[Callable[[], None]] = None,
+             on_end: Optional[Callable[[], None]] = None) -> None:
+        """Play audio data with optional interruption support and callbacks using pygame.mixer.
         
         Args:
             audio_data: numpy array of audio samples (float32 at sample_rate)
             interrupt_check: Optional callback that returns True to stop playback
             check_interval: How often to check for interruption (seconds)
+            on_start: Optional callback called when playback starts
+            on_end: Optional callback called when playback ends (normal or interrupted)
         """
         self._stop_event.clear()
 
@@ -157,6 +161,10 @@ class AudioPlayer:
                 self._current_sound = pygame.mixer.Sound(temp_path)
                 self._current_sound.play()
                 
+                # Call on_start callback after playback begins
+                if on_start:
+                    on_start()
+                
                 # Wait for completion or interruption
                 total_duration = len(audio_data) / self.sample_rate
                 elapsed = 0
@@ -191,6 +199,9 @@ class AudioPlayer:
             with self._lock:
                 self._is_playing = False
             self._current_sound = None
+            # Call on_end callback when playback finishes
+            if on_end:
+                on_end()
 
     def stop(self) -> None:
         """Stop current playback immediately."""

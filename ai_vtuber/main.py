@@ -283,7 +283,7 @@ def main() -> None:
                     buttons = pygame.mouse.get_pressed()
                     if buttons[0] and app._avatar_start_drag and app._avatar and app._avatar.is_initialized:
                         dx, dy = event.rel
-                        app.avatar.move_by(-dx, -dy)
+                        app.avatar.move_by(dx, -dy)
 
             if not running:
                 break
