@@ -208,6 +208,9 @@ class App:
             # Reset VAD state for fresh detection
             self.vad.reset()
 
+            # Clear stale audio chunks from queue to prevent memory buildup during idle
+            self.microphone.clear_chunk_queue()
+
             # Mute microphone during future TTS playback to prevent feedback
             # (will be unmuted after speaking is done)
 
