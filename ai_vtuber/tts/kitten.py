@@ -8,8 +8,9 @@ Auto-detects which version is installed and adapts API calls.
 """
 
 import logging
+import re
 import numpy as np
-from typing import Optional
+from typing import Optional, Iterator
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,101 @@ PYPI_VOICES = [
     "expr-voice-1-f", "expr-voice-2-m", "expr-voice-3-f",
     "expr-voice-4-m", "expr-voice-5-f", "expr-voice-6-m",
 ]
+
+
+def split_text_into_chunks(text: str, max_chunk_length: int = 200) -> list[str]:
+    """Split text into smaller chunks for streaming TTS.
+    
+    Splits on sentence boundaries (., !, ?, ;, newline) when possible,
+    while respecting the max chunk length. Each chunk will be at most
+    max_chunk_length characters unless a single sentence exceeds it.
+    
+    Args:
+        text: Text to split.
+        max_chunk_length: Maximum characters per chunk (default 200).
+    
+    Returns:
+        List of text chunks.
+    """
+    if not text or not text.strip():
+        return []
+    
+    # Clean up whitespace
+    text = ' '.join(text.split())
+    
+    # Split on sentence boundaries: . ! ? ; \n followed by space or end
+    # Keep the delimiter with the sentence
+    sentence_pattern = r'([.!?;]+|\n+)(?:\s+|$)'
+    
+    # Find all split points
+    parts = re.split(sentence_pattern, text)
+    
+    # Reconstruct sentences with their delimiters
+    sentences = []
+    i = 0
+    while i < len(parts):
+        if i + 1 < len(parts):
+            # Part + delimiter
+            sentence = parts[i] + parts[i + 1]
+            sentences.append(sentence.strip())
+            i += 2
+        else:
+            # Last part without delimiter
+            if parts[i].strip():
+                sentences.append(parts[i].strip())
+            i += 1
+    
+    # If no sentences found, treat whole text as one
+    if not sentences:
+        sentences = [text]
+    
+    # Group sentences into chunks respecting max length
+    chunks = []
+    current_chunk = ""
+    
+    for sentence in sentences:
+        if not sentence.strip():
+            continue
+            
+        # If single sentence is longer than max, split it by length
+        if len(sentence) > max_chunk_length:
+            # First, finish any existing chunk
+            if current_chunk:
+                chunks.append(current_chunk)
+                current_chunk = ""
+            
+            # Split long sentence into smaller pieces
+            words = sentence.split()
+            current_word_chunk = ""
+            for word in words:
+                if len(current_word_chunk) + len(word) + 1 <= max_chunk_length:
+                    if current_word_chunk:
+                        current_word_chunk += " " + word
+                    else:
+                        current_word_chunk = word
+                else:
+                    if current_word_chunk:
+                        chunks.append(current_word_chunk)
+                    current_word_chunk = word
+            if current_word_chunk:
+                chunks.append(current_word_chunk)
+        elif len(current_chunk) + len(sentence) + 1 <= max_chunk_length:
+            # Add to current chunk
+            if current_chunk:
+                current_chunk += " " + sentence
+            else:
+                current_chunk = sentence
+        else:
+            # Start new chunk
+            if current_chunk:
+                chunks.append(current_chunk)
+            current_chunk = sentence
+    
+    # Don't forget the last chunk
+    if current_chunk:
+        chunks.append(current_chunk)
+    
+    return chunks
 
 
 class KittenTTS:
@@ -152,6 +248,64 @@ class KittenTTS:
         except Exception as e:
             logger.error(f"TTS generation failed: {e}")
             return None
+
+    def generate_streaming(self, text: str, max_chunk_length: int = 200) -> Iterator[Optional[np.ndarray]]:
+        """Generate speech audio from text in chunks for streaming playback.
+        
+        This splits long text into smaller chunks and yields audio for each chunk
+        sequentially, allowing playback to start before the entire text is processed.
+        
+        Args:
+            text: Text to synthesize.
+            max_chunk_length: Maximum characters per chunk (default 200).
+        
+        Yields:
+            numpy array of audio samples for each chunk, or None on error/skip.
+        """
+        if self._model is None:
+            logger.error("KittenTTS model not loaded")
+            return
+        
+        if not text or not text.strip():
+            return
+        
+        # Split text into manageable chunks
+        chunks = split_text_into_chunks(text, max_chunk_length)
+        
+        if not chunks:
+            return
+        
+        logger.info(f"Streaming TTS: {len(chunks)} chunks from {len(text)} chars")
+        
+        for i, chunk in enumerate(chunks):
+            if not chunk.strip():
+                continue
+                
+            try:
+                logger.debug(f"Chunk {i+1}/{len(chunks)}: {chunk[:50]}...")
+                
+                if self._is_official:
+                    # Official 0.8.x API
+                    audio = self._model.generate(
+                        text=chunk,
+                        voice=self._voice,
+                        speed=self.config_speed,
+                        clean_text=True
+                    )
+                else:
+                    # PyPI 0.1.x API
+                    audio = self._model.generate(
+                        text=chunk,
+                        voice=self._voice,
+                        speed=self.config_speed
+                    )
+                
+                logger.debug(f"Chunk {i+1} generated: {len(audio) if audio else 0} samples")
+                yield audio
+                
+            except Exception as e:
+                logger.error(f"TTS chunk {i+1} failed: {e}")
+                yield None
 
     def generate_to_file(self, text: str, output_path: str) -> bool:
         """Generate speech and save to file."""
