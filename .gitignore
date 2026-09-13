@@ -9,21 +9,26 @@ venv/
 .venv/
 .env
 .env.local
-*.env.*
+.env.*
 
 # Build artifacts
-dist/
 build/
+dist/
 *.egg-info/
 
 # Logs
 *.log
 
-# Editors
+# Editor/IDE
 .vscode/
 .idea/
 *.swp
 *.swo
+*.tmp
+
+# OS
+.DS_Store
+Thumbs.db
 
 # Coverage
 .coverage
@@ -33,8 +38,4 @@ htmlcov/
 # Testing
 .pytest_cache/
 .mypy_cache/
-
-# OS
-.DS_Store
-Thumbs.db
 ```
