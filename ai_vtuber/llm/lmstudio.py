@@ -15,6 +15,8 @@ class LMStudioClient:
         self.model: str = config["model"]
         self.temperature: float = config["temperature"]
         self.max_tokens: int = config["max_tokens"]
+        # FIX: Add configurable timeout for LLM requests (default 30 seconds)
+        self.timeout: int = config.get("timeout", 30)
 
         self._client: Optional[OpenAI] = None
         self._connect()
@@ -55,7 +57,8 @@ class LMStudioClient:
                 messages=messages,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
-                stream=False
+                stream=False,
+                timeout=self.timeout
             )
             content = response.choices[0].message.content
             return content if content else ""

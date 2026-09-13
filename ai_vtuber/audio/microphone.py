@@ -1,6 +1,7 @@
 """AI VTuber - Microphone Input Module"""
 
 import logging
+import queue
 import numpy as np
 import threading
 from collections import deque
@@ -15,6 +16,7 @@ class Microphone:
     Provides non-blocking audio capture with circular buffer.
     
     OPTIMIZATION: Uses deque for efficient bounded buffer instead of list slicing.
+    FIX: Uses queue.Queue for collect_speech() to ensure each chunk is consumed exactly once.
     """
 
     def __init__(self, config: dict) -> None:
@@ -27,11 +29,14 @@ class Microphone:
         self._stream = None
         # OPTIMIZATION: Use deque with maxlen for efficient bounded buffer
         # No manual slicing needed, automatically discards old items
+        # This is used by read_chunk() for interruption checking
         self._buffer: deque = deque(maxlen=int(10 * self.sample_rate / self.chunk_size))
         self._speech_buffer: list[np.ndarray] = []
         self._lock = threading.Lock()
         self._is_recording: bool = False
         self._muted: bool = False
+        # FIX: Queue for collect_speech() to consume chunks one-by-one without duplicates
+        self._chunk_queue: queue.Queue = queue.Queue()
 
     def start(self) -> None:
         """Start microphone capture."""
@@ -69,6 +74,13 @@ class Microphone:
             # OPTIMIZATION: deque with maxlen automatically discards old items
             # No need for manual slicing which creates copies
             self._buffer.append(indata.copy().flatten())
+        
+        # FIX: Also push to queue for collect_speech() to consume without duplicates
+        try:
+            self._chunk_queue.put_nowait(indata.copy().flatten())
+        except queue.Full:
+            # Queue is full, drop oldest (shouldn't happen with unbounded queue)
+            pass
 
     def read_chunk(self) -> Optional[np.ndarray]:
         """Read the most recent audio chunk.
@@ -109,9 +121,11 @@ class Microphone:
         silence_chunks = int(silence_duration * self.sample_rate / self.chunk_size)
 
         while self._is_recording:
-            chunk = self.read_chunk()
-            if chunk is None:
-                threading.Event().wait(0.01)
+            # FIX: Use queue.get() to block until new audio arrives - no busy-polling
+            # Each chunk is consumed exactly once from the queue
+            try:
+                chunk = self._chunk_queue.get(timeout=0.1)
+            except queue.Empty:
                 continue
 
             is_speech = vad.is_speech(chunk)
@@ -145,6 +159,12 @@ class Microphone:
         self._muted = False
         with self._lock:
             self._buffer.clear()
+        # FIX: Also clear the chunk queue to prevent stale audio
+        while not self._chunk_queue.empty():
+            try:
+                self._chunk_queue.get_nowait()
+            except queue.Empty:
+                break
 
     def stop(self) -> None:
         """Stop microphone capture."""

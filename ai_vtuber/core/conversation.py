@@ -29,6 +29,11 @@ class ConversationHistory:
             # Trim history if needed (keep system message + recent messages)
             self._trim_history()
 
+    def set_soul_prompt(self, soul_prompt: str) -> None:
+        """Update the soul prompt (thread-safe)."""
+        with self._lock:
+            self.soul_prompt = soul_prompt
+
     def _trim_history(self) -> None:
         """Trim history to max_messages (excluding system prompt)."""
         non_system = [m for m in self._messages if m.role != "system"]

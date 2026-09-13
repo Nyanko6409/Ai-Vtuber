@@ -298,10 +298,16 @@ class App:
         The topic is extracted but not currently used - stored for future features.
         """
         try:
+            # FIX: Refresh soul_prompt from memory manager before each turn
+            # so any new facts/memories are reflected in the next request
+            self.conversation.set_soul_prompt(self.memory_manager.get_full_context())
+            
             messages = self.conversation.get_messages_for_llm()
             raw_response = self.llm.chat(messages)
 
             if not raw_response:
+                # FIX: Log warning when LLM returns empty response before fallback
+                logger.warning("LM Studio returned empty response (request succeeded but content was empty/None)")
                 # Fallback with engaging content instead of generic "not sure"
                 fallback_responses = [
                     "That's an interesting point! I'd love to explore this topic more with you. What aspects interest you the most?",
