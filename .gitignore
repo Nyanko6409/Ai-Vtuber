@@ -1,75 +1,27 @@
-```python
-# Compiled and build artifacts
-*.pyc
+```
+# Python
 __pycache__/
-*.o
-*.obj
-*.so
-*.dylib
-*.dll
-*.exe
-*.out
+*.pyc
+*.pyo
+*.pyd
 
 # Dependencies
 .venv/
 venv/
 env/
-ENV/
-pip-log.txt
-pipenv.lock
-requirements.txt.bak
-*.egg-info/
-
-# Logs and temp files
-*.log
-*.tmp
-*.swp
-*.swo
-*~
-.DS_Store
-Thumbs.db
-
-# Environment
 .env
 .env.local
 .env.*
-!.env.example
 
-# Editors
-.vscode/
-.idea/
-*.sublime-project
-*.sublime-workspace
-nbproject/
-
-# Coverage
-.coverage
-coverage/
-htmlcov/
-.coverage.*
-
-# Distribution
-dist/
+# Build artifacts
 build/
-*.egg
-*.whl
-MANIFEST
+dist/
+*.egg-info/
 
-# Git
-.git/
-!.gitignore
+# Logs
+*.log
 
 # OS generated files
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
 Thumbs.db
-Icon?
 ```
-
-Wait, let me reconsider. The only modified file is `ai_vtuber/core/app.py` which appears to be a Python source file. There are no build artifacts, dependency directories, or temporary files in the changes list. According to rule 6, if the changes contain only source or config files and no build artifacts, dependencies, or temp files, I should output an empty .gitignore.
-
-(empty — output nothing)

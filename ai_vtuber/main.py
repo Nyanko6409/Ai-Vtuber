@@ -108,13 +108,15 @@ def _setup_cuda_library_path():
 # Setup CUDA paths early
 _setup_cuda_library_path()
 
-# Add project root to path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Add project root (parent of ai_vtuber) to path so ai_vtuber is the top-level package
+# This allows relative imports like `from ..llm.lmstudio` to work correctly
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, project_root)
 
-from core.app import App
-from core.state import State
-from ui.pygame_ui import PygameUI
-from ui.chat_ui import ChatUI
+from ai_vtuber.core.app import App
+from ai_vtuber.core.state import State
+from ai_vtuber.ui.pygame_ui import PygameUI
+from ai_vtuber.ui.chat_ui import ChatUI
 
 # Configure logging
 logging.basicConfig(
