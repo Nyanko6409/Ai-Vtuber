@@ -35,7 +35,9 @@ class App:
         self.conversation = ConversationHistory(
             max_messages=config["llm"]["max_history"],
             system_prompt=config["llm"]["system_prompt"],
-            soul_prompt=self.memory_manager.get_full_context()
+            soul_prompt=self.memory_manager.get_full_context(),
+            max_context=config["llm"]["max_context"],
+            reserved_output_tokens=config["llm"]["max_tokens"]
         )
 
         # Current state for UI

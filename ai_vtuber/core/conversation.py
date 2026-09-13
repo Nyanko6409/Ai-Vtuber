@@ -1,8 +1,11 @@
 """AI VTuber - Conversation History Manager"""
 
+import logging
 from typing import Optional
 from dataclasses import dataclass, field
 import threading
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -19,8 +22,14 @@ class ConversationHistory:
     max_messages: int = 10
     system_prompt: str = ""
     soul_prompt: str = ""  # Personality/character definition from soul.md
+    max_context: int = 64000
+    reserved_output_tokens: int = 2000
     _messages: list[Message] = field(default_factory=list)
     _lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def _estimate_tokens(self, text: str) -> int:
+        """Estimate token count using character-based heuristic (~4 chars per token)."""
+        return len(text) // 4
 
     def add_message(self, role: str, content: str, emotion: Optional[str] = None) -> None:
         """Add a message to history."""
@@ -54,18 +63,46 @@ class ConversationHistory:
     def get_messages_for_llm(self) -> list[dict[str, str]]:
         """Get messages formatted for LLM API call."""
         with self._lock:
-            messages = []
             # Build combined system prompt: technical instructions + soul/personality
             combined_system = self.system_prompt.strip()
             if self.soul_prompt:
                 combined_system = f"{combined_system}\n\n{self.soul_prompt.strip()}"
             
-            if combined_system:
-                messages.append({"role": "system", "content": combined_system})
-            for msg in self._messages:
+            # Estimate tokens for system prompt
+            system_tokens = self._estimate_tokens(combined_system) if combined_system else 0
+            
+            # Calculate token budget available for messages
+            available_tokens = self.max_context - self.reserved_output_tokens - system_tokens
+            
+            # Walk messages from most-recent to oldest, accumulating tokens
+            # Stop when we exceed the available token budget
+            accumulated_message_tokens = 0
+            messages_to_include = []
+            
+            for msg in reversed(self._messages):
                 if msg.role == "system":
                     continue
+                
+                msg_tokens = self._estimate_tokens(msg.content)
+                
+                if accumulated_message_tokens + msg_tokens <= available_tokens:
+                    messages_to_include.append(msg)
+                    accumulated_message_tokens += msg_tokens
+                else:
+                    # Message would exceed budget, skip it (and all older ones)
+                    logger.debug(f"Token budget exceeded, dropping {len(self._messages) - len(messages_to_include)} older message(s)")
+                    break
+            
+            # Reverse back to chronological order
+            messages_to_include.reverse()
+            
+            # Build final message list
+            messages = []
+            if combined_system:
+                messages.append({"role": "system", "content": combined_system})
+            for msg in messages_to_include:
                 messages.append({"role": msg.role, "content": msg.content})
+            
             return messages
 
     def clear(self) -> None:
