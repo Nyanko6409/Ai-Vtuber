@@ -248,6 +248,8 @@ class App:
                 self.current_response = response_text
                 self.current_emotion = emotion
 
+            logger.debug(f"Response emotion: {emotion}")
+
             # Update avatar expression
             if self._avatar:
                 self.avatar.set_expression(emotion)
@@ -256,6 +258,7 @@ class App:
             self.state_machine.force_state(State.SPEAKING)
             if self._avatar:
                 self.avatar.set_talking(True)
+                logger.debug("Avatar speaking started")
 
             # Mute mic during playback to prevent feedback
             if self.config["audio"].get("mute_during_playback", True):
@@ -267,6 +270,7 @@ class App:
             if self._avatar:
                 self.avatar.set_talking(False)
                 self.avatar.set_expression("neutral")
+                logger.debug("Avatar speaking finished, expression reset to neutral")
 
             # Unmute microphone for next listening cycle
             self.microphone.unmute()
@@ -330,11 +334,13 @@ class App:
             def on_playback_start():
                 """Called when playback starts - enable real lip sync."""
                 if self._avatar:
+                    logger.debug("TTS playback starting, initiating lip sync")
                     self.avatar.start_lip_sync(audio_data, self.tts.sample_rate)
             
             def on_playback_end():
                 """Called when playback ends - disable lip sync."""
                 if self._avatar:
+                    logger.debug("TTS playback finished")
                     self.avatar.set_talking(False)
             
             self.player.play(
