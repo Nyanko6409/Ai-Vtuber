@@ -2,6 +2,17 @@
 
 All notable changes to the AI VTuber project will be documented in this file.
 
+## [1.2.2] - 2026-09-12
+
+### Fixed
+- **F and D keyboard input bug**: When ChatUI text input is active/focused, pressing F or D now types "f" or "d" normally instead of triggering global shortcuts (FPS/debug toggle). F and D shortcuts only work when chat input is NOT active.
+
+### Changed
+- Modified keyboard event handling in `main.py` to check `chat_ui.input_active` before processing F and D shortcuts
+- F key toggles FPS display only when chat input is inactive
+- D key toggles debug display only when chat input is inactive
+- Tab and ESC keys retain their global shortcut behavior regardless of chat state
+
 ## [1.2.1] - 2026-09-12
 
 ### Fixed
@@ -174,6 +185,8 @@ for event in events:
 
 ## Version History Summary
 
+- **1.2.2** - Fixed F/D keyboard input bug (typing in chat)
+- **1.2.1** - Fixed upside-down text, keyboard shortcuts, CUDA documentation
 - **1.2.0** - Chat interface with buttons, improved event handling
 - **1.1.0** - Text chat interface, KittenTTS integration
 - **1.0.1** - Live2D fixes, error handling, diagnostics

@@ -218,7 +218,7 @@ def main() -> None:
                         pygame.DOUBLEBUF | pygame.OPENGL | pygame.RESIZABLE
                     )
                 elif event.type == pygame.KEYDOWN:
-                    # Handle special keys first (always work regardless of chat focus)
+                    # Handle special keys first (only when chat input is NOT active)
                     if event.key == pygame.K_ESCAPE:
                         running = False
                         break
@@ -227,11 +227,15 @@ def main() -> None:
                         chat_ui.toggle_chat()
                         continue  # Don't pass Tab to chat input
                     elif event.key == pygame.K_f:
-                        ui.show_fps = not ui.show_fps
-                        continue  # Don't pass F to chat input
+                        # Only toggle FPS display when chat input is NOT active
+                        if not chat_ui.input_active:
+                            ui.show_fps = not ui.show_fps
+                            continue  # Don't pass F to chat input
                     elif event.key == pygame.K_d:
-                        ui.show_debug = not ui.show_debug
-                        continue  # Don't pass D to chat input
+                        # Only toggle debug display when chat input is NOT active
+                        if not chat_ui.input_active:
+                            ui.show_debug = not ui.show_debug
+                            continue  # Don't pass D to chat input
                     
                     # All other keys: pass to chat input if active
                     # Keyboard is ONLY for chat input - no avatar movement controls
