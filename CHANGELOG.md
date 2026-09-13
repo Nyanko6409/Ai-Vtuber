@@ -2,6 +2,50 @@
 
 All notable performance optimizations and efficiency improvements made to the AI VTuber project.
 
+## [1.3.0] - 2026-09-13
+
+### Soul System - Bot Personality Separation
+
+This release introduces a new `soul.md` file that separates the bot's personality and character definition from technical system instructions.
+
+#### New Files
+
+##### `soul.md` (Project Root)
+- **Created dedicated personality file** containing all character traits, conversational style, and emotional behavior
+- **Separated concerns**: Technical/formatting instructions remain in `config.yaml`, personality lives in `soul.md`
+- **Loaded automatically**: Read once at application startup by `App._load_soul()`
+- **Combined with system prompt**: Personality + technical instructions merged before sending to LLM
+- **Cross-platform path resolution**: Works on native Windows and WSL2 using `os.path` for path construction
+- **Graceful fallback**: If `soul.md` is missing, logs error and uses empty personality (bot still functional)
+
+#### Changed Files
+
+##### `ai_vtuber/core/conversation.py`
+- **Added `soul_prompt` parameter** to `ConversationHistory` dataclass
+- **Modified `get_messages_for_llm()`**: Combines `system_prompt` + `soul_prompt` into single system message
+- **Preserved thread safety**: All operations remain protected by existing lock
+
+##### `ai_vtuber/core/app.py`
+- **Added `_load_soul()` method**: Loads `soul.md` from project root directory
+- **Path resolution logic**: Navigates from `core/app.py` → `core/` → `ai_vtuber/` → project root → `soul.md`
+- **Updated `__init__()`**: Calls `_load_soul()` and passes result to `ConversationHistory`
+- **Error handling**: Logs clear error if file missing, returns empty string as fallback
+
+##### `ai_vtuber/config.yaml`
+- **Added documentation comment**: Explains that personality is now in `soul.md`
+- **System prompt unchanged**: Still contains technical formatting instructions (emotion tags, response length)
+- **Clarified separation**: Comment explains soul.md is loaded automatically and combined with system prompt
+
+#### Benefits
+
+- **Easier customization**: Users can edit personality in plain markdown without touching YAML config
+- **Cleaner separation**: Technical instructions vs. character traits are now clearly separated
+- **Better maintainability**: Personality changes don't risk breaking YAML syntax
+- **Portable**: `soul.md` can be version-controlled, shared, or swapped independently
+- **Backward compatible**: Existing system prompt behavior preserved; soul is additive
+
+---
+
 ## [1.2.2] - 2026-09-13
 
 ### Performance Optimizations

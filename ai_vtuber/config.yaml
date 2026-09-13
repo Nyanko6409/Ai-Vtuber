@@ -23,6 +23,10 @@ llm:
     Example:
     [happy]
     That sounds really fun! Tell me more!
+  
+  # Note: Bot personality and character traits are defined in soul.md at project root.
+  # The system prompt above contains only technical/formatting instructions.
+  # soul.md is loaded automatically at startup and combined with this system prompt.
 
 # STT Settings (faster-whisper)
 # CUDA detection uses CTranslate2 directly (no PyTorch needed)
