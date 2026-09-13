@@ -652,21 +652,25 @@ class Live2DAvatar:
     def move_up(self, amount: float = 10.0) -> None:
         """Move model up."""
         self._offset_y -= amount
+        self._clamp_offset()
         logger.debug(f"Offset Y: {self._offset_y:.1f}")
 
     def move_down(self, amount: float = 10.0) -> None:
         """Move model down."""
         self._offset_y += amount
+        self._clamp_offset()
         logger.debug(f"Offset Y: {self._offset_y:.1f}")
 
     def move_left(self, amount: float = 10.0) -> None:
         """Move model left."""
         self._offset_x -= amount
+        self._clamp_offset()
         logger.debug(f"Offset X: {self._offset_x:.1f}")
 
     def move_right(self, amount: float = 10.0) -> None:
         """Move model right."""
         self._offset_x += amount
+        self._clamp_offset()
         logger.debug(f"Offset X: {self._offset_x:.1f}")
 
     def move_by(self, dx: float, dy: float) -> None:
@@ -674,12 +678,29 @@ class Live2DAvatar:
         
         SetOffset expects screen-space pixel coordinates.
         We apply a sensitivity factor to make dragging feel natural.
+        
+        Bounds are applied to prevent the avatar from being dragged
+        completely off-screen.
         """
         # Sensitivity factor: 0.01 = very slow/precise movement, 1.0 = 1:1 movement
         sensitivity = 0.01
         self._offset_x += dx * sensitivity
         self._offset_y += dy * sensitivity
+        
+        # Apply bounds to keep avatar reachable
+        # Live2D models are typically centered at (0, 0) with visible area ~800x600
+        # Allow reasonable movement while preventing permanent loss off-screen
+        max_offset = 500.0  # pixels in any direction
+        self._offset_x = max(-max_offset, min(max_offset, self._offset_x))
+        self._offset_y = max(-max_offset, min(max_offset, self._offset_y))
+        
         logger.debug(f"Offset X: {self._offset_x:.1f}, Y: {self._offset_y:.1f}")
+
+    def _clamp_offset(self) -> None:
+        """Clamp offset values to safe bounds."""
+        max_offset = 500.0  # pixels in any direction
+        self._offset_x = max(-max_offset, min(max_offset, self._offset_x))
+        self._offset_y = max(-max_offset, min(max_offset, self._offset_y))
 
     @property
     def zoom(self) -> float:

@@ -241,23 +241,50 @@ class ChatUI:
         logger.info("Chat history cleared")
 
     def draw(self, screen: pygame.Surface) -> None:
-        """Draw the chat UI by rendering to a surface and uploading as OpenGL texture."""
+        """Draw the chat UI by rendering to a persistent surface and uploading as OpenGL texture.
+        
+        OPTIMIZATION: Uses persistent surface and texture with dirty flag.
+        Only re-renders when content actually changes.
+        """
         if self._font is None:
             return
         
-        # Create a surface for the chat UI
-        chat_surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        # Check if content has changed (dirty detection)
+        current_input = self.input_text
+        current_cursor = self.cursor_visible and self.input_active
+        current_typewriter = self.typewriter_text if self.is_typing else ""
         
-        # Only draw chat if visible
-        if self.chat_visible:
-            # Draw input box only (no message history, no buttons)
-            self._draw_input_box(chat_surface)
+        # Determine if we need to redraw
+        needs_redraw = (
+            self._dirty or
+            self._last_input_text != current_input or
+            self._last_cursor_state != current_cursor or
+            self._last_typewriter_text != current_typewriter
+        )
+        
+        if needs_redraw:
+            # Create or reuse persistent surface
+            if self._surface is None:
+                self._surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+            
+            # Clear surface
+            self._surface.fill((0, 0, 0, 0))
+            
+            # Draw chat content
+            if self.chat_visible:
+                self._draw_input_box(self._surface)
+            
+            # Update tracking state
+            self._last_input_text = current_input
+            self._last_cursor_state = current_cursor
+            self._last_typewriter_text = current_typewriter
+            self._dirty = False
         
         # Render the surface as an OpenGL texture
-        self._render_as_texture(chat_surface, screen)
+        self._render_as_texture(self._surface, screen)
     
     def _render_as_texture(self, surface: pygame.Surface, screen: pygame.Surface) -> None:
-        """Render the surface as an OpenGL texture."""
+        """Render the surface as an OpenGL texture using persistent texture ID."""
         try:
             from OpenGL import GL
             
@@ -265,11 +292,15 @@ class ChatUI:
             raw_data = pygame.image.tostring(surface, "RGBA", True)
             tex_width, tex_height = surface.get_size()
             
-            # Create texture
-            tex_id = GL.glGenTextures(1)
-            GL.glBindTexture(GL.GL_TEXTURE_2D, tex_id)
+            # Create persistent texture if needed
+            if self._texture_id is None:
+                self._texture_id = GL.glGenTextures(1)
+            
+            GL.glBindTexture(GL.GL_TEXTURE_2D, self._texture_id)
             GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR)
             GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR)
+            
+            # Upload texture data (could use glTexSubImage2D for partial updates)
             GL.glTexImage2D(
                 GL.GL_TEXTURE_2D, 0, GL.GL_RGBA,
                 tex_width, tex_height, 0,
@@ -300,7 +331,7 @@ class ChatUI:
             # Draw textured quad covering the entire window
             # Note: Texture Y-axis is flipped because pygame surface and OpenGL have different Y orientations
             GL.glEnable(GL.GL_TEXTURE_2D)
-            GL.glBindTexture(GL.GL_TEXTURE_2D, tex_id)
+            GL.glBindTexture(GL.GL_TEXTURE_2D, self._texture_id)
             GL.glColor4f(1.0, 1.0, 1.0, 1.0)
             
             GL.glBegin(GL.GL_QUADS)
@@ -319,8 +350,7 @@ class ChatUI:
             GL.glPopMatrix()
             GL.glPopAttrib()
             
-            # Cleanup texture
-            GL.glDeleteTextures([tex_id])
+            # NOTE: Do NOT delete texture - it's reused next frame
             
         except ImportError:
             logger.debug("PyOpenGL not available, chat UI disabled")
