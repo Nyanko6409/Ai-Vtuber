@@ -12,7 +12,8 @@ llm:
   base_url: "http://localhost:1234/v1"
   model: "gemma-4-e4b"
   temperature: 0.8
-  max_tokens: 256  # Reduced from 2000 for faster response in real-time VTuber context
+  max_tokens: 2000
+  max_context: 64000
   max_history: 10  # Number of messages to keep in conversation history
   system_prompt: |
     You are a friendly AI VTuber assistant. You are chatting with a user in real-time.

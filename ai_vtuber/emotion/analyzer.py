@@ -61,8 +61,7 @@ EMOTION_KEYWORDS = {
             "tear", "tears", "crying", "cry", "sob", "sobbing", "ouch", "oof",
             "heartbreaking", "heartbreak", "tragic", "tragedy", "loss", "lost",
             "fail", "failed", "failing", "failure", "mistake", "mistakes",
-            "wrong", "broken", "break", "breaking", "tired", "exhausted",
-            "frustrated", "frustrating", "annoyed", "annoying"
+            "wrong", "broken", "break", "breaking", "tired", "exhausted"
         ],
         "patterns": [
             r"\b(i'm|i am|feel|feeling)\s+(sad|upset|disappointed|down|blue)\b",
@@ -78,7 +77,7 @@ EMOTION_KEYWORDS = {
             "pissed", "livid", "enraged", "irate", "hostile", "aggressive",
             "hate", "hated", "hating", "loathe", "despise", "stupid", "idiotic",
             "ridiculous", "absurd", "nonsense", "bullshit", "damn", "crap",
-            "hell", "why does", "why do", "always", "never", "keeps", "keep"
+            "hell"
         ],
         "patterns": [
             r"\b(i'm|i am|so|very)\s+(angry|mad|furious|frustrated|annoyed)\b",
@@ -112,8 +111,7 @@ EMOTION_KEYWORDS = {
             "blush", "blushing", "flushed", "sheepish", "bashful", "timid",
             "nervous", "nervously", "uneasy", "uncomfortable", "self-conscious",
             "humiliated", "ashamed", "guilty", "oops", "uh oh", "d'oh", "facepalm",
-            "cringe", "cringeworthy", "mortified", "flustered", "stutter",
-            "um", "uh", "er", "erm", "like", "you know", "kinda", "sorta"
+            "cringe", "cringeworthy", "mortified", "flustered", "stutter"
         ],
         "patterns": [
             r"\b(i'm|i am|feel|feeling)\s+(embarrassed|awkward|shy|nervous|ashamed)\b",
@@ -240,10 +238,16 @@ def _detect_emotion(text: str) -> str:
         # Score positive keywords (but reduce score if negated)
         for keyword in keywords["positive"]:
             keyword_lower = keyword.lower()
-            if keyword_lower in text_lower:
+            # Use word boundary matching to avoid false positives
+            # For multi-word phrases, put boundaries at start and end of whole phrase
+            pattern = r'\b' + re.escape(keyword_lower) + r'\b'
+            if re.search(pattern, text_lower):
                 # Check if this keyword is negated
+                # For multi-word keywords, check the last word for negation
+                keyword_words = keyword_lower.split()
+                last_word = keyword_words[-1] if keyword_words else keyword_lower
                 is_negated = any(
-                    keyword_lower in negated or negated in keyword_lower
+                    last_word in negated or negated in last_word
                     for negated in negated_words
                 )
                 if is_negated:
