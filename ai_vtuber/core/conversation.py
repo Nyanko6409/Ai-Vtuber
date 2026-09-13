@@ -18,6 +18,7 @@ class ConversationHistory:
     """Thread-safe conversation history with configurable limit."""
     max_messages: int = 10
     system_prompt: str = ""
+    soul_prompt: str = ""  # Personality/character definition from soul.md
     _messages: list[Message] = field(default_factory=list)
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -49,8 +50,13 @@ class ConversationHistory:
         """Get messages formatted for LLM API call."""
         with self._lock:
             messages = []
-            if self.system_prompt:
-                messages.append({"role": "system", "content": self.system_prompt})
+            # Build combined system prompt: technical instructions + soul/personality
+            combined_system = self.system_prompt.strip()
+            if self.soul_prompt:
+                combined_system = f"{combined_system}\n\n{self.soul_prompt.strip()}"
+            
+            if combined_system:
+                messages.append({"role": "system", "content": combined_system})
             for msg in self._messages:
                 if msg.role == "system":
                     continue

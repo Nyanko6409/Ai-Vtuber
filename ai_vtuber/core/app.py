@@ -30,10 +30,14 @@ class App:
         self.state_machine = StateMachine()
         self.running = False
 
-        # Initialize conversation history
+        # Load soul (personality) from soul.md
+        self._soul_prompt = self._load_soul()
+
+        # Initialize conversation history with system prompt and soul
         self.conversation = ConversationHistory(
             max_messages=config["llm"]["max_history"],
-            system_prompt=config["llm"]["system_prompt"]
+            system_prompt=config["llm"]["system_prompt"],
+            soul_prompt=self._soul_prompt
         )
 
         # Current state for UI
@@ -145,6 +149,33 @@ class App:
 
         self.state_machine.force_state(State.IDLE)
         logger.info("AI VTuber started successfully")
+
+    def _load_soul(self) -> str:
+        """Load personality/character definition from soul.md.
+        
+        Returns the soul content as a string, or empty string if file is missing.
+        The file is resolved relative to the project root directory.
+        Works on both native Windows and WSL2.
+        """
+        import os
+        
+        # Determine project root (parent of ai_vtuber package directory)
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        # Go up two levels: core/app.py -> core/ -> ai_vtuber/ -> project_root/
+        project_root = os.path.dirname(os.path.dirname(current_dir))
+        soul_path = os.path.join(project_root, "soul.md")
+        
+        try:
+            with open(soul_path, "r", encoding="utf-8") as f:
+                content = f.read().strip()
+                logger.info(f"Loaded soul from {soul_path}")
+                return content
+        except FileNotFoundError:
+            logger.error(f"soul.md not found at {soul_path}. Bot will use default personality.")
+            return ""
+        except Exception as e:
+            logger.error(f"Failed to load soul.md: {e}")
+            return ""
 
     def stop(self) -> None:
         """Stop the VTuber application."""
