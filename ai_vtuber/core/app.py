@@ -5,17 +5,17 @@ import threading
 from pathlib import Path
 from typing import Optional
 
-from core.state import State, StateMachine
-from core.conversation import ConversationHistory
-from llm.lmstudio import LMStudioClient
-from stt.whisper import WhisperSTT
-from tts.kitten import KittenTTS
-from avatar.live2d import Live2DAvatar
-from audio.microphone import Microphone
-from audio.vad import VoiceActivityDetector
-from audio.playback import AudioPlayer
-from memory.manager import MemoryManager
-from emotion.analyzer import analyze_response
+from .state import State, StateMachine
+from .conversation import ConversationHistory
+from ..llm.lmstudio import LMStudioClient
+from ..stt.whisper import WhisperSTT
+from ..tts.kitten import KittenTTS
+from ..avatar.live2d import Live2DAvatar
+from ..audio.microphone import Microphone
+from ..audio.vad import VoiceActivityDetector
+from ..audio.playback import AudioPlayer
+from ..memory.manager import MemoryManager
+from ..emotion.analyzer import analyze_response
 
 logger = logging.getLogger(__name__)
 
