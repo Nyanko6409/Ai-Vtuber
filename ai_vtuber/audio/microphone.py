@@ -154,17 +154,25 @@ class Microphone:
         """Mute microphone (ignore incoming audio)."""
         self._muted = True
 
+    def _clear_chunk_queue(self) -> None:
+        """Clear the chunk queue to prevent stale audio buildup."""
+        while not self._chunk_queue.empty():
+            try:
+                self._chunk_queue.get_nowait()
+            except queue.Empty:
+                break
+
+    def clear_chunk_queue(self) -> None:
+        """Public method to clear the chunk queue (called at start of listening cycle)."""
+        self._clear_chunk_queue()
+
     def unmute(self) -> None:
         """Unmute microphone."""
         self._muted = False
         with self._lock:
             self._buffer.clear()
         # FIX: Also clear the chunk queue to prevent stale audio
-        while not self._chunk_queue.empty():
-            try:
-                self._chunk_queue.get_nowait()
-            except queue.Empty:
-                break
+        self._clear_chunk_queue()
 
     def stop(self) -> None:
         """Stop microphone capture."""

@@ -589,6 +589,9 @@ class Live2DAvatar:
                     self._is_blinking = False
                     self._blink_timer = 0.0
                     eyes_open = True
+                else:
+                    # Still mid-blink — keep eyes closed
+                    eyes_open = False
             elif self._blink_timer >= self._blink_interval:
                 self._is_blinking = True
                 self._blink_timer = 0.0
