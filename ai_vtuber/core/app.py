@@ -2,7 +2,6 @@
 
 import logging
 import threading
-import re
 from pathlib import Path
 from typing import Optional
 
@@ -16,12 +15,9 @@ from audio.microphone import Microphone
 from audio.vad import VoiceActivityDetector
 from audio.playback import AudioPlayer
 from memory.manager import MemoryManager
+from emotion.analyzer import analyze_response
 
 logger = logging.getLogger(__name__)
-
-# Emotion tag pattern
-EMOTION_PATTERN = re.compile(r'^\[(neutral|happy|excited|thinking|surprised|sad|angry|sleepy)\]\s*\n?', re.IGNORECASE)
-VALID_EMOTIONS = {"neutral", "happy", "excited", "thinking", "surprised", "sad", "angry", "sleepy"}
 
 
 class App:
@@ -296,9 +292,10 @@ class App:
             logger.info("Recovered from error state")
 
     def _generate_response(self) -> tuple[str, str]:
-        """Generate LLM response and parse emotion tag.
+        """Generate LLM response and extract emotion/topic using analyzer.
         
         Returns (response_text, emotion).
+        The topic is extracted but not currently used - stored for future features.
         """
         try:
             messages = self.conversation.get_messages_for_llm()
@@ -307,16 +304,16 @@ class App:
             if not raw_response:
                 return ("I'm not sure what to say.", "neutral")
 
-            # Parse emotion tag
-            match = EMOTION_PATTERN.match(raw_response)
-            if match:
-                emotion = match.group(1).lower()
-                response_text = raw_response[match.end():].strip()
-                if emotion not in VALID_EMOTIONS:
-                    emotion = "neutral"
-            else:
-                emotion = "neutral"
-                response_text = raw_response.strip()
+            # Use the new emotion/topic analyzer
+            analysis = analyze_response(raw_response)
+            
+            # Extract emotion and cleaned text
+            emotion = analysis.emotion
+            response_text = analysis.cleaned_text
+            
+            # Topic is available as analysis.topic for future use
+            # For now, we just log it for debugging
+            logger.debug(f"Detected topic: {analysis.topic}")
 
             # Add to conversation
             self.conversation.add_message("assistant", response_text, emotion)
