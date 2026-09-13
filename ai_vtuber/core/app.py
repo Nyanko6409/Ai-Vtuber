@@ -31,6 +31,9 @@ class App:
         # Initialize memory manager (loads soul, user facts, bot memories)
         self.memory_manager = MemoryManager()
 
+        # Store LLM timeout for dynamic adjustment
+        self.llm_timeout: int = config["llm"].get("timeout", 30)
+
         # Initialize conversation history with system prompt and soul
         self.conversation = ConversationHistory(
             max_messages=config["llm"]["max_history"],
@@ -243,9 +246,9 @@ class App:
             # Add to conversation
             self.conversation.add_message("user", text)
 
-            # Generate response
+            # Generate response with dynamic timeout
             self.state_machine.force_state(State.THINKING)
-            response_text, emotion = self._generate_response()
+            response_text, emotion = self._generate_response(timeout=self.llm_timeout)
 
             if not response_text:
                 # Fallback response when LLM fails - still add to conversation history
@@ -303,8 +306,11 @@ class App:
             self.state_machine.force_state(State.IDLE)
             logger.info("Recovered from error state")
 
-    def _generate_response(self) -> tuple[str, str]:
+    def _generate_response(self, timeout: Optional[int] = None) -> tuple[str, str]:
         """Generate LLM response and extract emotion/topic using analyzer.
+        
+        Args:
+            timeout: Optional timeout in seconds for this request (overrides config).
         
         Returns (response_text, emotion).
         The topic is extracted but not currently used - stored for future features.
@@ -315,7 +321,7 @@ class App:
             self.conversation.set_soul_prompt(self.memory_manager.get_full_context())
             
             messages = self.conversation.get_messages_for_llm()
-            raw_response = self.llm.chat(messages)
+            raw_response = self.llm.chat(messages, timeout=timeout)
 
             if not raw_response:
                 # FIX: Log warning when LLM returns empty response before fallback
@@ -459,8 +465,8 @@ class App:
             # Add to conversation history
             self.conversation.add_message("user", text)
             
-            # Generate response
-            response_text, emotion = self._generate_response()
+            # Generate response with dynamic timeout
+            response_text, emotion = self._generate_response(timeout=self.llm_timeout)
             
             if not response_text:
                 self.state_machine.force_state(State.IDLE)

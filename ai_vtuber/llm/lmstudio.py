@@ -36,11 +36,12 @@ class LMStudioClient:
             logger.warning("LLM will be unavailable. Start LM Studio server to enable chat.")
             self._client = None
 
-    def chat(self, messages: list[dict[str, str]]) -> str:
+    def chat(self, messages: list[dict[str, str]], timeout: Optional[int] = None) -> str:
         """Send messages to LLM and get response.
         
         Args:
             messages: List of message dicts with 'role' and 'content' keys.
+            timeout: Optional timeout in seconds for this request (overrides config).
             
         Returns:
             The assistant's response text.
@@ -51,6 +52,9 @@ class LMStudioClient:
             if self._client is None:
                 raise ConnectionError("Cannot connect to LM Studio")
 
+        # Use provided timeout or fall back to configured timeout
+        request_timeout = timeout if timeout is not None else self.timeout
+
         try:
             response = self._client.chat.completions.create(
                 model=self.model,
@@ -58,7 +62,7 @@ class LMStudioClient:
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
                 stream=False,
-                timeout=self.timeout
+                timeout=request_timeout
             )
             content = response.choices[0].message.content
             return content if content else ""
