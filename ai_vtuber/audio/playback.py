@@ -4,13 +4,15 @@ Cross-platform audio playback supporting:
 - Windows 10/11 (DirectSound via pygame)
 - Linux native (ALSA/PulseAudio via pygame)
 - WSL (PulseAudio via pygame)
+
+OPTIMIZATION: Uses in-memory playback instead of temporary WAV files.
 """
 
 import logging
 import numpy as np
 import threading
 import os
-import tempfile
+import io
 import wave
 from typing import Optional, Callable
 
@@ -118,6 +120,8 @@ class AudioPlayer:
              on_end: Optional[Callable[[], None]] = None) -> None:
         """Play audio data with optional interruption support and callbacks using pygame.mixer.
         
+        OPTIMIZATION: Uses in-memory WAV data instead of temporary files.
+        
         Args:
             audio_data: numpy array of audio samples (float32 at sample_rate)
             interrupt_check: Optional callback that returns True to stop playback
@@ -145,20 +149,18 @@ class AudioPlayer:
             # Convert to int16 for pygame
             audio_int16 = (audio_data * 32767).astype(np.int16)
             
-            # Save to temporary WAV file
-            temp_file = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-            temp_path = temp_file.name
-            temp_file.close()
+            # OPTIMIZATION: Create WAV file in memory instead of disk
+            wav_buffer = io.BytesIO()
+            with wave.open(wav_buffer, 'wb') as wav_file:
+                wav_file.setnchannels(1)  # Mono
+                wav_file.setsampwidth(2)  # 16-bit
+                wav_file.setframerate(self.sample_rate)
+                wav_file.writeframes(audio_int16.tobytes())
+            wav_buffer.seek(0)
             
             try:
-                with wave.open(temp_path, 'wb') as wav_file:
-                    wav_file.setnchannels(1)  # Mono
-                    wav_file.setsampwidth(2)  # 16-bit
-                    wav_file.setframerate(self.sample_rate)
-                    wav_file.writeframes(audio_int16.tobytes())
-                
-                # Load and play
-                self._current_sound = pygame.mixer.Sound(temp_path)
+                # Load and play from memory
+                self._current_sound = pygame.mixer.Sound(wav_buffer)
                 self._current_sound.play()
                 
                 # Call on_start callback after playback begins
@@ -185,11 +187,8 @@ class AudioPlayer:
                     elapsed += check_interval
                     
             finally:
-                # Clean up temp file
-                try:
-                    os.unlink(temp_path)
-                except Exception:
-                    pass
+                # Clean up buffer (no disk cleanup needed)
+                wav_buffer.close()
 
         except Exception as e:
             logger.error(f"Audio playback failed: {e}")

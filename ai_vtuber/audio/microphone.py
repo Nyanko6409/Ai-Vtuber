@@ -3,6 +3,7 @@
 import logging
 import numpy as np
 import threading
+from collections import deque
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -12,6 +13,8 @@ class Microphone:
     """Microphone input handler using sounddevice.
     
     Provides non-blocking audio capture with circular buffer.
+    
+    OPTIMIZATION: Uses deque for efficient bounded buffer instead of list slicing.
     """
 
     def __init__(self, config: dict) -> None:
@@ -22,7 +25,9 @@ class Microphone:
         self.mute_during_playback: bool = config.get("mute_during_playback", True)
 
         self._stream = None
-        self._buffer: list[np.ndarray] = []
+        # OPTIMIZATION: Use deque with maxlen for efficient bounded buffer
+        # No manual slicing needed, automatically discards old items
+        self._buffer: deque = deque(maxlen=int(10 * self.sample_rate / self.chunk_size))
         self._speech_buffer: list[np.ndarray] = []
         self._lock = threading.Lock()
         self._is_recording: bool = False
@@ -61,11 +66,9 @@ class Microphone:
 
         with self._lock:
             # Keep a rolling buffer of recent audio
+            # OPTIMIZATION: deque with maxlen automatically discards old items
+            # No need for manual slicing which creates copies
             self._buffer.append(indata.copy().flatten())
-            # Limit buffer size (keep last 10 seconds)
-            max_chunks = int(10 * self.sample_rate / self.chunk_size)
-            if len(self._buffer) > max_chunks:
-                self._buffer = self._buffer[-max_chunks:]
 
     def read_chunk(self) -> Optional[np.ndarray]:
         """Read the most recent audio chunk.
