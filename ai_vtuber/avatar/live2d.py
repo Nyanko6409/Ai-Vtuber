@@ -146,6 +146,7 @@ class Live2DAvatar:
     """Live2D avatar using live2d-py library.
     
     CRITICAL: Checks Python/native compatibility BEFORE importing to prevent SIGSEGV.
+    FIX: Uses threading.Lock for thread-safe access to shared state from pipeline/render threads.
     """
 
     def __init__(self, config: dict) -> None:
@@ -191,6 +192,9 @@ class Live2DAvatar:
         self._offset_y: float = 0.0
         self._min_zoom: float = 0.5
         self._max_zoom: float = 5.0
+        
+        # FIX: Thread safety lock for shared state accessed from pipeline/render threads
+        self._lock = threading.Lock()
 
         # CRITICAL: Check compatibility BEFORE importing
         self._safe_import_live2d()
@@ -516,10 +520,12 @@ class Live2DAvatar:
         if not self._initialized or not self._model:
             return
 
-        self._current_expression = emotion
-        expression_name = self.expressions_map.get(emotion, "neutral")
+        # FIX: Protect shared state with lock
+        with self._lock:
+            self._current_expression = emotion
+            expression_name = self.expressions_map.get(emotion, "neutral")
 
-        # Try loading expression file
+        # Try loading expression file (outside lock - no shared state modified)
         if self._model_path:
             model_dir = self._model_path.parent
             for search_dir in [model_dir, model_dir / "expressions", model_dir / "Exp"]:
@@ -556,9 +562,14 @@ class Live2DAvatar:
 
     def set_talking(self, talking: bool) -> None:
         """Set talking state for lip sync."""
-        self._is_talking = talking
+        # FIX: Protect shared state with lock
+        with self._lock:
+            self._is_talking = talking
+            if not talking and self._model:
+                self._mouth_value = 0.0
+        
+        # Apply to model outside lock (GL calls must stay on main thread anyway)
         if not talking and self._model:
-            self._mouth_value = 0.0
             try:
                 self._model.SetParameterValue(self._param_mouth_open, 0.0)
             except Exception:
@@ -569,60 +580,76 @@ class Live2DAvatar:
         if not self._model:
             return
 
-        self._blink_timer += delta_time
+        # FIX: Protect shared state with lock (read on main thread, write from pipeline)
+        with self._lock:
+            self._blink_timer += delta_time
 
-        if self._is_blinking:
-            if self._blink_timer >= self._blink_duration:
-                self._is_blinking = False
+            if self._is_blinking:
+                if self._blink_timer >= self._blink_duration:
+                    self._is_blinking = False
+                    self._blink_timer = 0.0
+                    eyes_open = True
+            elif self._blink_timer >= self._blink_interval:
+                self._is_blinking = True
                 self._blink_timer = 0.0
-                try:
-                    self._model.SetParameterValue(self._param_eye_l_open, 1.0)
-                    self._model.SetParameterValue(self._param_eye_r_open, 1.0)
-                except Exception:
-                    pass
-        elif self._blink_timer >= self._blink_interval:
-            self._is_blinking = True
-            self._blink_timer = 0.0
-            try:
-                self._model.SetParameterValue(self._param_eye_l_open, 0.0)
-                self._model.SetParameterValue(self._param_eye_r_open, 0.0)
-            except Exception:
-                pass
+                eyes_open = False
+            else:
+                eyes_open = True
+        
+        # Apply GL calls outside lock
+        eye_value = 0.0 if not eyes_open else 1.0
+        try:
+            self._model.SetParameterValue(self._param_eye_l_open, eye_value)
+            self._model.SetParameterValue(self._param_eye_r_open, eye_value)
+        except Exception:
+            pass
 
     def _update_lip_sync(self, delta_time: float) -> None:
         """Update lip sync animation driven by actual TTS audio amplitude."""
         if not self._model:
             return
 
-        if self._is_talking and self._lipsync_audio is not None:
-            elapsed = time.time() - self._lipsync_start
-            offset = int(elapsed * self._lipsync_rate)
-            offset = min(offset, len(self._lipsync_audio))
-            chunk = self._lipsync_audio[self._lipsync_last_offset:offset]
-            self._lipsync_last_offset = offset
-            if len(chunk) > 0:
-                rms = float(np.sqrt(np.mean(chunk.astype(np.float32) ** 2)))
-                mouth = max(0.0, min(1.0, rms * 4.0))
+        # FIX: Protect shared state with lock
+        with self._lock:
+            should_compute = self._is_talking and self._lipsync_audio is not None
+            if should_compute:
+                elapsed = time.time() - self._lipsync_start
+                offset = int(elapsed * self._lipsync_rate)
+                offset = min(offset, len(self._lipsync_audio))
+                chunk = self._lipsync_audio[self._lipsync_last_offset:offset]
+                self._lipsync_last_offset = offset
+                compute_mouth = len(chunk) > 0
+            else:
+                compute_mouth = False
+                should_decay = self._mouth_value > 0.01
+        
+        # Compute mouth value and apply GL calls outside lock
+        if should_compute and compute_mouth:
+            rms = float(np.sqrt(np.mean(chunk.astype(np.float32) ** 2)))
+            mouth = max(0.0, min(1.0, rms * 4.0))
+            with self._lock:
                 self._mouth_value = mouth
-                try:
-                    self._model.SetParameterValue(self._param_mouth_open, mouth)
-                except Exception:
-                    pass
-        else:
-            if self._mouth_value > 0.01:
+            try:
+                self._model.SetParameterValue(self._param_mouth_open, mouth)
+            except Exception:
+                pass
+        elif not should_compute and self._mouth_value > 0.01:
+            with self._lock:
                 self._mouth_value *= 0.8
-                try:
-                    self._model.SetParameterValue(self._param_mouth_open, self._mouth_value)
-                except Exception:
-                    pass
+            try:
+                self._model.SetParameterValue(self._param_mouth_open, self._mouth_value)
+            except Exception:
+                pass
 
     def start_lip_sync(self, audio_data: np.ndarray, sample_rate: int) -> None:
         """Begin real lip sync driven by actual TTS audio amplitude."""
-        self._lipsync_audio = audio_data
-        self._lipsync_rate = sample_rate
-        self._lipsync_start = time.time()
-        self._lipsync_last_offset = 0
-        self._is_talking = True
+        # FIX: Protect shared state with lock
+        with self._lock:
+            self._lipsync_audio = audio_data
+            self._lipsync_rate = sample_rate
+            self._lipsync_start = time.time()
+            self._lipsync_last_offset = 0
+            self._is_talking = True
 
     def drag(self, x: int, y: int) -> None:
         """Handle mouse drag for eye tracking."""
