@@ -248,8 +248,15 @@ class App:
             response_text, emotion = self._generate_response()
 
             if not response_text:
-                self.state_machine.force_state(State.IDLE)
-                return
+                # Fallback response when LLM fails - still add to conversation history
+                fallback_text = "I'm having trouble thinking clearly right now, but I'd love to hear more about what you were saying! Can you tell me more?"
+                self.conversation.add_message("assistant", fallback_text, "neutral")
+                with self._lock:
+                    self.current_response = fallback_text
+                    self.current_emotion = "neutral"
+                logger.debug(f"Using fallback response after LLM failure")
+                response_text = fallback_text
+                emotion = "neutral"
 
             with self._lock:
                 self.current_response = response_text
