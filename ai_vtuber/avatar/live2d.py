@@ -463,7 +463,7 @@ class Live2DAvatar:
                 if exp_file.exists():
                     try:
                         self._model.LoadExpression(str(exp_file))
-                        logger.debug(f"Expression loaded: {exp_file}")
+                        logger.debug(f"Expression loaded: {emotion}")
                         return
                     except Exception:
                         pass
@@ -479,6 +479,7 @@ class Live2DAvatar:
         for param_id, value in params.items():
             try:
                 self._model.SetParameterValueById(param_id, value)
+                logger.debug(f"Expression param {param_id}={value}")
             except Exception:
                 pass
 
@@ -489,6 +490,7 @@ class Live2DAvatar:
             self._mouth_value = 0.0
             try:
                 self._model.SetParameterValueById("ParamMouthOpenY", 0.0)
+                logger.debug("Talking stopped: mouth closed")
             except Exception:
                 pass
 
@@ -506,6 +508,7 @@ class Live2DAvatar:
                 try:
                     self._model.SetParameterValueById("ParamEyeLOpen", 1.0)
                     self._model.SetParameterValueById("ParamEyeROpen", 1.0)
+                    logger.debug("Blink: eyes opened")
                 except Exception:
                     pass
         elif self._blink_timer >= self._blink_interval:
@@ -514,6 +517,7 @@ class Live2DAvatar:
             try:
                 self._model.SetParameterValueById("ParamEyeLOpen", 0.0)
                 self._model.SetParameterValueById("ParamEyeROpen", 0.0)
+                logger.debug("Blink: eyes closed")
             except Exception:
                 pass
 
@@ -534,6 +538,7 @@ class Live2DAvatar:
                 self._mouth_value = mouth
                 try:
                     self._model.SetParameterValueById("ParamMouthOpenY", mouth)
+                    logger.debug(f"Lip sync: mouth={mouth:.2f}")
                 except Exception:
                     pass
         else:
@@ -551,6 +556,7 @@ class Live2DAvatar:
         self._lipsync_start = time.time()
         self._lipsync_last_offset = 0
         self._is_talking = True
+        logger.debug(f"Lip sync started: {len(audio_data)} samples at {sample_rate}Hz")
 
     def drag(self, x: int, y: int) -> None:
         """Handle mouse drag for eye tracking."""
