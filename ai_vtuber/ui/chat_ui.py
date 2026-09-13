@@ -13,7 +13,11 @@ logger = logging.getLogger(__name__)
 
 
 class ChatUI:
-    """Chat interface with typewriter effect for AI responses."""
+    """Chat interface with typewriter effect for AI responses.
+    
+    OPTIMIZATION: Uses persistent Pygame surface and OpenGL texture.
+    Only redraws when content actually changes (dirty flag).
+    """
 
     def __init__(self, width: int, height: int, font_size: int = 14) -> None:
         self.width = width
@@ -61,6 +65,14 @@ class ChatUI:
         
         # Callback for sending messages
         self.on_send_message: Optional[Callable[[str], None]] = None
+        
+        # Persistent surface and texture optimization
+        self._surface: Optional[pygame.Surface] = None
+        self._texture_id: Optional[int] = None
+        self._dirty: bool = True
+        self._last_input_text: str = ""
+        self._last_cursor_state: bool = False
+        self._last_typewriter_text: str = ""
 
     def init_fonts(self) -> None:
         """Initialize fonts after Pygame is initialized."""
