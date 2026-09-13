@@ -302,7 +302,16 @@ class App:
             raw_response = self.llm.chat(messages)
 
             if not raw_response:
-                return ("I'm not sure what to say.", "neutral")
+                # Fallback with engaging content instead of generic "not sure"
+                fallback_responses = [
+                    "That's an interesting point! I'd love to explore this topic more with you. What aspects interest you the most?",
+                    "Hmm, this gives me a lot to think about! Let me share my perspective on this. What do you think about it?",
+                    "Great question! There are so many angles we could discuss here. Where would you like to start?",
+                    "I appreciate you bringing this up! It reminds me of how complex and fascinating conversations can be. Tell me more about your thoughts!",
+                    "You know, every conversation teaches me something new! This topic seems really intriguing. What made you curious about it?"
+                ]
+                import random
+                return (random.choice(fallback_responses), "neutral")
 
             # Use the new emotion/topic analyzer
             analysis = analyze_response(raw_response)
@@ -322,7 +331,14 @@ class App:
 
         except Exception as e:
             logger.error(f"LLM error: {e}")
-            return ("Sorry, I had trouble thinking of a response.", "sad")
+            # More engaging fallback responses instead of apologetic ones
+            fallbacks = [
+                "Let's keep chatting! I'm always excited to hear what you have to say. What else is on your mind?",
+                "You know what? Every conversation is a new adventure! Where should we go next in our discussion?",
+                "I love our chats! There's always something interesting to talk about. What would you like to explore together?"
+            ]
+            import random
+            return (random.choice(fallbacks), "happy")
 
     def _speak(self, text: str) -> None:
         """Generate and play TTS audio with lip sync."""
