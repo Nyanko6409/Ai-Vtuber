@@ -6,6 +6,7 @@ CRITICAL: Checks Python/native compatibility BEFORE importing to prevent SIGSEGV
 
 import logging
 import math
+import re
 import sys
 import time
 from pathlib import Path
@@ -171,6 +172,10 @@ class Live2DAvatar:
         self._error_message: Optional[str] = None
         self._model_path: Optional[Path] = None
         
+        # Resolved parameter IDs
+        self._param_mouth_open: str = "ParamMouthOpenY"
+        self._param_eye_l_open: str = "ParamEyeLOpen"
+        self._param_eye_r_open: str = "ParamEyeROpen"
         # Lip sync audio data
         self._lipsync_audio: Optional[np.ndarray] = None
         self._lipsync_rate: int = 0
