@@ -163,6 +163,13 @@ class Live2DAvatar:
         self._is_talking: bool = False
         self._current_expression: str = "neutral"
         self._mouth_value: float = 0.0
+
+        # Resolved parameter IDs — filled in after model load by _resolve_parameter_ids().
+        # Default to Cubism standard names; will be corrected to whatever this
+        # specific model actually uses, if different.
+        self._param_mouth_open: str = "ParamMouthOpenY"
+        self._param_eye_l_open: str = "ParamEyeLOpen"
+        self._param_eye_r_open: str = "ParamEyeROpen"
         self._blink_timer: float = 0.0
         self._blink_interval: float = 3.0
         self._blink_duration: float = 0.15
@@ -172,10 +179,6 @@ class Live2DAvatar:
         self._error_message: Optional[str] = None
         self._model_path: Optional[Path] = None
         
-        # Resolved parameter IDs
-        self._param_mouth_open: str = "ParamMouthOpenY"
-        self._param_eye_l_open: str = "ParamEyeLOpen"
-        self._param_eye_r_open: str = "ParamEyeROpen"
         # Lip sync audio data
         self._lipsync_audio: Optional[np.ndarray] = None
         self._lipsync_rate: int = 0
@@ -299,6 +302,8 @@ class Live2DAvatar:
             logger.info(f"✓ Live2D model loaded successfully: {self._model_path.name}")
             logger.info(f"  Model directory: {self._model_path.parent}")
 
+            self._resolve_parameter_ids()
+
         except Exception as e:
             error_msg = f"Failed to load Live2D model: {type(e).__name__}: {e}"
             logger.error(error_msg, exc_info=True)
@@ -415,6 +420,60 @@ class Live2DAvatar:
         logger.info("✓ All required model files validated")
         return True
 
+    def _resolve_parameter_ids(self) -> None:
+        """Discover this model's actual mouth/eye parameter IDs instead of
+        assuming Cubism standard names.
+
+        Some fan-rigged models (this includes many community VTube Studio
+        models) use nonstandard, prefixed, or differently-cased parameter
+        IDs. Blinking and lip sync silently do nothing if the ID we set
+        doesn't exist on the model, so we look up the real IDs here.
+        """
+        try:
+            all_ids = self._model.GetParamIds()
+        except Exception as e:
+            logger.warning(f"Could not query model parameter IDs, using Cubism defaults: {e}")
+            return
+
+        logger.debug(f"Model exposes {len(all_ids)} parameters: {all_ids}")
+
+        def normalize(s: str) -> str:
+            return re.sub(r"[^a-z0-9]", "", s.lower())
+
+        def find(needle: str, default: str, exact_aliases: list[str]) -> str:
+            # 1. Exact match (case-insensitive) against known standard/alias names
+            for pid in all_ids:
+                if pid.lower() in (a.lower() for a in exact_aliases):
+                    return pid
+            # 2. Fuzzy match: normalized id contains the needle substring
+            for pid in all_ids:
+                if needle in normalize(pid):
+                    return pid
+            logger.warning(
+                f"No parameter matching '{needle}' found on this model "
+                f"(tried {exact_aliases}); falling back to '{default}', "
+                f"which may not exist and will silently no-op."
+            )
+            return default
+
+        self._param_mouth_open = find(
+            "mouthopen", "ParamMouthOpenY",
+            ["ParamMouthOpenY", "PARAM_MOUTH_OPEN_Y", "ParamMouthOpen"]
+        )
+        self._param_eye_l_open = find(
+            "eyelopen", "ParamEyeLOpen",
+            ["ParamEyeLOpen", "PARAM_EYE_L_OPEN"]
+        )
+        self._param_eye_r_open = find(
+            "eyeropen", "ParamEyeROpen",
+            ["ParamEyeROpen", "PARAM_EYE_R_OPEN"]
+        )
+
+        logger.info(
+            f"Resolved parameters — mouth: '{self._param_mouth_open}', "
+            f"eyeL: '{self._param_eye_l_open}', eyeR: '{self._param_eye_r_open}'"
+        )
+
     def resize(self, width: int, height: int) -> None:
         """Resize the model viewport."""
         if self._model:
@@ -468,7 +527,7 @@ class Live2DAvatar:
                 if exp_file.exists():
                     try:
                         self._model.LoadExpression(str(exp_file))
-                        logger.debug(f"Expression loaded: {emotion}")
+                        logger.debug(f"Expression loaded: {exp_file}")
                         return
                     except Exception:
                         pass
@@ -480,13 +539,20 @@ class Live2DAvatar:
         """Set expression via model parameters."""
         if not self._model:
             return
+        # Map standard-name dict keys to this model's resolved actual IDs
+        # (only eye/mouth are auto-resolved; other params pass through as-is)
+        id_overrides = {
+            "ParamEyeLOpen": self._param_eye_l_open,
+            "ParamEyeROpen": self._param_eye_r_open,
+            "ParamMouthOpenY": self._param_mouth_open,
+        }
         params = EMOTION_PARAMS.get(emotion, EMOTION_PARAMS["neutral"])
         for param_id, value in params.items():
+            resolved_id = id_overrides.get(param_id, param_id)
             try:
-                self._model.SetParameterValueById(param_id, value)
-                logger.debug(f"Expression param {param_id}={value}")
-            except Exception:
-                pass
+                self._model.SetParameterValue(resolved_id, value)
+            except Exception as e:
+                logger.error(f"Live2D param error (expression '{resolved_id}'): {e}")
 
     def set_talking(self, talking: bool) -> None:
         """Set talking state for lip sync."""
@@ -494,8 +560,7 @@ class Live2DAvatar:
         if not talking and self._model:
             self._mouth_value = 0.0
             try:
-                self._model.SetParameterValueById("ParamMouthOpenY", 0.0)
-                logger.debug("Talking stopped: mouth closed")
+                self._model.SetParameterValue(self._param_mouth_open, 0.0)
             except Exception:
                 pass
 
@@ -511,18 +576,16 @@ class Live2DAvatar:
                 self._is_blinking = False
                 self._blink_timer = 0.0
                 try:
-                    self._model.SetParameterValueById("ParamEyeLOpen", 1.0)
-                    self._model.SetParameterValueById("ParamEyeROpen", 1.0)
-                    logger.debug("Blink: eyes opened")
+                    self._model.SetParameterValue(self._param_eye_l_open, 1.0)
+                    self._model.SetParameterValue(self._param_eye_r_open, 1.0)
                 except Exception:
                     pass
         elif self._blink_timer >= self._blink_interval:
             self._is_blinking = True
             self._blink_timer = 0.0
             try:
-                self._model.SetParameterValueById("ParamEyeLOpen", 0.0)
-                self._model.SetParameterValueById("ParamEyeROpen", 0.0)
-                logger.debug("Blink: eyes closed")
+                self._model.SetParameterValue(self._param_eye_l_open, 0.0)
+                self._model.SetParameterValue(self._param_eye_r_open, 0.0)
             except Exception:
                 pass
 
@@ -542,15 +605,14 @@ class Live2DAvatar:
                 mouth = max(0.0, min(1.0, rms * 4.0))
                 self._mouth_value = mouth
                 try:
-                    self._model.SetParameterValueById("ParamMouthOpenY", mouth)
-                    logger.debug(f"Lip sync: mouth={mouth:.2f}")
+                    self._model.SetParameterValue(self._param_mouth_open, mouth)
                 except Exception:
                     pass
         else:
             if self._mouth_value > 0.01:
                 self._mouth_value *= 0.8
                 try:
-                    self._model.SetParameterValueById("ParamMouthOpenY", self._mouth_value)
+                    self._model.SetParameterValue(self._param_mouth_open, self._mouth_value)
                 except Exception:
                     pass
 
@@ -561,7 +623,6 @@ class Live2DAvatar:
         self._lipsync_start = time.time()
         self._lipsync_last_offset = 0
         self._is_talking = True
-        logger.debug(f"Lip sync started: {len(audio_data)} samples at {sample_rate}Hz")
 
     def drag(self, x: int, y: int) -> None:
         """Handle mouse drag for eye tracking."""
