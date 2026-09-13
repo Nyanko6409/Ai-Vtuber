@@ -327,8 +327,16 @@ class App:
     def _speak(self, text: str) -> None:
         """Generate and play TTS audio with lip sync."""
         try:
-            # Generate audio
-            audio_data = self.tts.generate(text)
+            # Normalize text before TTS (remove markdown, emojis, excessive punctuation, etc.)
+            from ai_vtuber.tts import normalize_text
+            cleaned_text = normalize_text(text)
+            
+            if not cleaned_text:
+                logger.warning("Text normalization resulted in empty string")
+                return
+            
+            # Generate audio from cleaned text
+            audio_data = self.tts.generate(cleaned_text)
             if audio_data is None:
                 logger.warning("TTS returned no audio")
                 return
