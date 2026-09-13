@@ -134,15 +134,15 @@ class WhisperSTT:
                 audio_data = audio_
 
             # Transcribe
+            # Note: We use vad_filter=False because app-level VAD (audio/vad.py)
+            # already handles speech detection. The microphone.collect_speech()
+            # method only passes audio chunks that have been validated by our VAD,
+            # so additional VAD filtering here would be redundant computation.
             segments, info = self._model.transcribe(
                 audio_data,
                 language=self.language,
                 beam_size=self.beam_size,
-                vad_filter=True,
-                vad_parameters=dict(
-                    min_speech_duration_ms=300,
-                    min_silence_duration_ms=500,
-                )
+                vad_filter=False,
             )
 
             # Collect all segments
