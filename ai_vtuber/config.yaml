@@ -15,6 +15,7 @@ llm:
   max_tokens: 2000
   max_context: 64000
   max_history: 10  # Number of messages to keep in conversation history
+  timeout: 30  # Timeout in seconds for LLM requests
   system_prompt: |
     You are a friendly AI VTuber assistant. You are chatting with a user in real-time.
     Keep responses engaging and conversational, consisting of 2-4 distinct sentences or short paragraphs.
