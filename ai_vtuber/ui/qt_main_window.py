@@ -62,9 +62,9 @@ class Live2DGLWidget(QOpenGLWidget):
     def initializeGL(self) -> None:
         """Called when OpenGL context is ready."""
         logger.debug("Live2D GL widget initialized")
-        # Set clear color for debugging (will be overwritten by Live2D)
+        # Set clear color to very dark charcoal/near-black background
         import OpenGL.GL as gl
-        gl.glClearColor(0.0, 0.0, 0.0, 0.0)
+        gl.glClearColor(0.02, 0.02, 0.04, 1.0)  # #050508 approx
         gl.glEnable(gl.GL_BLEND)
         gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
         
@@ -309,7 +309,8 @@ class QtMainWindow(QMainWindow):
         # Compact chat input container - no large panel, just input + button
         self.chat_input_container = QWidget()
         self.chat_input_container.setObjectName("chatInputContainer")
-        self.chat_input_container.setVisible(False)
+        self.chat_visible = True  # Start with chat input visible
+        self.chat_input_container.setVisible(True)
         
         # Style only the input field area, no surrounding box
         self.chat_input_container.setStyleSheet("""
