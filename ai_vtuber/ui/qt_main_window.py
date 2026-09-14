@@ -53,11 +53,11 @@ class Live2DGLWidget(QOpenGLWidget):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         # Enable mouse tracking for smooth eye movement
         self.setMouseTracking(True)
-        # Apply gradient background style
+        # Apply gradient background style with darker colors for better contrast
         self.setStyleSheet("""
             QOpenGLWidget {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #1a1a2e, stop:0.5 #16213e, stop:1 #0f3460);
+                    stop:0 #0a0a0f, stop:0.5 #0d0d14, stop:1 #101018);
                 border-radius: 0px;
             }
         """)
@@ -128,133 +128,7 @@ class Live2DGLWidget(QOpenGLWidget):
             self.wheel_scrolled.emit(False)  # Zoom out
 
 
-class ChatOverlayWidget(QWidget):
-    """Chat input overlay widget."""
-    
-    message_sent = Signal(str)
-    
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setObjectName("chatOverlay")
-        self.setStyleSheet("""
-            #chatOverlay {
-                background-color: rgba(30, 30, 30, 220);
-                border-radius: 12px;
-                border: 1px solid rgba(255, 255, 255, 40);
-            }
-        """)
-        self.setVisible(False)
-        
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(15, 15, 15, 15)
-        layout.setSpacing(10)
-        
-        # Title with close button
-        title_layout = QHBoxLayout()
-        self.title_label = QLabel("💬 Chat with VTuber")
-        self.title_label.setStyleSheet("color: white; font-size: 16px; font-weight: bold;")
-        title_layout.addWidget(self.title_label)
-        title_layout.addStretch()
-        layout.addLayout(title_layout)
-        
-        # Messages area with scroll
-        from PySide6.QtWidgets import QScrollArea
-        self.messages_scroll = QScrollArea()
-        self.messages_scroll.setWidgetResizable(True)
-        self.messages_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.messages_scroll.setStyleSheet("""
-            QScrollArea {
-                border: none;
-                background-color: transparent;
-            }
-            QScrollBar:vertical {
-                background: rgba(50, 50, 50, 150);
-                width: 8px;
-                border-radius: 4px;
-            }
-            QScrollBar::handle:vertical {
-                background: rgba(100, 100, 100, 200);
-                border-radius: 4px;
-                min-height: 20px;
-            }
-        """)
-        self.messages_content = QLabel("")
-        self.messages_content.setStyleSheet("color: #e0e0e0; font-size: 14px; padding: 5px;")
-        self.messages_content.setWordWrap(True)
-        self.messages_scroll.setWidget(self.messages_content)
-        self.messages_scroll.setMinimumHeight(150)
-        layout.addWidget(self.messages_scroll)
-        
-        # Input field with send button
-        input_layout = QHBoxLayout()
-        from PySide6.QtWidgets import QLineEdit
-        self.input_field = QLineEdit()
-        self.input_field.setPlaceholderText("Type your message...")
-        self.input_field.setStyleSheet("""
-            QLineEdit {
-                background-color: rgba(50, 50, 50, 200);
-                color: white;
-                border: 1px solid rgba(255, 255, 255, 50);
-                border-radius: 8px;
-                padding: 10px;
-                font-size: 14px;
-            }
-            QLineEdit:focus {
-                border: 1px solid rgba(100, 150, 255, 150);
-                background-color: rgba(60, 60, 70, 220);
-            }
-        """)
-        self.input_field.returnPressed.connect(self._send_message)
-        input_layout.addWidget(self.input_field, 1)
-        
-        # Send button
-        self.send_button = QPushButton("➤")
-        self.send_button.setFixedSize(40, 40)
-        self.send_button.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(70, 130, 255, 200);
-                border: none;
-                border-radius: 8px;
-                font-size: 18px;
-                color: white;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: rgba(90, 150, 255, 220);
-            }
-            QPushButton:pressed {
-                background-color: rgba(50, 110, 235, 200);
-            }
-        """)
-        self.send_button.clicked.connect(self._send_message)
-        input_layout.addWidget(self.send_button)
-        layout.addLayout(input_layout)
-        
-    def _send_message(self):
-        """Send the typed message."""
-        text = self.input_field.text().strip()
-        if text:
-            self.message_sent.emit(text)
-            self.input_field.clear()
-    
-    def add_message(self, role: str, text: str):
-        """Add a message to the display."""
-        current = self.messages_content.text()
-        color = "#4FC3F7" if role == "user" else "#81C784"
-        new_msg = f'<span style="color:{color}"><b>{role}:</b></span> {text}'
-        if current:
-            self.messages_content.setText(current + "<br>" + new_msg)
-        else:
-            self.messages_content.setText(new_msg)
-        # Auto-scroll to bottom
-        scrollbar = self.messages_scroll.verticalScrollBar()
-        scrollbar.setValue(scrollbar.maximum())
-    
-    def toggle_visibility(self):
-        """Toggle widget visibility."""
-        self.setVisible(not self.isVisible())
-        if self.isVisible():
-            self.input_field.setFocus()
+# ChatOverlayWidget class removed - replaced with simpler chat input widget without message history
 
 
 class StatusBar(QFrame):
@@ -424,10 +298,75 @@ class QtMainWindow(QMainWindow):
         self.gl_widget.setMinimumSize(400, 300)
         main_layout.addWidget(self.gl_widget, 1)
         
-        # Chat overlay
-        self.chat_widget = ChatOverlayWidget()
-        self.chat_widget.setMaximumWidth(400)
-        self.chat_widget.setMaximumHeight(300)
+        # Chat overlay - removed messages area, only input field remains
+        self.chat_widget = QWidget()
+        self.chat_widget.setObjectName("chatInputOverlay")
+        self.chat_widget.setStyleSheet("""
+            #chatInputOverlay {
+                background-color: rgba(30, 30, 30, 220);
+                border-radius: 12px;
+                border: 1px solid rgba(255, 255, 255, 40);
+            }
+        """)
+        self.chat_widget.setVisible(False)
+        
+        chat_layout = QVBoxLayout(self.chat_widget)
+        chat_layout.setContentsMargins(15, 15, 15, 15)
+        chat_layout.setSpacing(10)
+        
+        # Title with close button
+        title_layout = QHBoxLayout()
+        self.chat_title_label = QLabel("💬 Chat with VTuber")
+        self.chat_title_label.setStyleSheet("color: white; font-size: 16px; font-weight: bold;")
+        title_layout.addWidget(self.chat_title_label)
+        title_layout.addStretch()
+        chat_layout.addLayout(title_layout)
+        
+        # Input field with send button (no message history display)
+        input_layout = QHBoxLayout()
+        from PySide6.QtWidgets import QLineEdit
+        self.chat_input_field = QLineEdit()
+        self.chat_input_field.setPlaceholderText("Type your message...")
+        self.chat_input_field.setStyleSheet("""
+            QLineEdit {
+                background-color: rgba(50, 50, 50, 200);
+                color: white;
+                border: 1px solid rgba(255, 255, 255, 50);
+                border-radius: 8px;
+                padding: 10px;
+                font-size: 14px;
+            }
+            QLineEdit:focus {
+                border: 1px solid rgba(100, 150, 255, 150);
+                background-color: rgba(60, 60, 70, 220);
+            }
+        """)
+        self.chat_input_field.returnPressed.connect(self._send_chat_message)
+        input_layout.addWidget(self.chat_input_field, 1)
+        
+        # Send button
+        self.chat_send_button = QPushButton("➤")
+        self.chat_send_button.setFixedSize(40, 40)
+        self.chat_send_button.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(70, 130, 255, 200);
+                border: none;
+                border-radius: 8px;
+                font-size: 18px;
+                color: white;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: rgba(90, 150, 255, 220);
+            }
+            QPushButton:pressed {
+                background-color: rgba(50, 110, 235, 200);
+            }
+        """)
+        self.chat_send_button.clicked.connect(self._send_chat_message)
+        input_layout.addWidget(self.chat_send_button)
+        chat_layout.addLayout(input_layout)
+        
         # Position chat overlay in bottom-left
         self.chat_widget.setParent(self.gl_widget)
         
@@ -528,7 +467,10 @@ class QtMainWindow(QMainWindow):
     def _toggle_chat(self):
         """Toggle chat overlay visibility."""
         self.chat_visible = not self.chat_visible
-        self.chat_widget.toggle_visibility()
+        if self.chat_widget:
+            self.chat_widget.setVisible(not self.chat_widget.isVisible())
+            if self.chat_widget.isVisible():
+                self.chat_input_field.setFocus()
     
     def _toggle_mic(self):
         """Toggle microphone on/off."""
@@ -579,9 +521,12 @@ class QtMainWindow(QMainWindow):
         """Update microphone status in status bar."""
         self.status_bar.update_mic_status(is_muted)
     
-    def add_chat_message(self, role: str, text: str):
-        """Add a message to chat overlay."""
-        self.chat_widget.add_message(role, text)
+    def _send_chat_message(self):
+        """Send the typed message."""
+        text = self.chat_input_field.text().strip()
+        if text and self.on_chat_message:
+            self.on_chat_message(text)
+            self.chat_input_field.clear()
     
     def keyPressEvent(self, event: QKeyEvent):
         """Handle key press events."""
