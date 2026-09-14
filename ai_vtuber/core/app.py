@@ -31,8 +31,8 @@ class App:
         # Initialize memory manager (loads soul, user facts, bot memories)
         self.memory_manager = MemoryManager()
 
-        # Store LLM timeout for dynamic adjustment
-        self.llm_timeout: int = config["llm"].get("timeout", 30)
+        # No LLM timeout - wait indefinitely for response
+        self.llm_timeout: Optional[int] = None
 
         # Initialize conversation history with system prompt and soul
         self.conversation = ConversationHistory(
