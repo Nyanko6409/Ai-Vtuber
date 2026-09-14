@@ -182,7 +182,7 @@ def main() -> None:
     def on_chat_message(text: str):
         """Handle chat message from text input."""
         logger.info(f"Chat message: {text}")
-        main_window.add_chat_message("user", text)
+        # Note: Chat history display removed - only sending to LLM
         app.process_chat_message(text)
     
     main_window.on_chat_message = on_chat_message
