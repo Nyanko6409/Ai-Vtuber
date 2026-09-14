@@ -6,7 +6,7 @@ import pygame
 import pygame.freetype
 from typing import Optional
 
-from core.state import State
+from ai_vtuber.core.state import State
 
 logger = logging.getLogger(__name__)
 
