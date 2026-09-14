@@ -10,7 +10,7 @@
 # LLM Settings (LM Studio OpenAI-compatible API)
 llm:
   base_url: "http://localhost:1234/v1"
-  model: "gemma-4-e4b"
+  model: "google/gemma-4-e2b"
   temperature: 0.8
   max_tokens: 2000
   max_context: 64000
