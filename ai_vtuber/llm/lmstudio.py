@@ -15,8 +15,8 @@ class LMStudioClient:
         self.model: str = config["model"]
         self.temperature: float = config["temperature"]
         self.max_tokens: int = config["max_tokens"]
-        # FIX: Add configurable timeout for LLM requests (default 30 seconds)
-        self.timeout: int = config.get("timeout", 30)
+        # No hard timeout - wait for LLM reply indefinitely
+        self.timeout: Optional[int] = config.get("timeout", None)
 
         self._client: Optional[OpenAI] = None
         self._connect()

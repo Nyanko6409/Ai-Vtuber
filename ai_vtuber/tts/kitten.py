@@ -126,9 +126,9 @@ class KittenTTS:
     """
 
     def __init__(self, config: dict) -> None:
-        self.config_model: str = config.get("model", "KittenML/kitten-tts-mini-0.8")
+        self.config_model: str = config.get("model", "KittenML/kitten-tts-nano-0.8-int8")
         self.config_voice: str = config.get("voice", "Bella")
-        self.config_speed: float = config.get("speed", 1.0)
+        self.config_speed: float = config.get("speed", 1.25)
         self.config_backend: str = config.get("backend", "cpu")
         self.sample_rate: int = config.get("sample_rate", 24000)
 
