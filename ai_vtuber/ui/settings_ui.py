@@ -494,7 +494,7 @@ class SettingsUI:
         track_rect = pygame.Rect(slider_x, slider_y, slider_width, slider_height)
         pygame.draw.rect(screen, (100, 100, 100), track_rect, border_radius=3)
         
-        # Calculate handle position
+        # Calculate handle position (snap to step for display)
         if max_val != min_val:
             rel_pos = (value - min_val) / (max_val - min_val)
         else:
@@ -505,8 +505,14 @@ class SettingsUI:
         handle_rect = pygame.Rect(handle_x - 3, slider_y - 3, 12, 12)
         pygame.draw.rect(screen, self.accent_color, handle_rect, border_radius=6)
         
-        # Draw value
-        self._small_font.render_to(screen, (slider_x + slider_width + 10, rect.y + 10), str(value), self.text_color)
+        # Draw value (rounded to step for display)
+        if step >= 1:
+            display_value = round(value / step) * step
+            if field_def["type"] == "slider_int":
+                display_value = int(display_value)
+        else:
+            display_value = round(value / step) * step
+        self._small_font.render_to(screen, (slider_x + slider_width + 10, rect.y + 10), str(display_value), self.text_color)
     
     def _draw_text_input(self, screen: pygame.Surface, rect: pygame.Rect, text: str) -> None:
         """Draw text input field."""

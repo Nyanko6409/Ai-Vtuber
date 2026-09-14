@@ -96,6 +96,7 @@ class PygameUI:
         self._overlay_dirty: bool = True
         self._last_status_hash: int = 0
         self._last_error_msg: Optional[str] = None
+        self._last_fps_dirty: bool = False
 
     def init(self) -> None:
         """Initialize Pygame and create window."""
@@ -219,8 +220,11 @@ class PygameUI:
             self._overlay_surface is None or
             status_hash != self._last_status_hash or
             error_msg != self._last_error_msg or
-            self._overlay_dirty
+            self._overlay_dirty or
+            fps_dirty != self._last_fps_dirty
         )
+        
+        self._last_fps_dirty = fps_dirty
         
         if not content_changed:
             # Content unchanged, just render existing texture

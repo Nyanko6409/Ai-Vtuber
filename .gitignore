@@ -1,32 +1,4 @@
 ```
-# Dependencies
-node_modules/
-
-# Environment variables
-.env
-.env.local
-.env.*
-
-# Build outputs
-dist/
-build/
-.next/
-out/
-public/
-
-# Logs
-*.log
-
-# OS generated files
-.DS_Store
-Thumbs.db
-
-# IDE specific
-.vscode/
-.idea/
-*.swp
-*.swo
-
 # Python
 __pycache__/
 *.pyc
@@ -36,38 +8,24 @@ __pycache__/
 env/
 venv/
 .venv/
-
-# Node.js
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Coverage
-coverage/
-htmlcov/
-
-# Temporary files
-*.tmp
-*.temp
-
-# Compressed files
-*.zip
-*.tar
-*.gz
-*.tgz
-*.rar
-*.7z
-*.bz2
-*.xz
-*.zst
-
-# Database
-*.db
-*.sqlite
-*.sqlite3
-
-# Sensitive
-config/secrets.*
-credentials.json
-
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+*.pot
+*.pyc
+*.pyo
+*.pyd
+.MF
+tags
+TAGS
+.IDE
+.DS_Store
+Thumbs.db
 ```

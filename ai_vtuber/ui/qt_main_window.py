@@ -41,20 +41,16 @@ STATUS BAR COLORS:
 ================================================================================
 """
 
-import sys
 import logging
 from typing import Optional, Callable, Dict, Any
 
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QPushButton, QFrame, QGraphicsDropShadowEffect
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QPushButton, QFrame
 )
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
-from PySide6.QtCore import Qt, QTimer, Signal, Slot, QRectF, QPointF
-from PySide6.QtGui import (
-    QFont, QColor, QPainter, QPen, QBrush, QIcon, QMouseEvent,
-    QWheelEvent, QKeyEvent, QPaintEvent, QResizeEvent
-)
+from PySide6.QtCore import Qt, QTimer, Signal, Slot, QPointF
+from PySide6.QtGui import QMouseEvent, QWheelEvent, QKeyEvent
 
 logger = logging.getLogger("ai_vtuber")
 
