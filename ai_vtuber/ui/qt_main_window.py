@@ -79,12 +79,20 @@ class Live2DGLWidget(QOpenGLWidget):
         self._is_dragging = False
         self.setMinimumSize(400, 300)
         self._render_callback = None
+        # Default clear color (black)
+        self._clear_color = (0.0, 0.0, 0.0, 1.0)
         # Set size policy to expand
         from PySide6.QtWidgets import QSizePolicy
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         # Enable mouse tracking for smooth eye movement
         self.setMouseTracking(True)
         # Note: background is now set in QtMainWindow._setup_ui() for consistency
+        
+    def update_clear_color(self, r: float, g: float, b: float, a: float = 1.0):
+        """Update the OpenGL clear color."""
+        self._clear_color = (r, g, b, a)
+        import OpenGL.GL as gl
+        gl.glClearColor(r, g, b, a)
         
     def get_widget_size(self) -> tuple[int, int]:
         """Get current widget width and height."""
@@ -98,7 +106,7 @@ class Live2DGLWidget(QOpenGLWidget):
         logger.debug("Live2D GL widget initialized")
         # Set clear color to pure black background (#000000)
         import OpenGL.GL as gl
-        gl.glClearColor(0.0, 0.0, 0.0, 1.0)  # Pure black #000000
+        gl.glClearColor(*self._clear_color)
         gl.glEnable(gl.GL_BLEND)
         gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
         
@@ -313,6 +321,19 @@ class QtMainWindow(QMainWindow):
         self.show_fps = config.get("ui", {}).get("show_fps", True)
         self.show_debug = config.get("ui", {}).get("show_debug", False)
         
+        # Get UI colors from config
+        ui_config = config.get("ui", {})
+        bg_color = ui_config.get("background_color", [0, 0, 0])
+        text_color = ui_config.get("text_color", [255, 255, 255])
+        font_family = ui_config.get("font_family", "Arial")
+        font_size = ui_config.get("font_size", 14)
+        
+        # Store color values for dynamic updates
+        self.bg_r, self.bg_g, self.bg_b = bg_color[0], bg_color[1], bg_color[2]
+        self.text_r, self.text_g, self.text_b = text_color[0], text_color[1], text_color[2]
+        self.font_family = font_family
+        self.font_size = font_size
+        
         # Callbacks
         self.on_chat_message: Optional[Callable[[str], None]] = None
         self.on_settings_save: Optional[Callable[[Dict], None]] = None
@@ -329,11 +350,16 @@ class QtMainWindow(QMainWindow):
         height = self.config.get("avatar", {}).get("window_height", 600)
         self.resize(width, height)
         
-        # Set main window background to pure black
-        self.setStyleSheet("""
-            QMainWindow {
-                background-color: #000000;
-            }
+        # Set main window background to configured color
+        bg_hex = f"#{self.bg_r:02x}{self.bg_g:02x}{self.bg_b:02x}"
+        text_hex = f"#{self.text_r:02x}{self.text_g:02x}{self.text_b:02x}"
+        self.setStyleSheet(f"""
+            QMainWindow {{
+                background-color: {bg_hex};
+                color: {text_hex};
+                font-family: "{self.font_family}";
+                font-size: {self.font_size}px;
+            }}
         """)
         
         # Central widget
@@ -348,6 +374,9 @@ class QtMainWindow(QMainWindow):
         # OpenGL widget for Live2D with custom styling - pure black background
         self.gl_widget = Live2DGLWidget()
         self.gl_widget.setAutoFillBackground(False)
+        # Disable Qt's default background painting to ensure OpenGL controls everything
+        self.gl_widget.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
+        self.gl_widget.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
         # Set minimum size to ensure it's visible
         self.gl_widget.setMinimumSize(400, 300)
         # Update background to pure black
@@ -579,6 +608,42 @@ class QtMainWindow(QMainWindow):
     def update_mic_status(self, is_muted: bool):
         """Update microphone status in status bar."""
         self.status_bar.update_mic_status(is_muted)
+    
+    def apply_ui_settings(self, ui_config: Dict[str, Any]):
+        """Apply UI settings from config (background color, text color, font)."""
+        bg_color = ui_config.get("background_color", [0, 0, 0])
+        text_color = ui_config.get("text_color", [255, 255, 255])
+        font_family = ui_config.get("font_family", "Arial")
+        font_size = ui_config.get("font_size", 14)
+        
+        # Update stored values
+        self.bg_r, self.bg_g, self.bg_b = bg_color[0], bg_color[1], bg_color[2]
+        self.text_r, self.text_g, self.text_b = text_color[0], text_color[1], text_color[2]
+        self.font_family = font_family
+        self.font_size = font_size
+        
+        # Apply new styles
+        bg_hex = f"#{self.bg_r:02x}{self.bg_g:02x}{self.bg_b:02x}"
+        text_hex = f"#{self.text_r:02x}{self.text_g:02x}{self.text_b:02x}"
+        self.setStyleSheet(f"""
+            QMainWindow {{
+                background-color: {bg_hex};
+                color: {text_hex};
+                font-family: "{self.font_family}";
+                font-size: {self.font_size}px;
+            }}
+        """)
+        
+        # Update OpenGL clear color via the GL widget
+        if hasattr(self.gl_widget, 'update_clear_color'):
+            self.gl_widget.update_clear_color(
+                self.bg_r / 255.0,
+                self.bg_g / 255.0,
+                self.bg_b / 255.0,
+                1.0
+            )
+        
+        logger.info(f"UI settings applied: bg={bg_hex}, text={text_hex}, font={font_family} {font_size}px")
     
     def _send_chat_message(self):
         """Send the typed message."""

@@ -1,4 +1,55 @@
 ```
+# Dependencies
+node_modules/
+
+# Build artifacts
+*.js.map
+*.d.ts
+*.d.cts
+*.d.mts
+*.cjs
+*.mjs
+*.umd.js
+*.min.js
+*.es.js
+*.cjs.js
+*.mjs.js
+*.d.mts.map
+*.d.cts.map
+*.cjs.map
+*.mjs.map
+*.umd.js.map
+*.min.js.map
+*.es.mjs
+*.es.cjs
+*.es.js
+*.main.js
+*.module.js
+*.tsbuildinfo
+
+# Environment variables
+.env
+.env.local
+*.env.*
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Coverage
+coverage/
+htmlcov/
+.coverage
+
 # Python
 __pycache__/
 *.pyc
@@ -12,20 +63,61 @@ pip-log.txt
 pip-delete-this-directory.txt
 .tox/
 .coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
+.nox/
+$py.class
+.spyderproject
+.spyproject
+.ropeproject
 *.log
-.pytest_cache/
-.hypothesis/
-.eggs/
+*.pot
+*.po
+*.mo
+SOURCES.txt
 *.egg-info/
 .installed.cfg
-.share/
-.libs/
+*.egg
 
-# Configuration
-config.yaml
+# Node.js
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+node_modules/
+dist/
+build/
+*.min.js
+*.min.css
+public/vite.svg
+
+# Compiled binary files
+*.app
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Compressed archives
+*.zip
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.gz
+*.rar
+*.7z
+*.bz2
+*.xz
+*.zst
+*.lz4
+*.lzh
+*.cab
+*.arj
+*.rpm
+*.deb
+*.Z
+*.lz
+*.lzo
+*.tar
+*.tgz
+*.tbz
+*.tbz2
+
 ```
