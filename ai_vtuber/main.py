@@ -28,6 +28,10 @@ import argparse
 import time
 import yaml
 
+from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout
+from PySide6.QtCore import QTimer, Qt
+from PySide6.QtGui import QAction
+
 # Setup CUDA library paths before importing any CUDA-dependent modules
 def _setup_cuda_library_path():
     """Setup library path for CUDA libraries if they exist in pip packages.
