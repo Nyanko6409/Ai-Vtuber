@@ -25,12 +25,10 @@ import sys
 import os
 import logging
 import argparse
-import time
 import yaml
 
-from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout
-from PySide6.QtCore import QTimer, Qt
-from PySide6.QtGui import QAction
+from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QTimer
 
 # Setup CUDA library paths before importing any CUDA-dependent modules
 def _setup_cuda_library_path():
@@ -54,19 +52,19 @@ def _setup_cuda_library_path():
         
         # Windows-specific CUDA paths
         cuda_paths = [
-            os.path.join(sys.prefix, f"Lib\\site-packages\\nvidia\\cublas\\bin"),
-            os.path.join(sys.prefix, f"Lib\\site-packages\\nvidia\\cudnn\\bin"),
-            os.path.join(sys.prefix, f"Lib\\site-packages\\nvidia\\nvjitlink\\bin"),
-            os.path.join(sys.prefix, f"Lib\\site-packages\\nvidia\\cuda_cupti\\bin"),
-            os.path.join(sys.prefix, f"Lib\\site-packages\\nvidia\\cufft\\bin"),
-            os.path.join(sys.prefix, f"Lib\\site-packages\\nvidia\\cuda_nvrtc\\bin"),
-            os.path.join(sys.prefix, f"Lib\\site-packages\\nvidia\\cuda_runtime\\bin"),
-            os.path.join(sys.prefix, f"Lib\\site-packages\\nvidia\\curand\\bin"),
-            os.path.join(sys.prefix, f"Lib\\site-packages\\nvidia\\cusparse\\bin"),
-            os.path.join(sys.prefix, f"Lib\\site-packages\\nvidia\\cusolver\\bin"),
-            os.path.join(sys.prefix, f"Lib\\site-packages\\nvidia\\nccl\\bin"),
-            os.path.join(sys.prefix, f"Lib\\site-packages\\nvidia\\nvtx\\bin"),
-            os.path.join(sys.prefix, f"Lib\\site-packages\\nvidia\\cufile\\bin"),
+            os.path.join(sys.prefix, "Lib\\site-packages\\nvidia\\cublas\\bin"),
+            os.path.join(sys.prefix, "Lib\\site-packages\\nvidia\\cudnn\\bin"),
+            os.path.join(sys.prefix, "Lib\\site-packages\\nvidia\\nvjitlink\\bin"),
+            os.path.join(sys.prefix, "Lib\\site-packages\\nvidia\\cuda_cupti\\bin"),
+            os.path.join(sys.prefix, "Lib\\site-packages\\nvidia\\cufft\\bin"),
+            os.path.join(sys.prefix, "Lib\\site-packages\\nvidia\\cuda_nvrtc\\bin"),
+            os.path.join(sys.prefix, "Lib\\site-packages\\nvidia\\cuda_runtime\\bin"),
+            os.path.join(sys.prefix, "Lib\\site-packages\\nvidia\\curand\\bin"),
+            os.path.join(sys.prefix, "Lib\\site-packages\\nvidia\\cusparse\\bin"),
+            os.path.join(sys.prefix, "Lib\\site-packages\\nvidia\\cusolver\\bin"),
+            os.path.join(sys.prefix, "Lib\\site-packages\\nvidia\\nccl\\bin"),
+            os.path.join(sys.prefix, "Lib\\site-packages\\nvidia\\nvtx\\bin"),
+            os.path.join(sys.prefix, "Lib\\site-packages\\nvidia\\cufile\\bin"),
             # Standard CUDA installation paths
             r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6\bin",
             r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.5\bin",
@@ -117,9 +115,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
 from ai_vtuber.core.app import App
-from ai_vtuber.core.state import State
 from ai_vtuber.ui.qt_main_window import QtMainWindow
-from ai_vtuber.ui.pyside_settings import show_settings_dialog
 
 # Configure logging
 logging.basicConfig(

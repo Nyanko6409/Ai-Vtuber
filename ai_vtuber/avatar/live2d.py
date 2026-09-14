@@ -647,7 +647,6 @@ class Live2DAvatar:
                 compute_mouth = len(chunk) > 0
             else:
                 compute_mouth = False
-                should_decay = self._mouth_value > 0.01
         
         # Compute mouth value and apply GL calls outside lock
         if should_compute and compute_mouth:
@@ -659,7 +658,8 @@ class Live2DAvatar:
                 self._model.SetParameterValue(self._param_mouth_open, mouth)
             except Exception:
                 pass
-        elif not should_compute and self._mouth_value > 0.01:
+        elif self._mouth_value > 0.01:
+            # Decay mouth value when not talking or when talking but no new audio chunk
             with self._lock:
                 self._mouth_value *= 0.8
             try:
