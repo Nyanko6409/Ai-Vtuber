@@ -156,10 +156,11 @@ class KittenTTS:
         try:
             # Official 0.8.x: KittenTTS("model_name")
             logger.info(f"Loading KittenTTS (official 0.8.x) model: {self.config_model}")
+            # Note: backend parameter is not supported in current KittenTTS versions
+            # CUDA is used automatically if available
             if self.config_backend == "cuda":
-                self._model = KittenModel(self.config_model, backend="cuda")
-            else:
-                self._model = KittenModel(self.config_model)
+                logger.info("CUDA backend requested, but KittenTTS will auto-detect GPU availability")
+            self._model = KittenModel(self.config_model)
             self._is_official = True
 
             # Validate voice against available voices
@@ -178,10 +179,39 @@ class KittenTTS:
                     )
                     self._voice = available[0]
 
-            logger.info(f"KittenTTS 0.8.x loaded. Voice: {self._voice}, Speed: {self.config_speed}")
+            logger.info(f"KittenTTS 0.8.x loaded. Voice: {self._voice}, Speed: {self.config_speed}, Backend: {self.config_backend}")
             return
 
-        except (TypeError, AttributeError):
+        except TypeError as e:
+            # Check if it's specifically the backend parameter issue
+            if "backend" in str(e):
+                logger.warning(f"Backend parameter not supported, loading without it: {e}")
+                try:
+                    self._model = KittenModel(self.config_model)
+                    self._is_official = True
+                    
+                    # Validate voice against available voices
+                    available = self._model.available_voices
+                    if self._voice not in available:
+                        voice_lower = self._voice.lower()
+                        matched_voice = next((v for v in available if v.lower() == voice_lower), None)
+                        if matched_voice:
+                            logger.info(f"Voice '{self._voice}' matched as '{matched_voice}'")
+                            self._voice = matched_voice
+                        else:
+                            logger.warning(
+                                f"Voice '{self._voice}' not available. "
+                                f"Available: {available}. Using '{available[0]}'."
+                            )
+                            self._voice = available[0]
+                    
+                    logger.info(f"KittenTTS 0.8.x loaded (no backend param). Voice: {self._voice}, Speed: {self.config_speed}")
+                    return
+                except Exception as e2:
+                    logger.warning(f"Retry also failed: {e2}, trying PyPI version...")
+            # Not the official version, try PyPI 0.1.x API
+            pass
+        except AttributeError:
             # Not the official version, try PyPI 0.1.x API
             pass
         except Exception as e:
