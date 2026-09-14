@@ -172,6 +172,10 @@ class Live2DAvatar:
         self._param_mouth_open: str = "ParamMouthOpenY"
         self._param_eye_l_open: str = "ParamEyeLOpen"
         self._param_eye_r_open: str = "ParamEyeROpen"
+        self._param_angle_x: str = "ParamAngleX"
+        self._param_angle_y: str = "ParamAngleY"
+        self._param_eye_ball_x: str = "ParamEyeBallX"
+        self._param_eye_ball_y: str = "ParamEyeBallY"
         self._blink_timer: float = 0.0
         self._blink_interval: float = 3.0
         self._blink_duration: float = 0.15
@@ -473,10 +477,28 @@ class Live2DAvatar:
             "eyeropen", "ParamEyeROpen",
             ["ParamEyeROpen", "PARAM_EYE_R_OPEN"]
         )
+        self._param_angle_x = find(
+            "anglex", "ParamAngleX",
+            ["ParamAngleX", "PARAM_ANGLE_X"]
+        )
+        self._param_angle_y = find(
+            "angley", "ParamAngleY",
+            ["ParamAngleY", "PARAM_ANGLE_Y"]
+        )
+        self._param_eye_ball_x = find(
+            "eyeballx", "ParamEyeBallX",
+            ["ParamEyeBallX", "PARAM_EYE_BALL_X"]
+        )
+        self._param_eye_ball_y = find(
+            "eyebally", "ParamEyeBallY",
+            ["ParamEyeBallY", "PARAM_EYE_BALL_Y"]
+        )
 
         logger.info(
             f"Resolved parameters — mouth: '{self._param_mouth_open}', "
-            f"eyeL: '{self._param_eye_l_open}', eyeR: '{self._param_eye_r_open}'"
+            f"eyeL: '{self._param_eye_l_open}', eyeR: '{self._param_eye_r_open}', "
+            f"angleX: '{self._param_angle_x}', angleY: '{self._param_angle_y}', "
+            f"eyeBallX: '{self._param_eye_ball_x}', eyeBallY: '{self._param_eye_ball_y}'"
         )
 
     def resize(self, width: int, height: int) -> None:
@@ -655,13 +677,46 @@ class Live2DAvatar:
             self._lipsync_last_offset = 0
             self._is_talking = True
 
-    def drag(self, x: int, y: int) -> None:
-        """Handle mouse drag for eye tracking."""
-        if self._model:
-            try:
-                self._model.Drag(x, y)
-            except Exception:
-                pass
+    def drag(self, x: int, y: int, width: int = 0, height: int = 0) -> None:
+        """Handle mouse movement for eye tracking - makes avatar look at cursor.
+        
+        Args:
+            x: Mouse X position in screen coordinates
+            y: Mouse Y position in screen coordinates  
+            width: OpenGL widget width (for normalization)
+            height: OpenGL widget height (for normalization)
+        """
+        if not self._initialized or not self._model:
+            return
+        
+        try:
+            # Normalize mouse position to Live2D coordinate space (-1 to 1)
+            # Live2D uses a coordinate system where (0, 0) is center
+            if width > 0 and height > 0:
+                # Convert screen coordinates to normalized device coordinates
+                norm_x = (x / width) * 2.0 - 1.0  # Range: -1 to 1
+                norm_y = ((height - y) / height) * 2.0 - 1.0  # Flip Y, range: -1 to 1
+            else:
+                # Fallback: assume 800x600 default
+                norm_x = (x / 800.0) * 2.0 - 1.0
+                norm_y = ((600 - y) / 600.0) * 2.0 - 1.0
+            
+            # Clamp values to reasonable range
+            norm_x = max(-1.0, min(1.0, norm_x))
+            norm_y = max(-1.0, min(1.0, norm_y))
+            
+            # Set eye ball position (direct eye movement)
+            # Values typically range from -1 to 1
+            self._model.SetParameterValue(self._param_eye_ball_x, norm_x * 0.8)
+            self._model.SetParameterValue(self._param_eye_ball_y, norm_y * 0.8)
+            
+            # Set head angle for more natural looking
+            # Angle values typically range from -30 to 30 degrees
+            self._model.SetParameterValue(self._param_angle_x, norm_x * 20.0)
+            self._model.SetParameterValue(self._param_angle_y, norm_y * 15.0)
+            
+        except Exception as e:
+            logger.debug(f"Eye tracking error: {e}")
 
     def zoom_in(self, amount: float = 0.1) -> None:
         """Zoom in the model."""

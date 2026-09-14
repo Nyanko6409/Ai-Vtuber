@@ -38,7 +38,7 @@ class Live2DGLWidget(QOpenGLWidget):
     # Signals for mouse events to be handled by the app
     mouse_pressed = Signal(int, int)  # x, y
     mouse_released = Signal(int, int)
-    mouse_moved = Signal(int, int)
+    mouse_moved = Signal(int, int)  # x, y
     mouse_dragged = Signal(int, int)  # delta_x, delta_y
     wheel_scrolled = Signal(bool)  # True for zoom in, False for zoom out
     
@@ -61,6 +61,10 @@ class Live2DGLWidget(QOpenGLWidget):
                 border-radius: 0px;
             }
         """)
+        
+    def get_widget_size(self) -> tuple[int, int]:
+        """Get current widget width and height."""
+        return self.width(), self.height()
         
     def initializeGL(self) -> None:
         """Called when OpenGL context is ready."""
@@ -560,9 +564,11 @@ class QtMainWindow(QMainWindow):
         """Handle mouse movement for eye tracking."""
         if self.app_instance and self.app_instance.avatar:
             try:
-                self.app_instance.avatar.drag(x, y)
-            except Exception:
-                pass
+                # Get widget dimensions for proper coordinate normalization
+                width, height = self.gl_widget.get_widget_size()
+                self.app_instance.avatar.drag(x, y, width, height)
+            except Exception as e:
+                logger.debug(f"Mouse move handling error: {e}")
     
     def on_avatar_resize(self, width: int, height: int):
         """Handle avatar resize event."""
