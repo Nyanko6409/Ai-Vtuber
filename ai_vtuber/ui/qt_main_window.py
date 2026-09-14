@@ -91,8 +91,13 @@ class Live2DGLWidget(QOpenGLWidget):
     def update_clear_color(self, r: float, g: float, b: float, a: float = 1.0):
         """Update the OpenGL clear color."""
         self._clear_color = (r, g, b, a)
-        import OpenGL.GL as gl
-        gl.glClearColor(r, g, b, a)
+        # Only call glClearColor if OpenGL context is already initialized
+        try:
+            import OpenGL.GL as gl
+            gl.glClearColor(r, g, b, a)
+        except Exception:
+            # OpenGL context not ready yet, color will be set in initializeGL()
+            pass
         
     def get_widget_size(self) -> tuple[int, int]:
         """Get current widget width and height."""
