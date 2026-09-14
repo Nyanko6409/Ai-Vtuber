@@ -262,6 +262,9 @@ class PygameUI:
         full_label = f"{label}  {emoji}"
 
         self._font.render_to(surface, (10, 8), full_label, color)
+        
+        # Draw vertical icon buttons on the right side (next to FPS)
+        self._draw_icon_buttons(surface)
 
     def _draw_wrapped_text(self, surface: pygame.Surface, text: str,
                            pos: tuple, max_width: int, color: tuple) -> None:
@@ -292,9 +295,33 @@ class PygameUI:
         """Draw FPS counter."""
         fps_text = f"FPS: {self._fps_value:.1f}"
         self._small_font.render_to(
-            surface, (self.width - 80, 10),
+            surface, (self.width - 120, 10),
             fps_text, (180, 180, 180)
         )
+    
+    def _draw_icon_buttons(self, surface: pygame.Surface) -> None:
+        """Draw vertical icon buttons for chat, mic, and settings next to FPS."""
+        # Button dimensions
+        button_size = 24
+        spacing = 5
+        total_height = button_size * 3 + spacing * 2
+        start_y = (self.status_bar_height - total_height) // 2
+        x = self.width - 35  # Right edge, next to FPS
+        
+        # Chat button
+        chat_rect = pygame.Rect(x, start_y, button_size, button_size)
+        pygame.draw.rect(surface, (60, 120, 200), chat_rect, border_radius=4)
+        self._small_font.render_to(surface, (x + 6, start_y + 4), "💬", (255, 255, 255))
+        
+        # Mic button
+        mic_rect = pygame.Rect(x, start_y + button_size + spacing, button_size, button_size)
+        pygame.draw.rect(surface, (60, 120, 200), mic_rect, border_radius=4)
+        self._small_font.render_to(surface, (x + 6, start_y + button_size + spacing + 4), "🎤", (255, 255, 255))
+        
+        # Settings button
+        settings_rect = pygame.Rect(x, start_y + (button_size + spacing) * 2, button_size, button_size)
+        pygame.draw.rect(surface, (60, 120, 200), settings_rect, border_radius=4)
+        self._small_font.render_to(surface, (x + 6, start_y + (button_size + spacing) * 2 + 4), "⚙", (255, 255, 255))
 
     def _draw_error(self, surface: pygame.Surface, error_msg: str) -> None:
         """Draw compact error notification at the top."""

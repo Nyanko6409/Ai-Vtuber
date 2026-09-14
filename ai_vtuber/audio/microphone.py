@@ -173,6 +173,10 @@ class Microphone:
             self._buffer.clear()
         # FIX: Also clear the chunk queue to prevent stale audio
         self._clear_chunk_queue()
+    
+    def is_muted(self) -> bool:
+        """Check if microphone is currently muted."""
+        return self._muted
 
     def stop(self) -> None:
         """Stop microphone capture."""

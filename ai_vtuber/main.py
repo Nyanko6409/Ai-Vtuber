@@ -237,31 +237,25 @@ def main() -> None:
                         pygame.DOUBLEBUF | pygame.OPENGL | pygame.RESIZABLE
                     )
                 elif event.type == pygame.KEYDOWN:
-                    # Handle special keys first (only when chat input is NOT active)
+                    # Handle special keys
                     if event.key == pygame.K_ESCAPE:
                         running = False
                         break
-                    elif event.key == pygame.K_s:
-                        # Toggle settings panel with S key
-                        settings_ui.toggle_visibility()
-                        continue  # Don't pass S to chat input
-                    elif event.key == pygame.K_TAB:
-                        # Toggle chat visibility with Tab
-                        chat_ui.toggle_chat()
-                        continue  # Don't pass Tab to chat input
                     elif event.key == pygame.K_f:
-                        # Only toggle FPS display when chat input is NOT active
-                        if not chat_ui.input_active:
-                            ui.show_fps = not ui.show_fps
-                            continue  # Don't pass F to chat input
+                        # Toggle FPS display
+                        ui.show_fps = not ui.show_fps
+                        continue  # Don't pass F to chat input
                     elif event.key == pygame.K_d:
-                        # Only toggle debug display when chat input is NOT active
-                        if not chat_ui.input_active:
-                            ui.show_debug = not ui.show_debug
-                            continue  # Don't pass D to chat input
+                        # Toggle debug display
+                        ui.show_debug = not ui.show_debug
+                        continue  # Don't pass D to chat input
                     
-                    # All other keys: pass to chat input if active
-                    # Keyboard is ONLY for chat input - no avatar movement controls
+                    # All other keys: pass to chat input if active, or to settings if visible
+                    # Keyboard is ONLY for text input - no avatar movement controls
+                    if settings_ui.settings_visible:
+                        if settings_ui.handle_event(event):
+                            continue  # Event consumed by settings
+                    
                     if chat_ui.input_active:
                         message = chat_ui.handle_event(event)
                         if message:
@@ -276,6 +270,34 @@ def main() -> None:
                             continue  # Event consumed by settings
                     
                     mouse_pos = event.pos
+                    
+                    # Check for icon button clicks (top-right corner)
+                    if event.button == 1:  # Left click only
+                        icon_x = ui.width - 35
+                        icon_size = 24
+                        icon_spacing = 5
+                        status_bar_height = config["ui"]["status_bar_height"]
+                        total_height = icon_size * 3 + icon_spacing * 2
+                        icon_start_y = (status_bar_height - total_height) // 2
+                        
+                        # Check if clicking in icon button area
+                        if (icon_x <= mouse_pos[0] <= icon_x + icon_size and
+                            icon_start_y <= mouse_pos[1] <= icon_start_y + total_height):
+                            
+                            # Calculate which button was clicked
+                            relative_y = mouse_pos[1] - icon_start_y
+                            button_index = relative_y // (icon_size + icon_spacing)
+                            
+                            if button_index == 0:  # Chat button
+                                chat_ui.toggle_chat()
+                                continue
+                            elif button_index == 1:  # Mic button
+                                app.toggle_microphone()
+                                continue
+                            elif button_index == 2:  # Settings button
+                                settings_ui.toggle_visibility()
+                                continue
+                    
                     input_y = chat_ui.height - chat_ui.input_box_height - 10
                     
                     # Check if clicking inside chat input box using proper rect collision

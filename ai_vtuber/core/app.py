@@ -161,6 +161,19 @@ class App:
 
         self.state_machine.force_state(State.IDLE)
         logger.info("AI VTuber started successfully")
+    
+    def toggle_microphone(self) -> None:
+        """Toggle microphone on/off."""
+        if self._microphone is None:
+            logger.warning("Microphone not initialized")
+            return
+        
+        if self.microphone.is_muted():
+            self.microphone.unmute()
+            logger.info("Microphone unmuted")
+        else:
+            self.microphone.mute()
+            logger.info("Microphone muted")
         
         # Load filler audio data after TTS is initialized
         self._load_fillers()
