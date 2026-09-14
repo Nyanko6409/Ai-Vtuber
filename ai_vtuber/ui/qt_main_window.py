@@ -8,6 +8,37 @@ replacing the Pygame-based UI. It features:
 - Overlay buttons for chat, mic toggle, and settings
 - Integrated chat widget
 - Settings dialog integration
+
+COLOR REFERENCE (All colors defined here for consistency):
+================================================================================
+BACKGROUND COLORS:
+- #000000 (Pure Black): Main window background, OpenGL clear color, Live2D widget
+- rgba(25, 25, 35, 230) (Dark Gray): Chat input field background
+- rgba(35, 35, 50, 240) (Lighter Dark Gray): Chat input focused background
+- transparent: Chat input container (no surrounding box)
+
+BUTTON COLORS:
+- rgba(50, 100, 200, 200) (Blue): Send button background
+- rgba(70, 130, 230, 220) (Lighter Blue): Send button hover
+- rgba(40, 90, 180, 200) (Darker Blue): Send button pressed
+- rgba(60, 60, 90, 200) to rgba(40, 40, 70, 200) (Blue-Gray): Status bar buttons
+
+TEXT COLORS:
+- white/#ffffff: Primary text, button text
+- rgba(180, 180, 200, 150) (Light Gray): Placeholder text in input fields
+- #a0b0ff (Light Blue): FPS label, value labels
+- #81C784 (Green): Microphone ON indicator
+- #EF5350 (Red): Microphone OFF indicator
+
+BORDER COLORS:
+- rgba(100, 150, 255, 60) (Faint Blue): Input field border default
+- rgba(120, 170, 255, 120) (Brighter Blue): Input field border focused
+
+STATUS BAR COLORS:
+- rgba(20, 20, 30, 200) to rgba(30, 30, 45, 220) (Dark Blue-Gray Gradient): Background
+- rgba(40, 40, 60, 180) (Dark Blue-Gray): FPS counter container
+- rgba(100, 150, 255, 60) (Faint Blue): Separator line
+================================================================================
 """
 
 import sys
@@ -60,11 +91,14 @@ class Live2DGLWidget(QOpenGLWidget):
         return self.width(), self.height()
         
     def initializeGL(self) -> None:
-        """Called when OpenGL context is ready."""
+        """Called when OpenGL context is ready.
+        
+        COLOR: Sets OpenGL clear color to pure black (#000000).
+        """
         logger.debug("Live2D GL widget initialized")
-        # Set clear color to very dark charcoal/near-black background
+        # Set clear color to pure black background (#000000)
         import OpenGL.GL as gl
-        gl.glClearColor(0.02, 0.02, 0.04, 1.0)  # #050508 approx
+        gl.glClearColor(0.0, 0.0, 0.0, 1.0)  # Pure black #000000
         gl.glEnable(gl.GL_BLEND)
         gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
         
@@ -125,7 +159,18 @@ class Live2DGLWidget(QOpenGLWidget):
 
 
 class StatusBar(QFrame):
-    """Status bar with FPS, mic status, and icon buttons."""
+    """Status bar with FPS, mic status, and icon buttons.
+    
+    COLOR REFERENCE:
+    - rgba(20, 20, 30, 200) to rgba(30, 30, 45, 220) (Dark Blue-Gray Gradient): Status bar background
+    - rgba(40, 40, 60, 180) (Dark Blue-Gray): FPS counter container
+    - #a0b0ff (Light Blue): FPS text
+    - #81C784 (Green): Microphone ON indicator
+    - #EF5350 (Red): Microphone OFF indicator
+    - rgba(60, 60, 90, 200) to rgba(40, 40, 70, 200) (Blue-Gray Gradient): Icon buttons
+    - white: Button text/icons
+    - rgba(100, 150, 255, 60) (Light Blue): Borders and separators
+    """
     
     chat_clicked = Signal()
     mic_clicked = Signal()
@@ -247,7 +292,16 @@ class StatusBar(QFrame):
 
 
 class QtMainWindow(QMainWindow):
-    """Main Qt window for AI VTuber application."""
+    """Main Qt window for AI VTuber application.
+    
+    COLOR REFERENCE (see module docstring for complete palette):
+    - #000000 (Pure Black): Main window background, Live2D OpenGL widget
+    - transparent: Chat input container (no surrounding box)
+    - rgba(25, 25, 35, 230) (Dark Gray): Chat input field background
+    - white: Input text
+    - rgba(180, 180, 200, 150) (Light Gray): Placeholder text
+    - rgba(50, 100, 200, 200) (Blue): Send button
+    """
     
     def __init__(self, config: Dict[str, Any], app_instance=None):
         super().__init__()
@@ -275,10 +329,10 @@ class QtMainWindow(QMainWindow):
         height = self.config.get("avatar", {}).get("window_height", 600)
         self.resize(width, height)
         
-        # Set main window background to near-black
+        # Set main window background to pure black
         self.setStyleSheet("""
             QMainWindow {
-                background-color: #0a0a0f;
+                background-color: #000000;
             }
         """)
         
@@ -291,16 +345,15 @@ class QtMainWindow(QMainWindow):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
         
-        # OpenGL widget for Live2D with custom styling - dark charcoal background
+        # OpenGL widget for Live2D with custom styling - pure black background
         self.gl_widget = Live2DGLWidget()
         self.gl_widget.setAutoFillBackground(False)
         # Set minimum size to ensure it's visible
         self.gl_widget.setMinimumSize(400, 300)
-        # Update background to very dark charcoal/near-black
+        # Update background to pure black
         self.gl_widget.setStyleSheet("""
             QOpenGLWidget {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #050508, stop:0.5 #0a0a0f, stop:1 #0d0d12);
+                background-color: #000000;
                 border-radius: 0px;
             }
         """)
