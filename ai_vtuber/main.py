@@ -117,6 +117,7 @@ from ai_vtuber.core.app import App
 from ai_vtuber.core.state import State
 from ai_vtuber.ui.pygame_ui import PygameUI
 from ai_vtuber.ui.chat_ui import ChatUI
+from ai_vtuber.ui.settings_ui import SettingsUI
 
 # Configure logging
 logging.basicConfig(
@@ -169,11 +170,13 @@ def main() -> None:
     app = App(config)
     ui = PygameUI(config)
     chat_ui = ChatUI(config["avatar"]["window_width"], config["avatar"]["window_height"], config["ui"]["font_size"])
+    settings_ui = SettingsUI(config["avatar"]["window_width"], config["avatar"]["window_height"], config)
 
     try:
         # Initialize UI (creates window + OpenGL context)
         ui.init()
         chat_ui.init_fonts()
+        settings_ui.init_fonts()
         
         # Set up chat callback
         def on_chat_message(text: str):
@@ -182,6 +185,20 @@ def main() -> None:
             app.process_chat_message(text)
         
         chat_ui.on_send_message = on_chat_message
+        
+        # Set up settings save callback to reload components
+        def on_settings_save(new_config: dict):
+            """Handle config changes - reload affected components."""
+            logger.info("Config saved, reloading components...")
+            # Force reload of components by setting them to None
+            # They will be re-initialized lazily with new config
+            app._stt = None
+            app._tts = None
+            app._microphone = None
+            app._player = None
+            logger.info("Components will reload with new config on next use")
+        
+        settings_ui.on_save = on_settings_save
 
         # Start the application (loads STT/TTS models, starts microphone)
         # NOTE: Live2D model is NOT loaded yet - it needs the OpenGL context
@@ -224,6 +241,10 @@ def main() -> None:
                     if event.key == pygame.K_ESCAPE:
                         running = False
                         break
+                    elif event.key == pygame.K_s:
+                        # Toggle settings panel with S key
+                        settings_ui.toggle_visibility()
+                        continue  # Don't pass S to chat input
                     elif event.key == pygame.K_TAB:
                         # Toggle chat visibility with Tab
                         chat_ui.toggle_chat()
@@ -249,6 +270,11 @@ def main() -> None:
                             app.process_chat_message(message)
                 
                 elif event.type == pygame.MOUSEBUTTONDOWN:
+                    # If settings panel is visible, let it handle the event first
+                    if settings_ui.settings_visible:
+                        if settings_ui.handle_event(event):
+                            continue  # Event consumed by settings
+                    
                     mouse_pos = event.pos
                     input_y = chat_ui.height - chat_ui.input_box_height - 10
                     
@@ -295,13 +321,20 @@ def main() -> None:
                 break
 
             # Forward mouse position to avatar for eye tracking
-            # Only do eye tracking when NOT dragging the avatar
-            if app._avatar and app._avatar.is_initialized and not app._avatar_start_drag:
+            # Only do eye tracking when NOT dragging the avatar AND settings panel is not visible
+            if (app._avatar and app._avatar.is_initialized and 
+                not app._avatar_start_drag and not settings_ui.settings_visible):
                 try:
                     mx, my = ui.get_mouse_pos()
                     app.avatar.drag(mx, my)
                 except Exception:
                     pass
+            
+            # Handle settings UI events (process all events through settings if visible)
+            if settings_ui.settings_visible:
+                for event in events:
+                    if settings_ui.handle_event(event):
+                        break  # Stop processing if event was consumed
 
             # Process VTuber pipeline
             app.process_cycle()
@@ -333,6 +366,9 @@ def main() -> None:
             
             # Draw chat UI (on top of everything)
             chat_ui.draw(ui._screen)
+            
+            # Draw settings panel (on top of chat)
+            settings_ui.draw(ui._screen)
 
             # End frame
             ui.end_frame()
