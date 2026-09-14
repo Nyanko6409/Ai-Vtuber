@@ -198,6 +198,9 @@ class Live2DAvatar:
         self._min_zoom: float = 0.5
         self._max_zoom: float = 5.0
         
+        # Store config reference for potential reloads
+        self._config: dict = config
+        
         # FIX: Thread safety lock for shared state accessed from pipeline/render threads
         self._lock = threading.Lock()
 
@@ -813,6 +816,21 @@ class Live2DAvatar:
         self._model = None
         self._initialized = False
         self._gl_initialized = False
+    
+    def update_config(self, config: dict) -> None:
+        """Update configuration and reset zoom/scale settings.
+        
+        This allows changing avatar settings (like scale) without full reinitialization.
+        Call this after saving settings to apply changes immediately.
+        """
+        self._config = config
+        # Update scale from new config
+        new_scale = config.get("scale", 2.0)
+        if new_scale != self.scale:
+            self.scale = new_scale
+            # Reset zoom to new default scale
+            self._zoom = new_scale
+            logger.info(f"Avatar scale updated to {new_scale}")
 
     @property
     def is_initialized(self) -> bool:

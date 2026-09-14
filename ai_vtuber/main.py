@@ -199,8 +199,16 @@ def main() -> None:
         app._microphone = None
         app._player = None
         app._llm = None
-        app._avatar = None
         app._vad = None
+        # For avatar, update config in-place if already initialized
+        # This preserves the loaded model while applying new settings
+        if app._avatar and app._avatar.is_initialized:
+            app._avatar.update_config(new_config.get("avatar", {}))
+            logger.info("Avatar config updated without full reload")
+        else:
+            # Avatar not initialized yet, will load with new config on init
+            if app._avatar:
+                app._avatar.update_config(new_config.get("avatar", {}))
         logger.info("Components will reload with new config on next use")
     
     main_window.on_settings_save = on_settings_save

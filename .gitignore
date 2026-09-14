@@ -9,7 +9,6 @@ env/
 venv/
 .venv/
 .ENV
-.ENV.*
 .venv.bak/
 pip-log.txt
 pip-delete-this-directory.txt
@@ -22,40 +21,17 @@ coverage.xml
 *.cover
 *.log
 *.pot
-*.po
-*~
-.pytest_cache/
-.mypy_cache/
-.hypothesis/
-.DS_Store
-
-# Build and distribution artifacts
-dist/
-build/
-*.egg-info/
-.eggs/
-.installed.cfg
-lib/
-lib64/
-parts/
-sdist/
-develop-eggs/
-.installed.cfg
-pip-wheel-metadata/
-
-# IDE specific
-.vscode/
-.idea/
+*.pyc
+*.pyo
+*.pyd
+*.so
+.MF
+tags
+TAGS
+id
 *.swp
 *.swo
 *~
-
-# OS generated files
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
 Thumbs.db
 ```
