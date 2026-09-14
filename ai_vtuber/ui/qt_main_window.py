@@ -1,0 +1,445 @@
+#!/usr/bin/env python3
+"""AI VTuber - Qt Main Window with OpenGL Live2D Rendering
+
+This module provides a complete Qt-based UI for the AI VTuber application,
+replacing the Pygame-based UI. It features:
+- QOpenGLWidget for Live2D avatar rendering
+- Status bar with FPS counter and microphone status
+- Overlay buttons for chat, mic toggle, and settings
+- Integrated chat widget
+- Settings dialog integration
+"""
+
+import sys
+import logging
+from typing import Optional, Callable, Dict, Any
+
+from PySide6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QPushButton, QFrame, QGraphicsDropShadowEffect
+)
+from PySide6.QtOpenGLWidgets import QOpenGLWidget
+from PySide6.QtCore import Qt, QTimer, Signal, Slot, QRectF, QPointF
+from PySide6.QtGui import (
+    QFont, QColor, QPainter, QPen, QBrush, QIcon, QMouseEvent,
+    QWheelEvent, QKeyEvent, QPaintEvent, QResizeEvent
+)
+
+logger = logging.getLogger("ai_vtuber")
+
+
+class Live2DGLWidget(QOpenGLWidget):
+    """OpenGL widget for rendering Live2D avatar.
+    
+    This widget provides an OpenGL context for the Live2D renderer
+    and handles mouse interactions for avatar positioning.
+    """
+    
+    # Signals for mouse events to be handled by the app
+    mouse_pressed = Signal(int, int)  # x, y
+    mouse_released = Signal(int, int)
+    mouse_moved = Signal(int, int)
+    mouse_dragged = Signal(int, int)  # delta_x, delta_y
+    wheel_scrolled = Signal(bool)  # True for zoom in, False for zoom out
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._last_mouse_pos: Optional[QPointF] = None
+        self._is_dragging = False
+        self.setMinimumSize(400, 300)
+        self._render_callback = None
+        
+    def initializeGL(self) -> None:
+        """Called when OpenGL context is ready."""
+        logger.debug("Live2D GL widget initialized")
+        
+    def paintGL(self) -> None:
+        """Render the Live2D avatar."""
+        # Call the render callback if set
+        if self._render_callback:
+            try:
+                self._render_callback()
+            except Exception as e:
+                logger.debug(f"Render callback error: {e}")
+        
+    def resizeGL(self, width: int, height: int) -> None:
+        """Handle widget resize."""
+        if hasattr(self.parent(), 'on_avatar_resize'):
+            self.parent().on_avatar_resize(width, height)
+    
+    def set_render_callback(self, callback):
+        """Set the render callback function."""
+        self._render_callback = callback
+    
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        """Handle mouse press for avatar dragging."""
+        if event.button() == Qt.LeftButton:
+            self._last_mouse_pos = event.position()
+            self._is_dragging = True
+            self.mouse_pressed.emit(int(event.position().x()), int(event.position().y()))
+    
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        """Handle mouse release."""
+        if event.button() == Qt.LeftButton:
+            self._is_dragging = False
+            self.mouse_released.emit(int(event.position().x()), int(event.position().y()))
+    
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        """Handle mouse move for eye tracking and dragging."""
+        pos = event.position()
+        self.mouse_moved.emit(int(pos.x()), int(pos.y()))
+        
+        if self._is_dragging and self._last_mouse_pos is not None:
+            delta = pos - self._last_mouse_pos
+            self.mouse_dragged.emit(int(delta.x()), int(delta.y()))
+            self._last_mouse_pos = pos
+    
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        """Handle mouse wheel for zooming."""
+        if event.angleDelta().y() > 0:
+            self.wheel_scrolled.emit(True)  # Zoom in
+        else:
+            self.wheel_scrolled.emit(False)  # Zoom out
+
+
+class ChatOverlayWidget(QWidget):
+    """Chat input overlay widget."""
+    
+    message_sent = Signal(str)
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("chatOverlay")
+        self.setStyleSheet("""
+            #chatOverlay {
+                background-color: rgba(30, 30, 30, 200);
+                border-radius: 10px;
+            }
+        """)
+        self.setVisible(False)
+        
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(15, 15, 15, 15)
+        
+        # Title
+        self.title_label = QLabel("💬 Chat")
+        self.title_label.setStyleSheet("color: white; font-size: 16px; font-weight: bold;")
+        layout.addWidget(self.title_label)
+        
+        # Messages area
+        self.messages_label = QLabel("")
+        self.messages_label.setStyleSheet("color: white; font-size: 14px;")
+        self.messages_label.setWordWrap(True)
+        layout.addWidget(self.messages_label)
+        
+        # Input field
+        from PySide6.QtWidgets import QLineEdit
+        self.input_field = QLineEdit()
+        self.input_field.setPlaceholderText("Type a message...")
+        self.input_field.setStyleSheet("""
+            QLineEdit {
+                background-color: rgba(50, 50, 50, 200);
+                color: white;
+                border: 1px solid rgba(255, 255, 255, 50);
+                border-radius: 5px;
+                padding: 8px;
+                font-size: 14px;
+            }
+            QLineEdit:focus {
+                border: 1px solid rgba(255, 255, 255, 100);
+            }
+        """)
+        self.input_field.returnPressed.connect(self._send_message)
+        layout.addWidget(self.input_field)
+        
+    def _send_message(self):
+        """Send the typed message."""
+        text = self.input_field.text().strip()
+        if text:
+            self.message_sent.emit(text)
+            self.input_field.clear()
+    
+    def add_message(self, role: str, text: str):
+        """Add a message to the display."""
+        current = self.messages_label.text()
+        color = "#4FC3F7" if role == "user" else "#81C784"
+        new_msg = f'<span style="color:{color}"><b>{role}:</b></span> {text}'
+        if current:
+            self.messages_label.setText(current + "<br>" + new_msg)
+        else:
+            self.messages_label.setText(new_msg)
+    
+    def toggle_visibility(self):
+        """Toggle widget visibility."""
+        self.setVisible(not self.isVisible())
+        if self.isVisible():
+            self.input_field.setFocus()
+
+
+class StatusBar(QFrame):
+    """Status bar with FPS, mic status, and icon buttons."""
+    
+    chat_clicked = Signal()
+    mic_clicked = Signal()
+    settings_clicked = Signal()
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("statusBar")
+        self.setFixedHeight(50)
+        self.setStyleSheet("""
+            #statusBar {
+                background-color: rgba(20, 20, 20, 180);
+                border-top: 1px solid rgba(255, 255, 255, 30);
+            }
+        """)
+        
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(15, 5, 15, 5)
+        layout.setSpacing(15)
+        
+        # FPS counter
+        self.fps_label = QLabel("FPS: 0")
+        self.fps_label.setStyleSheet("color: white; font-size: 14px; font-weight: bold;")
+        layout.addWidget(self.fps_label)
+        
+        # Spacer
+        layout.addStretch()
+        
+        # Mic status
+        self.mic_label = QLabel("🎤 ON")
+        self.mic_label.setStyleSheet("color: #81C784; font-size: 14px;")
+        layout.addWidget(self.mic_label)
+        
+        # Icon buttons container
+        button_layout = QVBoxLayout()
+        button_layout.setSpacing(5)
+        
+        # Create icon buttons
+        self.chat_button = self._create_icon_button("💬", "Chat")
+        self.mic_button = self._create_icon_button("🎤", "Microphone")
+        self.settings_button = self._create_icon_button("⚙", "Settings")
+        
+        button_layout.addWidget(self.chat_button)
+        button_layout.addWidget(self.mic_button)
+        button_layout.addWidget(self.settings_button)
+        
+        layout.addLayout(button_layout)
+    
+    def _create_icon_button(self, icon: str, tooltip: str) -> QPushButton:
+        """Create a styled icon button."""
+        btn = QPushButton(icon)
+        btn.setFixedSize(30, 30)
+        btn.setToolTip(tooltip)
+        btn.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(50, 50, 50, 150);
+                border: 1px solid rgba(255, 255, 255, 30);
+                border-radius: 5px;
+                font-size: 16px;
+                color: white;
+            }
+            QPushButton:hover {
+                background-color: rgba(70, 70, 70, 200);
+                border: 1px solid rgba(255, 255, 255, 80);
+            }
+            QPushButton:pressed {
+                background-color: rgba(40, 40, 40, 180);
+            }
+        """)
+        return btn
+    
+    def update_fps(self, fps: float):
+        """Update FPS display."""
+        self.fps_label.setText(f"FPS: {fps:.0f}")
+    
+    def update_mic_status(self, is_muted: bool):
+        """Update microphone status display."""
+        if is_muted:
+            self.mic_label.setText("🎤 OFF")
+            self.mic_label.setStyleSheet("color: #EF5350; font-size: 14px;")
+        else:
+            self.mic_label.setText("🎤 ON")
+            self.mic_label.setStyleSheet("color: #81C784; font-size: 14px;")
+
+
+class QtMainWindow(QMainWindow):
+    """Main Qt window for AI VTuber application."""
+    
+    def __init__(self, config: Dict[str, Any], app_instance=None):
+        super().__init__()
+        self.config = config
+        self.app_instance = app_instance
+        
+        # State
+        self.chat_visible = False
+        self.show_fps = config.get("ui", {}).get("show_fps", True)
+        self.show_debug = config.get("ui", {}).get("show_debug", False)
+        
+        # Callbacks
+        self.on_chat_message: Optional[Callable[[str], None]] = None
+        self.on_settings_save: Optional[Callable[[Dict], None]] = None
+        
+        self._setup_ui()
+        
+    def _setup_ui(self):
+        """Initialize the user interface."""
+        self.setWindowTitle("AI VTuber")
+        self.setMinimumSize(800, 600)
+        
+        # Set window size from config
+        width = self.config.get("avatar", {}).get("window_width", 800)
+        height = self.config.get("avatar", {}).get("window_height", 600)
+        self.resize(width, height)
+        
+        # Central widget
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        
+        # Main layout
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        
+        # OpenGL widget for Live2D
+        self.gl_widget = Live2DGLWidget()
+        self.gl_widget.setAutoFillBackground(False)
+        main_layout.addWidget(self.gl_widget, 1)
+        
+        # Chat overlay
+        self.chat_widget = ChatOverlayWidget()
+        self.chat_widget.setMaximumWidth(400)
+        self.chat_widget.setMaximumHeight(300)
+        # Position chat overlay in bottom-left
+        self.chat_widget.setParent(self.gl_widget)
+        
+        # Status bar
+        self.status_bar = StatusBar()
+        main_layout.addWidget(self.status_bar)
+        
+        # Connect signals
+        self.status_bar.chat_clicked.connect(self._toggle_chat)
+        self.status_bar.mic_clicked.connect(self._toggle_mic)
+        self.status_bar.settings_clicked.connect(self._open_settings)
+        self.chat_widget.message_sent.connect(self._handle_chat_message)
+        
+        # GL widget signals
+        self.gl_widget.mouse_dragged.connect(self._handle_avatar_drag)
+        self.gl_widget.wheel_scrolled.connect(self._handle_wheel_scroll)
+        self.gl_widget.mouse_moved.connect(self._handle_mouse_move)
+        
+        # FPS timer
+        self.fps_timer = QTimer()
+        self.fps_timer.timeout.connect(self._update_fps)
+        self.fps_timer.start(1000)
+        
+        self.frame_count = 0
+        self.last_fps_update = 0
+        
+    def _setup_callbacks(self):
+        """Setup rendering and interaction callbacks."""
+        if self.app_instance:
+            # Setup avatar rendering callback
+            def render_callback():
+                # Update and draw the avatar
+                if self.app_instance._avatar and self.app_instance._avatar.is_initialized:
+                    try:
+                        delta_time = 1.0 / self.config.get("avatar", {}).get("fps", 30)
+                        self.app_instance.avatar.update(delta_time)
+                        self.app_instance.avatar.draw()
+                    except Exception as e:
+                        logger.debug(f"Avatar render error: {e}")
+            
+            # Set the render callback on the GL widget
+            self.gl_widget.set_render_callback(render_callback)
+    
+    @Slot(float)
+    def _update_fps(self):
+        """Update FPS counter."""
+        if self.show_fps:
+            fps = self.frame_count
+            self.status_bar.update_fps(fps)
+        self.frame_count = 0
+    
+    def process_cycle(self):
+        """Process VTuber cycle and trigger GL update."""
+        if self.app_instance:
+            self.app_instance.process_cycle()
+        # Trigger OpenGL redraw
+        self.gl_widget.update()
+        self.increment_frame()
+    
+    def increment_frame(self):
+        """Increment frame counter (called each render)."""
+        self.frame_count += 1
+    
+    def _toggle_chat(self):
+        """Toggle chat overlay visibility."""
+        self.chat_visible = not self.chat_visible
+        self.chat_widget.toggle_visibility()
+    
+    def _toggle_mic(self):
+        """Toggle microphone on/off."""
+        if self.app_instance:
+            self.app_instance.toggle_microphone()
+    
+    def _open_settings(self):
+        """Open settings dialog."""
+        if self.app_instance and self.on_settings_save:
+            from .pyside_settings import show_settings_dialog
+            show_settings_dialog(self.config, self.on_settings_save)
+    
+    def _handle_chat_message(self, text: str):
+        """Handle chat message from overlay."""
+        if self.on_chat_message:
+            self.on_chat_message(text)
+    
+    def _handle_avatar_drag(self, dx: int, dy: int):
+        """Handle avatar dragging."""
+        if self.app_instance and self.app_instance.avatar:
+            self.app_instance.avatar.move_by(dx, -dy)
+    
+    def _handle_wheel_scroll(self, zoom_in: bool):
+        """Handle mouse wheel zoom."""
+        if self.app_instance and self.app_instance.avatar:
+            if zoom_in:
+                self.app_instance.avatar.zoom_in(0.2)
+            else:
+                self.app_instance.avatar.zoom_out(0.2)
+    
+    def _handle_mouse_move(self, x: int, y: int):
+        """Handle mouse movement for eye tracking."""
+        if self.app_instance and self.app_instance.avatar:
+            try:
+                self.app_instance.avatar.drag(x, y)
+            except Exception:
+                pass
+    
+    def on_avatar_resize(self, width: int, height: int):
+        """Handle avatar resize event."""
+        if self.app_instance and self.app_instance.avatar:
+            self.app_instance.avatar.resize(width, height)
+    
+    def update_mic_status(self, is_muted: bool):
+        """Update microphone status in status bar."""
+        self.status_bar.update_mic_status(is_muted)
+    
+    def add_chat_message(self, role: str, text: str):
+        """Add a message to chat overlay."""
+        self.chat_widget.add_message(role, text)
+    
+    def keyPressEvent(self, event: QKeyEvent):
+        """Handle key press events."""
+        if event.key() == Qt.Key_Escape:
+            self.close()
+        elif event.key() == Qt.Key_F:
+            self.show_fps = not self.show_fps
+            if not self.show_fps:
+                self.status_bar.update_fps(0)
+        elif event.key() == Qt.Key_D:
+            self.show_debug = not self.show_debug
+        else:
+            # Pass other keys to chat input if active
+            if self.chat_widget.isVisible() and self.chat_widget.input_field.hasFocus():
+                # Let Qt handle it normally
+                super().keyPressEvent(event)

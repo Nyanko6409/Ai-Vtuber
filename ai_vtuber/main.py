@@ -27,7 +27,6 @@ import logging
 import argparse
 import time
 import yaml
-import pygame
 
 # Setup CUDA library paths before importing any CUDA-dependent modules
 def _setup_cuda_library_path():
@@ -115,8 +114,7 @@ sys.path.insert(0, project_root)
 
 from ai_vtuber.core.app import App
 from ai_vtuber.core.state import State
-from ai_vtuber.ui.pygame_ui import PygameUI
-from ai_vtuber.ui.chat_ui import ChatUI
+from ai_vtuber.ui.qt_main_window import QtMainWindow
 from ai_vtuber.ui.pyside_settings import show_settings_dialog
 
 # Configure logging
@@ -162,231 +160,79 @@ def main() -> None:
     # Load configuration
     config = load_config(args.config)
 
-    # Initialize application
+    # Initialize Qt application
     logger.info("=" * 50)
     logger.info("AI VTuber Starting...")
     logger.info("=" * 50)
 
+    # Create Qt application
+    qt_app = QApplication.instance()
+    if qt_app is None:
+        qt_app = QApplication(sys.argv)
+    
+    # Create main window
     app = App(config)
-    ui = PygameUI(config)
-    chat_ui = ChatUI(config["avatar"]["window_width"], config["avatar"]["window_height"], config["ui"]["font_size"])
+    main_window = QtMainWindow(config, app_instance=app)
+    
+    # Set up callbacks
+    def on_chat_message(text: str):
+        """Handle chat message from text input."""
+        logger.info(f"Chat message: {text}")
+        main_window.add_chat_message("user", text)
+        app.process_chat_message(text)
+    
+    main_window.on_chat_message = on_chat_message
+    
+    # Set up settings save callback to reload components
+    def on_settings_save(new_config: dict):
+        """Handle config changes - reload affected components."""
+        logger.info("Config saved, reloading components...")
+        # Update config reference in main window
+        main_window.config = new_config
+        # Force reload of components by setting them to None
+        # They will be re-initialized lazily with new config
+        app._stt = None
+        app._tts = None
+        app._microphone = None
+        app._player = None
+        logger.info("Components will reload with new config on next use")
+    
+    main_window.on_settings_save = on_settings_save
 
-    try:
-        # Initialize UI (creates window + OpenGL context)
-        ui.init()
-        chat_ui.init_fonts()
+    # Start the application (loads STT/TTS models, starts microphone)
+    app.start()
+
+    # Initialize Live2D after app start
+    live2d_error = None
+    if app._avatar:
+        # The GL context is created by QOpenGLWidget automatically
+        # We need to wait for it to be ready
+        logger.info("Live2D avatar will initialize with OpenGL context")
+    
+    logger.info("Entering main loop. Press ESC or close window to quit.")
+    
+    # Setup timer for regular updates
+    update_timer = QTimer()
+    
+    def process_cycle():
+        """Process VTuber cycle and update UI."""
+        main_window.process_cycle()
         
-        # Set up chat callback
-        def on_chat_message(text: str):
-            """Handle chat message from text input."""
-            logger.info(f"Chat message: {text}")
-            app.process_chat_message(text)
-        
-        chat_ui.on_send_message = on_chat_message
-        
-        # Set up settings save callback to reload components
-        def on_settings_save(new_config: dict):
-            """Handle config changes - reload affected components."""
-            logger.info("Config saved, reloading components...")
-            # Force reload of components by setting them to None
-            # They will be re-initialized lazily with new config
-            app._stt = None
-            app._tts = None
-            app._microphone = None
-            app._player = None
-            logger.info("Components will reload with new config on next use")
-
-        # Start the application (loads STT/TTS models, starts microphone)
-        # NOTE: Live2D model is NOT loaded yet - it needs the OpenGL context
-        app.start()
-
-        # NOW initialize Live2D (OpenGL context exists)
-        live2d_error = None
-        if app._avatar:
-            success = app.avatar.init_gl()
-            if success:
-                app.avatar.resize(ui.width, ui.height)
-                logger.info("Live2D avatar initialized with OpenGL context")
-            else:
-                live2d_error = app.avatar.error_message or "Live2D initialization failed"
-                logger.warning(f"Live2D avatar failed to initialize: {live2d_error}")
-                logger.warning("UI will work without avatar")
-
-        # Main loop
-        logger.info("Entering main loop. Press ESC or close window to quit.")
-        running = True
-
-        while running:
-            # Get all events once
-            events = pygame.event.get()
-            
-            # Handle UI events (window close, resize, etc.)
-            for event in events:
-                if event.type == pygame.QUIT:
-                    running = False
-                    break
-                elif event.type == pygame.VIDEORESIZE:
-                    ui.width = event.w
-                    ui.height = event.h
-                    ui._screen = pygame.display.set_mode(
-                        (ui.width, ui.height),
-                        pygame.DOUBLEBUF | pygame.OPENGL | pygame.RESIZABLE
-                    )
-                elif event.type == pygame.KEYDOWN:
-                    # Handle special keys
-                    if event.key == pygame.K_ESCAPE:
-                        running = False
-                        break
-                    elif event.key == pygame.K_f:
-                        # Toggle FPS display
-                        ui.show_fps = not ui.show_fps
-                        continue  # Don't pass F to chat input
-                    elif event.key == pygame.K_d:
-                        # Toggle debug display
-                        ui.show_debug = not ui.show_debug
-                        continue  # Don't pass D to chat input
-                    
-                    # All other keys: pass to chat input if active
-                    # Keyboard is ONLY for text input - no avatar movement controls
-                    if chat_ui.input_active:
-                        message = chat_ui.handle_event(event)
-                        if message:
-                            # Message was sent via chat
-                            logger.info(f"Chat input: {message}")
-                            app.process_chat_message(message)
-                
-                elif event.type == pygame.MOUSEBUTTONDOWN:
-                    mouse_pos = event.pos
-                    
-                    # Check for icon button clicks (top-right corner)
-                    if event.button == 1:  # Left click only
-                        icon_x = ui.width - 35
-                        icon_size = 24
-                        icon_spacing = 5
-                        status_bar_height = config["ui"]["status_bar_height"]
-                        total_height = icon_size * 3 + icon_spacing * 2
-                        icon_start_y = (status_bar_height - total_height) // 2
-                        
-                        # Check if clicking in icon button area
-                        if (icon_x <= mouse_pos[0] <= icon_x + icon_size and
-                            icon_start_y <= mouse_pos[1] <= icon_start_y + total_height):
-                            
-                            # Calculate which button was clicked
-                            relative_y = mouse_pos[1] - icon_start_y
-                            button_index = relative_y // (icon_size + icon_spacing)
-                            
-                            if button_index == 0:  # Chat button
-                                chat_ui.toggle_chat()
-                                continue
-                            elif button_index == 1:  # Mic button
-                                app.toggle_microphone()
-                                continue
-                            elif button_index == 2:  # Settings button
-                                # Open PySide6 settings dialog
-                                show_settings_dialog(config, on_settings_save)
-                                continue
-                    
-                    input_y = chat_ui.height - chat_ui.input_box_height - 10
-                    
-                    # Check if clicking inside chat input box using proper rect collision
-                    chat_input_rect = pygame.Rect(
-                        20, input_y,
-                        chat_ui.width - 40, chat_ui.input_box_height
-                    )
-                    clicked_chat_input = (
-                        chat_ui.chat_visible and
-                        chat_input_rect.collidepoint(mouse_pos)
-                    )
-                    
-                    if event.button == 1:  # Left click
-                        if clicked_chat_input:
-                            # Focus chat input, do NOT start dragging
-                            chat_ui.input_active = True
-                        else:
-                            # Start avatar dragging
-                            app._avatar_start_drag = True
-                            # Unfocus chat if clicking outside
-                            if chat_ui.input_active:
-                                chat_ui.input_active = False
-                    elif event.button == 4:  # Scroll up - zoom in
-                        if app._avatar and app._avatar.is_initialized:
-                            app.avatar.zoom_in(0.2)
-                    elif event.button == 5:  # Scroll down - zoom out
-                        if app._avatar and app._avatar.is_initialized:
-                            app.avatar.zoom_out(0.2)
-
-                elif event.type == pygame.MOUSEBUTTONUP:
-                    if event.button == 1:  # Left click released
-                        app._avatar_start_drag = False
-
-                elif event.type == pygame.MOUSEMOTION:
-                    # Handle avatar dragging with left mouse button
-                    # Only drag if not over chat input area
-                    buttons = pygame.mouse.get_pressed()
-                    if buttons[0] and app._avatar_start_drag and app._avatar and app._avatar.is_initialized:
-                        dx, dy = event.rel
-                        app.avatar.move_by(dx, -dy)
-
-            if not running:
-                break
-
-            # Forward mouse position to avatar for eye tracking
-            # Only do eye tracking when NOT dragging the avatar
-            if (app._avatar and app._avatar.is_initialized and 
-                not app._avatar_start_drag):
-                try:
-                    mx, my = ui.get_mouse_pos()
-                    app.avatar.drag(mx, my)
-                except Exception:
-                    pass
-
-            # Process VTuber pipeline
-            app.process_cycle()
-            
-            # Update chat UI with current response for typewriter effect
-            delta_time = 1.0 / config["avatar"]["fps"]
-            status = app.get_status()
-            current_response = status.get("response", "")
-            chat_ui.update(delta_time, current_response)
-
-            # Begin rendering frame
-            ui.begin_frame()
-
-            # Draw Live2D avatar (if initialized)
-            if app._avatar and app._avatar.is_initialized:
-                try:
-                    delta_time = 1.0 / config["avatar"]["fps"]
-                    app.avatar.update(delta_time)
-                    app.avatar.draw()
-                except Exception as e:
-                    if config.get("ui", {}).get("show_debug", False):
-                        logger.debug(f"Avatar render error: {e}")
-
-            # Draw UI overlay
-            status = app.get_status()
-            # Show Live2D error if avatar failed to initialize
-            error_msg = status.get("error") or live2d_error
-            ui.draw_overlay(status, error_msg)
-            
-            # Draw chat UI (on top of everything)
-            chat_ui.draw(ui._screen)
-
-            # End frame
-            ui.end_frame()
-
-            # Small sleep to prevent CPU spinning
-            time.sleep(0.001)
-
-    except KeyboardInterrupt:
-        logger.info("Interrupted by user")
-    except Exception as e:
-        logger.error(f"Fatal error: {e}", exc_info=True)
-    finally:
-        # Cleanup
-        logger.info("Shutting down...")
-        app.stop()
-        ui.cleanup()
-        logger.info("Goodbye!")
+        # Update mic status
+        if hasattr(app, '_microphone') and app._microphone:
+            main_window.update_mic_status(app._microphone.is_muted())
+    
+    update_timer.timeout.connect(process_cycle)
+    update_timer.start(int(1000 / config["avatar"]["fps"]))
+    
+    # Setup callbacks after showing window (GL context needed)
+    main_window._setup_callbacks()
+    
+    # Show main window
+    main_window.show()
+    
+    # Run Qt event loop
+    sys.exit(qt_app.exec())
 
 
 if __name__ == "__main__":
