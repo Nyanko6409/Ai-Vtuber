@@ -1,15 +1,20 @@
 """AI VTuber - Main Application Controller"""
 
 import logging
+import queue
+import re
 import threading
+import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Iterator
+
+import numpy as np
 
 from .state import State, StateMachine
 from .conversation import ConversationHistory
 from ..llm.lmstudio import LMStudioClient
 from ..stt.whisper import WhisperSTT
-from ..tts.kitten import KittenTTS
+from ..tts.kitten import KittenTTS, split_text_into_chunks
 from ..avatar.live2d import Live2DAvatar
 from ..audio.microphone import Microphone
 from ..audio.vad import VoiceActivityDetector
@@ -56,6 +61,10 @@ class App:
         self._microphone: Optional[Microphone] = None
         self._vad: Optional[VoiceActivityDetector] = None
         self._player: Optional[AudioPlayer] = None
+        
+        # Filler audio data loaded at startup
+        self._fillers: list[tuple[np.ndarray, int]] = []  # (audio_array, duration_ms)
+        self._fillers_loaded: bool = False
 
         # Threading
         self._pipeline_thread: Optional[threading.Thread] = None
@@ -152,6 +161,65 @@ class App:
 
         self.state_machine.force_state(State.IDLE)
         logger.info("AI VTuber started successfully")
+        
+        # Load filler audio data after TTS is initialized
+        self._load_fillers()
+
+    def _load_fillers(self) -> None:
+        """Load pre-rendered filler audio files from disk.
+        
+        Fills self._fillers with (audio_array, duration_ms) tuples.
+        Logs a warning and disables fillers if folder is empty/missing.
+        """
+        if not self.config.get("fillers", {}).get("enabled", True):
+            logger.info("Filler system disabled in config")
+            self._fillers_loaded = False
+            return
+        
+        try:
+            fillers_dir = Path(__file__).parent.parent / "data" / "fillers"
+            
+            if not fillers_dir.exists():
+                logger.warning(f"Fillers directory not found: {fillers_dir}, disabling filler system")
+                self._fillers_loaded = False
+                return
+            
+            filler_files = sorted(fillers_dir.glob("filler_*.npy"))
+            
+            if not filler_files:
+                logger.warning(f"No filler files found in {fillers_dir}, disabling filler system")
+                self._fillers_loaded = False
+                return
+            
+            loaded_count = 0
+            for filler_path in filler_files:
+                try:
+                    # Parse duration from filename: filler_XX_NNNms.npy
+                    match = re.search(r"_(\d+)ms\.npy$", filler_path.name)
+                    if match:
+                        duration_ms = int(match.group(1))
+                    else:
+                        # Estimate duration if not in filename
+                        audio_data = np.load(filler_path)
+                        duration_ms = int(len(audio_data) / self.tts.sample_rate * 1000)
+                    
+                    audio_data = np.load(filler_path)
+                    self._fillers.append((audio_data, duration_ms))
+                    loaded_count += 1
+                    
+                except Exception as e:
+                    logger.warning(f"Failed to load filler {filler_path.name}: {e}")
+            
+            if loaded_count > 0:
+                self._fillers_loaded = True
+                logger.info(f"Loaded {loaded_count} filler phrases for latency masking")
+            else:
+                logger.warning("No filler files could be loaded, disabling filler system")
+                self._fillers_loaded = False
+                
+        except Exception as e:
+            logger.warning(f"Error loading fillers: {e}, disabling filler system")
+            self._fillers_loaded = False
 
     def stop(self) -> None:
         """Stop the VTuber application."""
@@ -248,7 +316,16 @@ class App:
 
             # Generate response with dynamic timeout
             self.state_machine.force_state(State.THINKING)
-            response_text, emotion = self._generate_response(timeout=self.llm_timeout)
+            
+            # Check if streaming is enabled in config
+            stream_enabled = self.config.get("llm", {}).get("stream_enabled", False)
+            
+            if stream_enabled:
+                # Use streaming pipeline for lower latency
+                response_text, emotion = self._generate_response_streaming(timeout=self.llm_timeout)
+            else:
+                # Use legacy blocking pipeline
+                response_text, emotion = self._generate_response(timeout=self.llm_timeout)
 
             if not response_text:
                 # Fallback response when LLM fails - still add to conversation history
@@ -356,6 +433,248 @@ class App:
         except Exception as e:
             logger.error(f"LLM error: {e}")
             # More engaging fallback responses instead of apologetic ones
+            fallbacks = [
+                "Let's keep chatting! I'm always excited to hear what you have to say. What else is on your mind?",
+                "You know what? Every conversation is a new adventure! Where should we go next in our discussion?",
+                "I love our chats! There's always something interesting to talk about. What would you like to explore together?"
+            ]
+            import random
+            return (random.choice(fallbacks), "happy")
+
+    def _generate_response_streaming(self, timeout: Optional[int] = None) -> tuple[str, str]:
+        """Generate LLM response with streaming for lower latency.
+        
+        Streams LLM tokens and starts TTS synthesis as soon as complete sentences
+        are available, reducing time-to-first-audio.
+        
+        Args:
+            timeout: Optional timeout in seconds for this request.
+            
+        Returns:
+            (full_response_text, emotion) tuple after full response is assembled.
+        """
+        try:
+            # Refresh soul prompt before generating
+            self.conversation.set_soul_prompt(self.memory_manager.get_full_context())
+            messages = self.conversation.get_messages_for_llm()
+            
+            # Sentence boundary pattern - matches sentence-ending punctuation
+            sentence_end_pattern = re.compile(r'([.!?]+)(?:\s+|$)')
+            
+            # Buffers for accumulating text
+            token_buffer = ""  # Raw tokens from LLM
+            sentence_buffer = ""  # Complete sentences ready for TTS
+            raw_response = ""  # Full raw response for emotion analysis
+            
+            # Queue for sending sentences to TTS producer
+            tts_input_queue: queue.Queue = queue.Queue(maxsize=3)
+            
+            # Thread control
+            producer_stop_event = threading.Event()
+            producer_thread: Optional[threading.Thread] = None
+            
+            # Track first chunk playback start for lip sync
+            first_chunk_played = False
+            on_start_called = False
+            
+            def tts_producer():
+                """Producer thread: synthesizes sentences and queues audio chunks."""
+                nonlocal first_chunk_played, on_start_called
+                
+                try:
+                    while not producer_stop_event.is_set():
+                        try:
+                            # Get next sentence from queue (blocking with timeout)
+                            sentence = tts_input_queue.get(timeout=0.1)
+                            
+                            if sentence is None:  # Sentinel value signals end
+                                break
+                            
+                            # Normalize text before TTS
+                            from ai_vtuber.tts import normalize_text
+                            cleaned = normalize_text(sentence)
+                            
+                            if not cleaned:
+                                continue
+                            
+                            # Generate audio for this sentence
+                            audio = self.tts.generate(cleaned)
+                            if audio is not None:
+                                # Put audio in playback queue
+                                self._tts_audio_queue.put((audio, cleaned))
+                                
+                        except queue.Empty:
+                            continue
+                        except Exception as e:
+                            logger.error(f"TTS producer error: {e}")
+                            break
+                finally:
+                    logger.debug("TTS producer thread exiting")
+            
+            def playback_consumer(interrupt_check, on_start, on_end):
+                """Consumer: plays audio chunks from TTS producer.
+                
+                Handles filler injection on stalls and first-chunk special case.
+                """
+                nonlocal first_chunk_played, on_start_called
+                
+                stall_threshold = self.config.get("fillers", {}).get("stall_threshold_ms", 400) / 1000.0
+                last_chunk_end_time = time.time()
+                
+                try:
+                    while True:
+                        # Check for interruption
+                        if interrupt_check():
+                            logger.info("Playback interrupted")
+                            producer_stop_event.set()
+                            break
+                        
+                        # Check for stall (queue empty but producer still running)
+                        elapsed_since_last = time.time() - last_chunk_end_time
+                        if (self._tts_audio_queue.empty() and 
+                            producer_thread and producer_thread.is_alive() and
+                            elapsed_since_last > stall_threshold and
+                            self._fillers_loaded):
+                            # Play a filler while waiting
+                            logger.debug(f"Stall detected ({elapsed_since_last:.2f}s), playing filler")
+                            self._play_filler(interrupt_check)
+                            last_chunk_end_time = time.time()
+                        
+                        # Get next audio chunk (blocking with timeout)
+                        try:
+                            audio_data, chunk_text = self._tts_audio_queue.get(timeout=0.1)
+                        except queue.Empty:
+                            # Check if producer is done
+                            if producer_thread and not producer_thread.is_alive():
+                                break
+                            continue
+                        
+                        # First chunk special handling: split if too long
+                        if not first_chunk_played and len(chunk_text) > 60:
+                            # Split at first comma/clause boundary
+                            comma_match = re.search(r'[,;:]\s*', chunk_text)
+                            if comma_match:
+                                split_point = comma_match.end()
+                                first_part = chunk_text[:split_point].strip()
+                                second_part = chunk_text[split_point:].strip()
+                                
+                                if first_part and second_part:
+                                    # Re-generate first part only
+                                    from ai_vtuber.tts import normalize_text
+                                    first_cleaned = normalize_text(first_part)
+                                    if first_cleaned:
+                                        first_audio = self.tts.generate(first_cleaned)
+                                        if first_audio is not None:
+                                            # Play first part now
+                                            self._play_audio_chunk(
+                                                first_audio, 
+                                                interrupt_check,
+                                                on_start if not on_start_called else None,
+                                                None  # No on_end for partial chunk
+                                            )
+                                            if not on_start_called and on_start:
+                                                on_start()
+                                                on_start_called = True
+                                            first_chunk_played = True
+                                            last_chunk_end_time = time.time()
+                                            
+                                            # Put remaining part back for normal playback
+                                            self._tts_audio_queue.put((audio_data, chunk_text))
+                                            continue
+                        
+                        # Play the chunk normally
+                        def chunk_on_start():
+                            nonlocal on_start_called
+                            if not on_start_called and on_start:
+                                on_start()
+                                on_start_called = True
+                        
+                        def chunk_on_end():
+                            nonlocal last_chunk_end_time
+                            last_chunk_end_time = time.time()
+                        
+                        self._play_audio_chunk(
+                            audio_data,
+                            interrupt_check,
+                            chunk_on_start,
+                            chunk_on_end
+                        )
+                        
+                        if not on_start_called and on_start:
+                            on_start()
+                            on_start_called = True
+                        first_chunk_played = True
+                        
+                finally:
+                    # Signal end to producer if not already done
+                    producer_stop_event.set()
+                    
+                    # Call on_end if we played anything
+                    if on_start_called and on_end:
+                        on_end()
+                    
+                    logger.debug("Playback consumer exiting")
+            
+            # Start producer thread
+            self._tts_audio_queue = queue.Queue(maxsize=3)
+            producer_thread = threading.Thread(target=tts_producer, daemon=True)
+            producer_thread.start()
+            
+            # Stream LLM tokens
+            for delta in self.llm.chat_stream(messages, timeout=timeout):
+                token_buffer += delta
+                raw_response += delta
+                
+                # Check for sentence boundaries
+                match = sentence_end_pattern.search(token_buffer)
+                if match:
+                    # Extract complete sentence(s)
+                    end_pos = match.end()
+                    sentence = token_buffer[:end_pos].strip()
+                    token_buffer = token_buffer[end_pos:].lstrip()
+                    
+                    if sentence:
+                        # Add emotion tag to first sentence if present
+                        if raw_response.startswith('[') and sentence not in raw_response.split('\n')[0]:
+                            # First line has emotion tag, prepend to first sentence
+                            first_line = raw_response.split('\n')[0]
+                            if first_line.startswith('[') and first_line.endswith(']'):
+                                sentence = sentence  # Tag will be stripped later
+                        
+                        try:
+                            tts_input_queue.put(sentence, block=False)
+                        except queue.Full:
+                            logger.warning("TTS input queue full, dropping sentence")
+            
+            # Handle any remaining text in buffer
+            if token_buffer.strip():
+                try:
+                    tts_input_queue.put(token_buffer.strip(), block=False)
+                except queue.Full:
+                    logger.warning("TTS input queue full, dropping final text")
+            
+            # Signal producer to finish
+            tts_input_queue.put(None)
+            
+            # Wait for producer to drain queue
+            if producer_thread:
+                producer_thread.join(timeout=5.0)
+            
+            # Now run emotion analysis on full response
+            analysis = analyze_response(raw_response)
+            emotion = analysis.emotion
+            response_text = analysis.cleaned_text
+            
+            # Add to conversation history
+            self.conversation.add_message("assistant", response_text, emotion)
+            
+            logger.debug(f"Detected topic: {analysis.topic}")
+            
+            return (response_text, emotion)
+            
+        except Exception as e:
+            logger.error(f"Streaming LLM error: {e}")
+            # Fallback responses
             fallbacks = [
                 "Let's keep chatting! I'm always excited to hear what you have to say. What else is on your mind?",
                 "You know what? Every conversation is a new adventure! Where should we go next in our discussion?",

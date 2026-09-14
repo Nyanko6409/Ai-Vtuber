@@ -70,6 +70,44 @@ class LMStudioClient:
             logger.error(f"LLM request failed: {e}")
             raise
 
+    def chat_stream(self, messages: list[dict[str, str]], timeout: Optional[int] = None):
+        """Stream LLM response token by token.
+        
+        Args:
+            messages: List of message dicts with 'role' and 'content' keys.
+            timeout: Optional timeout in seconds for this request (overrides config).
+            
+        Yields:
+            Text deltas as they arrive from the LLM.
+        """
+        if self._client is None:
+            # Try to reconnect
+            self._connect()
+            if self._client is None:
+                raise ConnectionError("Cannot connect to LM Studio")
+
+        # Use provided timeout or fall back to configured timeout
+        request_timeout = timeout if timeout is not None else self.timeout
+
+        try:
+            stream = self._client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                stream=True,
+                timeout=request_timeout
+            )
+            
+            for chunk in stream:
+                delta = chunk.choices[0].delta.content
+                if delta is not None:
+                    yield delta
+                    
+        except Exception as e:
+            logger.error(f"LLM streaming request failed: {e}")
+            raise
+
     def is_available(self) -> bool:
         """Check if LM Studio is available."""
         return self._client is not None

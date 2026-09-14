@@ -16,6 +16,7 @@ llm:
   max_context: 64000
   max_history: 10  # Number of messages to keep in conversation history
   timeout: null  # No timeout - wait for LLM reply
+  stream_enabled: true  # Enable streaming LLM responses for lower latency
   system_prompt: |
     You are a friendly AI VTuber assistant. You are chatting with a user in real-time.
     Keep responses engaging and conversational, consisting of 2-4 distinct sentences or short paragraphs.
@@ -111,6 +112,13 @@ audio:
   dtype: "int16"
   # Prevent feedback: mute mic during TTS playback
   mute_during_playback: true
+
+# Filler-word latency masking system
+fillers:
+  enabled: true
+  start_delay_ms: 500  # Wait this long before playing start-of-turn filler
+  stall_threshold_ms: 400  # Play filler if queue is empty for this long
+  phrases_file: "personality/fillers.md"  # Path relative to project root
 
 # UI Settings
 ui:
