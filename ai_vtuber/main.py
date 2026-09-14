@@ -117,7 +117,7 @@ from ai_vtuber.core.app import App
 from ai_vtuber.core.state import State
 from ai_vtuber.ui.pygame_ui import PygameUI
 from ai_vtuber.ui.chat_ui import ChatUI
-from ai_vtuber.ui.settings_ui import SettingsUI
+from ai_vtuber.ui.pyside_settings import show_settings_dialog
 
 # Configure logging
 logging.basicConfig(
@@ -170,13 +170,11 @@ def main() -> None:
     app = App(config)
     ui = PygameUI(config)
     chat_ui = ChatUI(config["avatar"]["window_width"], config["avatar"]["window_height"], config["ui"]["font_size"])
-    settings_ui = SettingsUI(config["avatar"]["window_width"], config["avatar"]["window_height"], config)
 
     try:
         # Initialize UI (creates window + OpenGL context)
         ui.init()
         chat_ui.init_fonts()
-        settings_ui.init_fonts()
         
         # Set up chat callback
         def on_chat_message(text: str):
@@ -197,8 +195,6 @@ def main() -> None:
             app._microphone = None
             app._player = None
             logger.info("Components will reload with new config on next use")
-        
-        settings_ui.on_save = on_settings_save
 
         # Start the application (loads STT/TTS models, starts microphone)
         # NOTE: Live2D model is NOT loaded yet - it needs the OpenGL context
@@ -250,12 +246,8 @@ def main() -> None:
                         ui.show_debug = not ui.show_debug
                         continue  # Don't pass D to chat input
                     
-                    # All other keys: pass to chat input if active, or to settings if visible
+                    # All other keys: pass to chat input if active
                     # Keyboard is ONLY for text input - no avatar movement controls
-                    if settings_ui.settings_visible:
-                        if settings_ui.handle_event(event):
-                            continue  # Event consumed by settings
-                    
                     if chat_ui.input_active:
                         message = chat_ui.handle_event(event)
                         if message:
@@ -264,11 +256,6 @@ def main() -> None:
                             app.process_chat_message(message)
                 
                 elif event.type == pygame.MOUSEBUTTONDOWN:
-                    # If settings panel is visible, let it handle the event first
-                    if settings_ui.settings_visible:
-                        if settings_ui.handle_event(event):
-                            continue  # Event consumed by settings
-                    
                     mouse_pos = event.pos
                     
                     # Check for icon button clicks (top-right corner)
@@ -295,7 +282,8 @@ def main() -> None:
                                 app.toggle_microphone()
                                 continue
                             elif button_index == 2:  # Settings button
-                                settings_ui.toggle_visibility()
+                                # Open PySide6 settings dialog
+                                show_settings_dialog(config, on_settings_save)
                                 continue
                     
                     input_y = chat_ui.height - chat_ui.input_box_height - 10
@@ -343,20 +331,14 @@ def main() -> None:
                 break
 
             # Forward mouse position to avatar for eye tracking
-            # Only do eye tracking when NOT dragging the avatar AND settings panel is not visible
+            # Only do eye tracking when NOT dragging the avatar
             if (app._avatar and app._avatar.is_initialized and 
-                not app._avatar_start_drag and not settings_ui.settings_visible):
+                not app._avatar_start_drag):
                 try:
                     mx, my = ui.get_mouse_pos()
                     app.avatar.drag(mx, my)
                 except Exception:
                     pass
-            
-            # Handle settings UI events (process all events through settings if visible)
-            if settings_ui.settings_visible:
-                for event in events:
-                    if settings_ui.handle_event(event):
-                        break  # Stop processing if event was consumed
 
             # Process VTuber pipeline
             app.process_cycle()
@@ -388,9 +370,6 @@ def main() -> None:
             
             # Draw chat UI (on top of everything)
             chat_ui.draw(ui._screen)
-            
-            # Draw settings panel (on top of chat)
-            settings_ui.draw(ui._screen)
 
             # End frame
             ui.end_frame()
