@@ -34,6 +34,7 @@ live2d-py>=0.7.0
 
 # UI
 PyOpenGL>=3.1.0
+PySide6>=6.6.0
 
 # Optional: CUDA support for faster-whisper (CTranslate2)
 # If you have CUDA, install ctranslate2 with CUDA support:
