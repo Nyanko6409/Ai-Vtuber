@@ -348,6 +348,9 @@ class QtMainWindow(QMainWindow):
         # OpenGL widget for Live2D with custom styling - pure black background
         self.gl_widget = Live2DGLWidget()
         self.gl_widget.setAutoFillBackground(False)
+        # Disable Qt's default background painting to ensure OpenGL controls everything
+        self.gl_widget.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
+        self.gl_widget.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
         # Set minimum size to ensure it's visible
         self.gl_widget.setMinimumSize(400, 300)
         # Update background to pure black
