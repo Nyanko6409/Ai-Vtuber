@@ -322,6 +322,8 @@ class App:
             
             if stream_enabled:
                 # Use streaming pipeline for lower latency
+                # Note: _generate_response_streaming() handles audio playback internally,
+                # including avatar lip sync and mic mute/unmute, so we skip _speak() below
                 response_text, emotion = self._generate_response_streaming(timeout=self.llm_timeout)
             else:
                 # Use legacy blocking pipeline
@@ -344,30 +346,33 @@ class App:
 
             logger.debug(f"Response emotion: {emotion}")
 
-            # Update avatar expression
-            if self._avatar:
+            # Update avatar expression (already done in streaming path, but needed for non-streaming)
+            if self._avatar and not stream_enabled:
                 self.avatar.set_expression(emotion)
 
-            # Speak
-            self.state_machine.force_state(State.SPEAKING)
-            if self._avatar:
-                self.avatar.set_talking(True)
-                logger.debug("Avatar speaking started")
+            # Speak (skip for streaming path since audio already played)
+            if not stream_enabled:
+                self.state_machine.force_state(State.SPEAKING)
+                if self._avatar:
+                    self.avatar.set_talking(True)
+                    logger.debug("Avatar speaking started")
 
-            # Mute mic during playback to prevent feedback
-            if self.config["audio"].get("mute_during_playback", True):
-                self.microphone.mute()
+                # Mute mic during playback to prevent feedback
+                if self.config["audio"].get("mute_during_playback", True):
+                    self.microphone.mute()
 
-            self._speak(response_text)
+                self._speak(response_text)
 
-            # Done speaking
-            if self._avatar:
-                self.avatar.set_talking(False)
-                self.avatar.set_expression("neutral")
-                logger.debug("Avatar speaking finished, expression reset to neutral")
+                # Done speaking
+                if self._avatar:
+                    self.avatar.set_talking(False)
+                    self.avatar.set_expression("neutral")
+                    logger.debug("Avatar speaking finished, expression reset to neutral")
 
-            # Unmute microphone for next listening cycle
-            self.microphone.unmute()
+                # Unmute microphone for next listening cycle
+                self.microphone.unmute()
+
+            # For streaming path, mic was already unmuted in on_playback_end()
 
             self.state_machine.force_state(State.IDLE)
 
@@ -445,7 +450,8 @@ class App:
         """Generate LLM response with streaming for lower latency.
         
         Streams LLM tokens and starts TTS synthesis as soon as complete sentences
-        are available, reducing time-to-first-audio.
+        are available, reducing time-to-first-audio. Audio is played sentence-by-sentence
+        within this method, so caller should NOT call _speak() afterwards.
         
         Args:
             timeout: Optional timeout in seconds for this request.
@@ -477,6 +483,28 @@ class App:
             first_chunk_played = False
             on_start_called = False
             
+            # Callbacks for avatar lip sync and mic control
+            def on_playback_start():
+                """Called when first audio chunk starts playing."""
+                nonlocal on_start_called
+                if not on_start_called:
+                    if self._avatar:
+                        logger.debug("TTS playback starting, initiating lip sync")
+                        self.avatar.start_lip_sync(None, self.tts.sample_rate)  # Audio passed per-chunk
+                    # Mute mic during playback to prevent feedback
+                    if self.config["audio"].get("mute_during_playback", True):
+                        self.microphone.mute()
+                    on_start_called = True
+            
+            def on_playback_end():
+                """Called when last audio chunk finishes playing."""
+                if self._avatar:
+                    logger.debug("TTS playback finished")
+                    self.avatar.set_talking(False)
+                    self.avatar.set_expression("neutral")
+                # Unmute microphone for next listening cycle
+                self.microphone.unmute()
+            
             def tts_producer():
                 """Producer thread: synthesizes sentences and queues audio chunks."""
                 nonlocal first_chunk_played, on_start_called
@@ -500,8 +528,11 @@ class App:
                             # Generate audio for this sentence
                             audio = self.tts.generate(cleaned)
                             if audio is not None:
-                                # Put audio in playback queue
-                                self._tts_audio_queue.put((audio, cleaned))
+                                # Put audio in playback queue with timeout to avoid blocking forever
+                                try:
+                                    self._tts_audio_queue.put((audio, cleaned), timeout=5.0)
+                                except queue.Full:
+                                    logger.warning("TTS audio queue full, dropping chunk")
                                 
                         except queue.Empty:
                             continue
@@ -620,7 +651,17 @@ class App:
             producer_thread = threading.Thread(target=tts_producer, daemon=True)
             producer_thread.start()
             
-            # Stream LLM tokens
+            # Consumer thread runs in parallel with LLM streaming
+            # This allows audio to play sentence-by-sentence as it streams
+            interrupt_check = self._check_interruption
+            consumer_thread = threading.Thread(
+                target=playback_consumer, 
+                args=(interrupt_check, on_playback_start, on_playback_end),
+                daemon=True
+            )
+            consumer_thread.start()
+            
+            # Stream LLM tokens and feed sentences to producer
             for delta in self.llm.chat_stream(messages, timeout=timeout):
                 token_buffer += delta
                 raw_response += delta
@@ -634,12 +675,14 @@ class App:
                     token_buffer = token_buffer[end_pos:].lstrip()
                     
                     if sentence:
-                        # Add emotion tag to first sentence if present
-                        if raw_response.startswith('[') and sentence not in raw_response.split('\n')[0]:
-                            # First line has emotion tag, prepend to first sentence
+                        # Strip emotion tag from first sentence if present
+                        # (same logic as non-streaming path via analyze_response/cleaned_text)
+                        if raw_response.startswith('['):
                             first_line = raw_response.split('\n')[0]
                             if first_line.startswith('[') and first_line.endswith(']'):
-                                sentence = sentence  # Tag will be stripped later
+                                # This is the first sentence and has an emotion tag prefix
+                                # The tag will be stripped by normalize_text before TTS, same as non-streaming
+                                pass  # normalize_text handles tag stripping
                         
                         try:
                             tts_input_queue.put(sentence, block=False)
@@ -656,9 +699,11 @@ class App:
             # Signal producer to finish
             tts_input_queue.put(None)
             
-            # Wait for producer to drain queue
+            # Wait for producer and consumer to complete
             if producer_thread:
                 producer_thread.join(timeout=5.0)
+            if consumer_thread:
+                consumer_thread.join(timeout=10.0)  # Allow extra time for final audio to play
             
             # Now run emotion analysis on full response
             analysis = analyze_response(raw_response)
@@ -726,11 +771,51 @@ class App:
             # Always unmute mic after speaking (whether interrupted or not)
             self.microphone.unmute()
 
-    def _check_interruption(self) -> bool:
-        """Check if user is speaking (for interruption).
+    def _play_audio_chunk(self, audio_data: np.ndarray, interrupt_check, on_start=None, on_end=None) -> None:
+        """Play a single audio chunk via the audio player.
         
-        Returns True if we should stop speaking.
+        Thin wrapper around self.player.play() matching the signature used by _speak().
+        
+        Args:
+            audio_data: Numpy array of audio samples (float32).
+            interrupt_check: Callable returning True if playback should stop.
+            on_start: Optional callback invoked when playback starts.
+            on_end: Optional callback invoked when playback ends.
         """
+        try:
+            self.player.play(
+                audio_data,
+                interrupt_check=interrupt_check,
+                on_start=on_start,
+                on_end=on_end
+            )
+        except Exception as e:
+            logger.error(f"Audio chunk playback error: {e}")
+    
+    def _play_filler(self, interrupt_check) -> None:
+        """Play a random filler phrase from the pre-loaded list.
+        
+        No-ops if fillers are not loaded or list is empty.
+        
+        Args:
+            interrupt_check: Callable returning True if playback should stop.
+        """
+        if not self._fillers_loaded or not self._fillers:
+            return
+        
+        import random
+        filler_audio, duration_ms = random.choice(self._fillers)
+        logger.debug(f"Playing filler ({duration_ms}ms)")
+        
+        # Play filler with interruption support, no special callbacks needed
+        self.player.play(
+            filler_audio,
+            interrupt_check=interrupt_check,
+            on_start=None,
+            on_end=None
+        )
+
+    def _check_interruption(self) -> bool:
         if not self.running:
             return True
 
