@@ -53,14 +53,7 @@ class Live2DGLWidget(QOpenGLWidget):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         # Enable mouse tracking for smooth eye movement
         self.setMouseTracking(True)
-        # Apply gradient background style with darker colors for better contrast
-        self.setStyleSheet("""
-            QOpenGLWidget {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #0a0a0f, stop:0.5 #0d0d14, stop:1 #101018);
-                border-radius: 0px;
-            }
-        """)
+        # Note: background is now set in QtMainWindow._setup_ui() for consistency
         
     def get_widget_size(self) -> tuple[int, int]:
         """Get current widget width and height."""
@@ -282,6 +275,13 @@ class QtMainWindow(QMainWindow):
         height = self.config.get("avatar", {}).get("window_height", 600)
         self.resize(width, height)
         
+        # Set main window background to near-black
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #0a0a0f;
+            }
+        """)
+        
         # Central widget
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -291,84 +291,87 @@ class QtMainWindow(QMainWindow):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
         
-        # OpenGL widget for Live2D with custom styling
+        # OpenGL widget for Live2D with custom styling - dark charcoal background
         self.gl_widget = Live2DGLWidget()
         self.gl_widget.setAutoFillBackground(False)
         # Set minimum size to ensure it's visible
         self.gl_widget.setMinimumSize(400, 300)
-        main_layout.addWidget(self.gl_widget, 1)
-        
-        # Chat overlay - removed messages area, only input field remains
-        self.chat_widget = QWidget()
-        self.chat_widget.setObjectName("chatInputOverlay")
-        self.chat_widget.setStyleSheet("""
-            #chatInputOverlay {
-                background-color: rgba(30, 30, 30, 220);
-                border-radius: 12px;
-                border: 1px solid rgba(255, 255, 255, 40);
+        # Update background to very dark charcoal/near-black
+        self.gl_widget.setStyleSheet("""
+            QOpenGLWidget {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #050508, stop:0.5 #0a0a0f, stop:1 #0d0d12);
+                border-radius: 0px;
             }
         """)
-        self.chat_widget.setVisible(False)
+        main_layout.addWidget(self.gl_widget, 1)
         
-        chat_layout = QVBoxLayout(self.chat_widget)
-        chat_layout.setContentsMargins(15, 15, 15, 15)
-        chat_layout.setSpacing(10)
+        # Compact chat input container - no large panel, just input + button
+        self.chat_input_container = QWidget()
+        self.chat_input_container.setObjectName("chatInputContainer")
+        self.chat_input_container.setVisible(False)
         
-        # Title with close button
-        title_layout = QHBoxLayout()
-        self.chat_title_label = QLabel("💬 Chat with VTuber")
-        self.chat_title_label.setStyleSheet("color: white; font-size: 16px; font-weight: bold;")
-        title_layout.addWidget(self.chat_title_label)
-        title_layout.addStretch()
-        chat_layout.addLayout(title_layout)
+        # Style only the input field area, no surrounding box
+        self.chat_input_container.setStyleSheet("""
+            #chatInputContainer {
+                background-color: transparent;
+            }
+        """)
         
-        # Input field with send button (no message history display)
-        input_layout = QHBoxLayout()
+        chat_input_layout = QHBoxLayout(self.chat_input_container)
+        chat_input_layout.setContentsMargins(0, 0, 0, 0)
+        chat_input_layout.setSpacing(10)
+        chat_input_layout.setAlignment(Qt.AlignBottom | Qt.AlignHCenter)
+        
+        # Input field with subtle dark background
         from PySide6.QtWidgets import QLineEdit
         self.chat_input_field = QLineEdit()
         self.chat_input_field.setPlaceholderText("Type your message...")
+        self.chat_input_field.setFixedHeight(40)
         self.chat_input_field.setStyleSheet("""
             QLineEdit {
-                background-color: rgba(50, 50, 50, 200);
+                background-color: rgba(25, 25, 35, 230);
                 color: white;
-                border: 1px solid rgba(255, 255, 255, 50);
+                border: 1px solid rgba(100, 150, 255, 60);
                 border-radius: 8px;
-                padding: 10px;
+                padding: 0 15px;
                 font-size: 14px;
             }
             QLineEdit:focus {
-                border: 1px solid rgba(100, 150, 255, 150);
-                background-color: rgba(60, 60, 70, 220);
+                border: 1px solid rgba(120, 170, 255, 120);
+                background-color: rgba(35, 35, 50, 240);
+            }
+            QLineEdit::placeholder {
+                color: rgba(180, 180, 200, 150);
             }
         """)
         self.chat_input_field.returnPressed.connect(self._send_chat_message)
-        input_layout.addWidget(self.chat_input_field, 1)
+        chat_input_layout.addWidget(self.chat_input_field, 1)
         
-        # Send button
+        # Send button - compact
         self.chat_send_button = QPushButton("➤")
         self.chat_send_button.setFixedSize(40, 40)
         self.chat_send_button.setStyleSheet("""
             QPushButton {
-                background-color: rgba(70, 130, 255, 200);
+                background-color: rgba(50, 100, 200, 200);
                 border: none;
                 border-radius: 8px;
-                font-size: 18px;
+                font-size: 16px;
                 color: white;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: rgba(90, 150, 255, 220);
+                background-color: rgba(70, 130, 230, 220);
             }
             QPushButton:pressed {
-                background-color: rgba(50, 110, 235, 200);
+                background-color: rgba(40, 90, 180, 200);
             }
         """)
         self.chat_send_button.clicked.connect(self._send_chat_message)
-        input_layout.addWidget(self.chat_send_button)
-        chat_layout.addLayout(input_layout)
+        chat_input_layout.addWidget(self.chat_send_button)
         
-        # Position chat overlay in bottom-left
-        self.chat_widget.setParent(self.gl_widget)
+        # Position chat input container as overlay on GL widget
+        self.chat_input_container.setParent(self.gl_widget)
         
         # Status bar
         self.status_bar = StatusBar()
@@ -385,8 +388,8 @@ class QtMainWindow(QMainWindow):
         self.gl_widget.wheel_scrolled.connect(self._handle_wheel_scroll)
         self.gl_widget.mouse_moved.connect(self._handle_mouse_move)
         
-        # Setup chat overlay geometry after GL widget is added to layout
-        QTimer.singleShot(100, self._setup_chat_geometry)
+        # Setup chat input geometry after GL widget is added to layout
+        QTimer.singleShot(100, self._setup_chat_input_geometry)
         
         # FPS timer
         self.fps_timer = QTimer()
@@ -448,28 +451,30 @@ class QtMainWindow(QMainWindow):
         """Increment frame counter (called each render)."""
         self.frame_count += 1
     
-    def _setup_chat_geometry(self):
-        """Setup chat overlay geometry after GL widget is sized."""
-        if self.chat_widget and self.gl_widget:
-            # Position chat in bottom-left corner of GL widget
+    def _setup_chat_input_geometry(self):
+        """Setup chat input container geometry after GL widget is sized."""
+        if self.chat_input_container and self.gl_widget:
+            # Position chat input at bottom center of GL widget
             gl_rect = self.gl_widget.geometry()
-            chat_width = min(400, gl_rect.width() - 30)
-            chat_height = min(300, gl_rect.height() - 80)
-            self.chat_widget.setGeometry(15, gl_rect.height() - chat_height - 15, chat_width, chat_height)
-            self.chat_widget.raise_()  # Bring to front
+            input_width = min(500, gl_rect.width() - 40)
+            input_height = 60  # Just enough for the input field + button
+            x_pos = (gl_rect.width() - input_width) // 2
+            y_pos = gl_rect.height() - input_height - 20
+            self.chat_input_container.setGeometry(x_pos, y_pos, input_width, input_height)
+            self.chat_input_container.raise_()  # Bring to front
     
     def resizeEvent(self, event):
-        """Handle window resize to reposition chat overlay."""
+        """Handle window resize to reposition chat input."""
         super().resizeEvent(event)
-        # Reposition chat overlay after resize
-        QTimer.singleShot(50, self._setup_chat_geometry)
+        # Reposition chat input after resize
+        QTimer.singleShot(50, self._setup_chat_input_geometry)
     
     def _toggle_chat(self):
-        """Toggle chat overlay visibility."""
+        """Toggle chat input visibility."""
         self.chat_visible = not self.chat_visible
-        if self.chat_widget:
-            self.chat_widget.setVisible(not self.chat_widget.isVisible())
-            if self.chat_widget.isVisible():
+        if self.chat_input_container:
+            self.chat_input_container.setVisible(not self.chat_input_container.isVisible())
+            if self.chat_input_container.isVisible():
                 self.chat_input_field.setFocus()
     
     def _toggle_mic(self):
@@ -540,6 +545,6 @@ class QtMainWindow(QMainWindow):
             self.show_debug = not self.show_debug
         else:
             # Pass other keys to chat input if active
-            if self.chat_widget.isVisible() and self.chat_widget.input_field.hasFocus():
+            if self.chat_input_container.isVisible() and self.chat_input_field.hasFocus():
                 # Let Qt handle it normally
                 super().keyPressEvent(event)
