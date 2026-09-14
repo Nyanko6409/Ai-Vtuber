@@ -162,14 +162,21 @@ class KittenTTS:
                 self._model = KittenModel(self.config_model)
             self._is_official = True
 
-            # Validate voice
+            # Validate voice against available voices
             available = self._model.available_voices
             if self._voice not in available:
-                logger.warning(
-                    f"Voice '{self._voice}' not available. "
-                    f"Available: {available}. Using '{available[0]}'."
-                )
-                self._voice = available[0]
+                # Check if it's a case sensitivity issue
+                voice_lower = self._voice.lower()
+                matched_voice = next((v for v in available if v.lower() == voice_lower), None)
+                if matched_voice:
+                    logger.info(f"Voice '{self._voice}' matched as '{matched_voice}'")
+                    self._voice = matched_voice
+                else:
+                    logger.warning(
+                        f"Voice '{self._voice}' not available. "
+                        f"Available: {available}. Using '{available[0]}'."
+                    )
+                    self._voice = available[0]
 
             logger.info(f"KittenTTS 0.8.x loaded. Voice: {self._voice}, Speed: {self.config_speed}")
             return
