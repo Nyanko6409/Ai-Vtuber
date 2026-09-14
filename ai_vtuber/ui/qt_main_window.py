@@ -379,12 +379,14 @@ class QtMainWindow(QMainWindow):
         self.gl_widget.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
         # Set minimum size to ensure it's visible
         self.gl_widget.setMinimumSize(400, 300)
+        # Update OpenGL clear color to match config background_color on first launch
+        self.gl_widget.update_clear_color(self.bg_r / 255.0, self.bg_g / 255.0, self.bg_b / 255.0, 1.0)
         # Update background to pure black
-        self.gl_widget.setStyleSheet("""
-            QOpenGLWidget {
-                background-color: #000000;
+        self.gl_widget.setStyleSheet(f"""
+            QOpenGLWidget {{
+                background-color: #{self.bg_r:02x}{self.bg_g:02x}{self.bg_b:02x};
                 border-radius: 0px;
-            }
+            }}
         """)
         main_layout.addWidget(self.gl_widget, 1)
         

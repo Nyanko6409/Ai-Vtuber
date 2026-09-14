@@ -193,6 +193,8 @@ def main() -> None:
         logger.info("Config saved, reloading components...")
         # Update config reference in main window
         main_window.config = new_config
+        # Apply UI settings (background color, text color, font)
+        main_window.apply_ui_settings(new_config.get("ui", {}))
         # Force reload of components by setting them to None
         # They will be re-initialized lazily with new config
         app._stt = None
