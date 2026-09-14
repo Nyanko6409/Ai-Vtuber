@@ -33,15 +33,14 @@ ACCENT COLORS:
 """
 
 import logging
-from typing import Optional, Callable, Any
+from typing import Optional, Callable
 from pathlib import Path
 import yaml
 
 from PySide6.QtWidgets import (
     QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QLineEdit, QComboBox, QSlider, QCheckBox, QPushButton,
-    QTabWidget, QWidget, QScrollArea, QGroupBox, QSpinBox, QDoubleSpinBox,
-    QFrame
+    QTabWidget, QWidget, QScrollArea, QGroupBox, QSpinBox
 )
 from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtGui import QFont

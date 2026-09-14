@@ -2,7 +2,6 @@
 
 import logging
 import numpy as np
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +58,6 @@ class VoiceActivityDetector:
         if self._vad is not None:
             try:
                 # webrtcvad requires specific frame sizes: 10, 20, or 30ms
-                frame_bytes = audio_int16.tobytes()
                 frame_size = int(0.03 * self.sample_rate)  # 30ms
 
                 if len(audio_int16) >= frame_size:

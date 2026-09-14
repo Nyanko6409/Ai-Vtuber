@@ -13,7 +13,7 @@ Ensures clean, natural speech output.
 """
 
 import re
-from typing import List, Tuple
+from typing import List
 
 
 # Common emoji names to remove
