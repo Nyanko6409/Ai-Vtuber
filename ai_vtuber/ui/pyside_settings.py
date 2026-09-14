@@ -2,6 +2,34 @@
 
 Provides a modern Qt-based settings dialog for configuring all VTuber parameters.
 Integrates with Live2D rendering by running in a separate window or overlay.
+
+COLOR REFERENCE (Dark Theme):
+================================================================================
+BACKGROUND COLORS:
+- #1e1e2e (Dark Blue-Gray): Main dialog background, tab widget
+- #2a2a3a (Medium Dark Gray): Tab buttons, group boxes
+- #4a4a6a (Lighter Gray): Selected tab
+- #3a3a5a (Hover Gray): Hovered tab
+- #252535 (Input Background): Text input fields
+- #3b3b4f (Border Color): Borders, separators
+
+BUTTON COLORS:
+- #6a80ff (Blue): Primary action button (Save)
+- #8a90ff (Lighter Blue): Save button hover
+- #4a60c0 (Darker Blue): Cancel button
+- #5a70d0 (Medium Blue): Cancel button hover
+- #4a4a5a (Disabled Gray): Disabled buttons
+- #5a5a6a (Disabled Hover): Disabled button hover
+
+TEXT COLORS:
+- #ffffff (White): Primary text, labels
+- #a0b0ff (Light Blue): Value labels, titles
+- #cccccc (Light Gray): Placeholder text
+
+ACCENT COLORS:
+- #3b3b4f (Dark Border): Tab borders, input borders
+- #6a80ff (Blue): Focus borders, active elements
+================================================================================
 """
 
 import logging

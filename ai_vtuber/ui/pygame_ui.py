@@ -1,4 +1,20 @@
-"""AI VTuber - Pygame UI Module"""
+"""AI VTuber - Pygame UI Module
+
+COLOR REFERENCE:
+================================================================================
+CONFIG-BASED COLORS (from config.yaml):
+- config["ui"]["background_color"]: Background color (default [0, 0, 0] = Pure Black)
+- config["ui"]["text_color"]: Text color (default [255, 255, 255] = White)
+
+STATE INDICATOR COLORS:
+- (100, 200, 100) (Green): IDLE state
+- (100, 150, 255) (Blue): LISTENING state
+- (200, 200, 100) (Yellow): TRANSCRIBING state
+- (255, 180, 50) (Orange): THINKING state
+- (100, 255, 150) (Light Green): SPEAKING state
+- (255, 80, 80) (Red): ERROR state
+================================================================================
+"""
 
 import logging
 import time

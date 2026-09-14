@@ -1,6 +1,15 @@
 """AI VTuber - Settings UI Module
 
 Provides a settings panel for configuring audio, TTS, LLM, and avatar settings.
+
+COLOR REFERENCE:
+- (30, 30, 40, 240) (Dark Gray-Blue): Settings panel background
+- (50, 50, 60, 230) (Medium Dark Gray): Field backgrounds
+- (70, 70, 90, 230) (Lighter Dark Gray): Active field background
+- (255, 255, 255) (White): Text color
+- (100, 150, 255) (Light Blue): Accent color for sliders/checkboxes
+- (60, 120, 200) (Blue): Button background
+- (80, 140, 220) (Lighter Blue): Button hover state
 """
 
 import logging

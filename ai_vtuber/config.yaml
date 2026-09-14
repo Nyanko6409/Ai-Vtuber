@@ -124,7 +124,7 @@ fillers:
 ui:
   show_fps: true
   show_debug: true
-  background_color: [10, 10, 15]
+  background_color: [0, 0, 0]  # Pure black
   text_color: [255, 255, 255]
   font_size: 14
   status_bar_height: 30
