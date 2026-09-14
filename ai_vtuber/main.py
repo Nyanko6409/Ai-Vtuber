@@ -187,8 +187,9 @@ def main() -> None:
     def on_settings_save(new_config: dict):
         """Handle config changes - reload affected components."""
         logger.info("Config saved, reloading components...")
-        # Update config reference in main window
+        # Update config reference in main window AND app
         main_window.config = new_config
+        app.config = new_config
         # Apply UI settings (background color, text color, font)
         main_window.apply_ui_settings(new_config.get("ui", {}))
         # Force reload of components by setting them to None
@@ -197,6 +198,9 @@ def main() -> None:
         app._tts = None
         app._microphone = None
         app._player = None
+        app._llm = None
+        app._avatar = None
+        app._vad = None
         logger.info("Components will reload with new config on next use")
     
     main_window.on_settings_save = on_settings_save

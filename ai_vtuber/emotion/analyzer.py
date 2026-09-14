@@ -6,7 +6,6 @@ Does NOT use external LLM calls - runs locally with keyword/pattern matching.
 
 import re
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
@@ -159,7 +158,6 @@ def analyze_response(text: str) -> AnalysisResult:
     if not text or not text.strip():
         return AnalysisResult(emotion="neutral", topic="general", cleaned_text="")
     
-    original_text = text
     text_stripped = text.strip()
     
     # Step 1: Check for explicit emotion tag
