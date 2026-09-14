@@ -13,20 +13,28 @@ env/
 .env.local
 .env.*
 
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
 # Logs
 *.log
 
 # Coverage
 .coverage
-htmlcov/
 coverage/
+htmlcov/
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
+# Temporary files
 *.tmp
+*.temp
 
 # OS
 .DS_Store
