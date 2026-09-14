@@ -1,35 +1,4 @@
-```
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-
-# Dependencies
-.venv/
-venv/
-env/
-.env
-.env.local
-.env.*
-
-# Logs
-*.log
-
-# Editor/IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*.tmp
-
-# Build/dist
-dist/
-build/
-*.egg-info/
-
-# Coverage
-.coverage
-htmlcov/
-coverage/
+```yaml
+# Configuration file changes only - no build artifacts, dependencies, or temp files detected
+# No .gitignore rules needed for this project state
 ```
