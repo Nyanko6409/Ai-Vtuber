@@ -685,7 +685,7 @@ class SettingsDialog(QDialog):
             logger.error(f"Failed to save config: {e}")
 
 
-def show_settings_dialog(config: dict, on_save: Optional[Callable[[dict], None]] = None) -> None:
+def show_settings_dialog(config: dict, on_save: Optional[Callable[[dict], None]] = None, parent=None) -> None:
     """Show the settings dialog."""
     import sys
     
@@ -694,7 +694,7 @@ def show_settings_dialog(config: dict, on_save: Optional[Callable[[dict], None]]
     if app is None:
         app = QApplication(sys.argv)
     
-    dialog = SettingsDialog(config)
+    dialog = SettingsDialog(config, parent=parent)
     
     if on_save:
         dialog.settings_saved.connect(on_save)
