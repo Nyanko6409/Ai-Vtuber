@@ -378,7 +378,7 @@ class QtMainWindow(QMainWindow):
         self.status_bar.chat_button.clicked.connect(self._toggle_chat)
         self.status_bar.mic_button.clicked.connect(self._toggle_mic)
         self.status_bar.settings_button.clicked.connect(self._open_settings)
-        self.chat_widget.message_sent.connect(self._handle_chat_message)
+        # Chat input field sends message via returnPressed and button click (no custom signal needed)
         
         # GL widget signals
         self.gl_widget.mouse_dragged.connect(self._handle_avatar_drag)
