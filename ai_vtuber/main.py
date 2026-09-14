@@ -206,13 +206,6 @@ def main() -> None:
     # Start the application (loads STT/TTS models, starts microphone)
     app.start()
 
-    # Initialize Live2D after app start
-    live2d_error = None
-    if app._avatar:
-        # The GL context is created by QOpenGLWidget automatically
-        # We need to wait for it to be ready
-        logger.info("Live2D avatar will initialize with OpenGL context")
-    
     logger.info("Entering main loop. Press ESC or close window to quit.")
     
     # Setup timer for regular updates
@@ -229,11 +222,11 @@ def main() -> None:
     update_timer.timeout.connect(process_cycle)
     update_timer.start(int(1000 / config["avatar"]["fps"]))
     
+    # Show main window first (needed for GL context)
+    main_window.show()
+    
     # Setup callbacks after showing window (GL context needed)
     main_window._setup_callbacks()
-    
-    # Show main window
-    main_window.show()
     
     # Run Qt event loop
     sys.exit(qt_app.exec())

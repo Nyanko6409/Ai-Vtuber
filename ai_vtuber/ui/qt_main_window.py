@@ -48,13 +48,23 @@ class Live2DGLWidget(QOpenGLWidget):
         self._is_dragging = False
         self.setMinimumSize(400, 300)
         self._render_callback = None
+        # Set size policy to expand
+        from PySide6.QtWidgets import QSizePolicy
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         
     def initializeGL(self) -> None:
         """Called when OpenGL context is ready."""
         logger.debug("Live2D GL widget initialized")
+        # Set clear color for debugging (will be overwritten by Live2D)
+        import OpenGL.GL as gl
+        gl.glClearColor(0.0, 0.0, 0.0, 0.0)
         
     def paintGL(self) -> None:
         """Render the Live2D avatar."""
+        import OpenGL.GL as gl
+        # Clear the viewport
+        gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
+        
         # Call the render callback if set
         if self._render_callback:
             try:
@@ -211,9 +221,9 @@ class StatusBar(QFrame):
         self.mic_label.setStyleSheet("color: #81C784; font-size: 14px;")
         layout.addWidget(self.mic_label)
         
-        # Icon buttons container
-        button_layout = QVBoxLayout()
-        button_layout.setSpacing(5)
+        # Icon buttons container - horizontal layout
+        button_layout = QHBoxLayout()
+        button_layout.setSpacing(8)
         
         # Create icon buttons
         self.chat_button = self._create_icon_button("💬", "Chat")
@@ -315,7 +325,7 @@ class QtMainWindow(QMainWindow):
         
         # Status bar
         self.status_bar = StatusBar()
-        main_layout.addWidget(self.status_bar)
+        main_layout.addWidget(self.status_bar, 0)  # 0 = don't stretch status bar
         
         # Connect signals
         self.status_bar.chat_clicked.connect(self._toggle_chat)
@@ -327,6 +337,9 @@ class QtMainWindow(QMainWindow):
         self.gl_widget.mouse_dragged.connect(self._handle_avatar_drag)
         self.gl_widget.wheel_scrolled.connect(self._handle_wheel_scroll)
         self.gl_widget.mouse_moved.connect(self._handle_mouse_move)
+        
+        # Setup chat overlay geometry after GL widget is added to layout
+        QTimer.singleShot(100, self._setup_chat_geometry)
         
         # FPS timer
         self.fps_timer = QTimer()
@@ -352,6 +365,21 @@ class QtMainWindow(QMainWindow):
             
             # Set the render callback on the GL widget
             self.gl_widget.set_render_callback(render_callback)
+            
+            # Initialize Live2D after GL context is ready
+            QTimer.singleShot(200, self._init_live2d_after_gl_ready)
+    
+    def _init_live2d_after_gl_ready(self):
+        """Initialize Live2D model after OpenGL context is established."""
+        if self.app_instance and self.app_instance._avatar:
+            try:
+                logger.debug("Initializing Live2D with GL context...")
+                if self.app_instance._avatar.init_gl():
+                    logger.info("Live2D avatar initialized successfully")
+                else:
+                    logger.warning("Live2D initialization returned False")
+            except Exception as e:
+                logger.error(f"Live2D initialization failed: {e}", exc_info=True)
     
     @Slot(float)
     def _update_fps(self):
@@ -372,6 +400,22 @@ class QtMainWindow(QMainWindow):
     def increment_frame(self):
         """Increment frame counter (called each render)."""
         self.frame_count += 1
+    
+    def _setup_chat_geometry(self):
+        """Setup chat overlay geometry after GL widget is sized."""
+        if self.chat_widget and self.gl_widget:
+            # Position chat in bottom-left corner of GL widget
+            gl_rect = self.gl_widget.geometry()
+            chat_width = min(400, gl_rect.width() - 30)
+            chat_height = min(300, gl_rect.height() - 80)
+            self.chat_widget.setGeometry(15, gl_rect.height() - chat_height - 15, chat_width, chat_height)
+            self.chat_widget.raise_()  # Bring to front
+    
+    def resizeEvent(self, event):
+        """Handle window resize to reposition chat overlay."""
+        super().resizeEvent(event)
+        # Reposition chat overlay after resize
+        QTimer.singleShot(50, self._setup_chat_geometry)
     
     def _toggle_chat(self):
         """Toggle chat overlay visibility."""
