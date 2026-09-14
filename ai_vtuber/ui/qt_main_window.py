@@ -51,6 +51,16 @@ class Live2DGLWidget(QOpenGLWidget):
         # Set size policy to expand
         from PySide6.QtWidgets import QSizePolicy
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        # Enable mouse tracking for smooth eye movement
+        self.setMouseTracking(True)
+        # Apply gradient background style
+        self.setStyleSheet("""
+            QOpenGLWidget {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #1a1a2e, stop:0.5 #16213e, stop:1 #0f3460);
+                border-radius: 0px;
+            }
+        """)
         
     def initializeGL(self) -> None:
         """Called when OpenGL context is ready."""
@@ -58,6 +68,8 @@ class Live2DGLWidget(QOpenGLWidget):
         # Set clear color for debugging (will be overwritten by Live2D)
         import OpenGL.GL as gl
         gl.glClearColor(0.0, 0.0, 0.0, 0.0)
+        gl.glEnable(gl.GL_BLEND)
+        gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
         
     def paintGL(self) -> None:
         """Render the Live2D avatar."""
@@ -122,45 +134,97 @@ class ChatOverlayWidget(QWidget):
         self.setObjectName("chatOverlay")
         self.setStyleSheet("""
             #chatOverlay {
-                background-color: rgba(30, 30, 30, 200);
-                border-radius: 10px;
+                background-color: rgba(30, 30, 30, 220);
+                border-radius: 12px;
+                border: 1px solid rgba(255, 255, 255, 40);
             }
         """)
         self.setVisible(False)
         
         layout = QVBoxLayout(self)
         layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(10)
         
-        # Title
-        self.title_label = QLabel("💬 Chat")
+        # Title with close button
+        title_layout = QHBoxLayout()
+        self.title_label = QLabel("💬 Chat with VTuber")
         self.title_label.setStyleSheet("color: white; font-size: 16px; font-weight: bold;")
-        layout.addWidget(self.title_label)
+        title_layout.addWidget(self.title_label)
+        title_layout.addStretch()
+        layout.addLayout(title_layout)
         
-        # Messages area
-        self.messages_label = QLabel("")
-        self.messages_label.setStyleSheet("color: white; font-size: 14px;")
-        self.messages_label.setWordWrap(True)
-        layout.addWidget(self.messages_label)
+        # Messages area with scroll
+        from PySide6.QtWidgets import QScrollArea
+        self.messages_scroll = QScrollArea()
+        self.messages_scroll.setWidgetResizable(True)
+        self.messages_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.messages_scroll.setStyleSheet("""
+            QScrollArea {
+                border: none;
+                background-color: transparent;
+            }
+            QScrollBar:vertical {
+                background: rgba(50, 50, 50, 150);
+                width: 8px;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical {
+                background: rgba(100, 100, 100, 200);
+                border-radius: 4px;
+                min-height: 20px;
+            }
+        """)
+        self.messages_content = QLabel("")
+        self.messages_content.setStyleSheet("color: #e0e0e0; font-size: 14px; padding: 5px;")
+        self.messages_content.setWordWrap(True)
+        self.messages_scroll.setWidget(self.messages_content)
+        self.messages_scroll.setMinimumHeight(150)
+        layout.addWidget(self.messages_scroll)
         
-        # Input field
+        # Input field with send button
+        input_layout = QHBoxLayout()
         from PySide6.QtWidgets import QLineEdit
         self.input_field = QLineEdit()
-        self.input_field.setPlaceholderText("Type a message...")
+        self.input_field.setPlaceholderText("Type your message...")
         self.input_field.setStyleSheet("""
             QLineEdit {
                 background-color: rgba(50, 50, 50, 200);
                 color: white;
                 border: 1px solid rgba(255, 255, 255, 50);
-                border-radius: 5px;
-                padding: 8px;
+                border-radius: 8px;
+                padding: 10px;
                 font-size: 14px;
             }
             QLineEdit:focus {
-                border: 1px solid rgba(255, 255, 255, 100);
+                border: 1px solid rgba(100, 150, 255, 150);
+                background-color: rgba(60, 60, 70, 220);
             }
         """)
         self.input_field.returnPressed.connect(self._send_message)
-        layout.addWidget(self.input_field)
+        input_layout.addWidget(self.input_field, 1)
+        
+        # Send button
+        self.send_button = QPushButton("➤")
+        self.send_button.setFixedSize(40, 40)
+        self.send_button.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(70, 130, 255, 200);
+                border: none;
+                border-radius: 8px;
+                font-size: 18px;
+                color: white;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: rgba(90, 150, 255, 220);
+            }
+            QPushButton:pressed {
+                background-color: rgba(50, 110, 235, 200);
+            }
+        """)
+        self.send_button.clicked.connect(self._send_message)
+        input_layout.addWidget(self.send_button)
+        layout.addLayout(input_layout)
         
     def _send_message(self):
         """Send the typed message."""
@@ -171,13 +235,16 @@ class ChatOverlayWidget(QWidget):
     
     def add_message(self, role: str, text: str):
         """Add a message to the display."""
-        current = self.messages_label.text()
+        current = self.messages_content.text()
         color = "#4FC3F7" if role == "user" else "#81C784"
         new_msg = f'<span style="color:{color}"><b>{role}:</b></span> {text}'
         if current:
-            self.messages_label.setText(current + "<br>" + new_msg)
+            self.messages_content.setText(current + "<br>" + new_msg)
         else:
-            self.messages_label.setText(new_msg)
+            self.messages_content.setText(new_msg)
+        # Auto-scroll to bottom
+        scrollbar = self.messages_scroll.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
     
     def toggle_visibility(self):
         """Toggle widget visibility."""
@@ -196,38 +263,60 @@ class StatusBar(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("statusBar")
-        self.setFixedHeight(50)
+        self.setFixedHeight(55)
         self.setStyleSheet("""
             #statusBar {
-                background-color: rgba(20, 20, 20, 180);
-                border-top: 1px solid rgba(255, 255, 255, 30);
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 rgba(20, 20, 30, 200),
+                    stop:0.5 rgba(30, 30, 45, 220),
+                    stop:1 rgba(20, 20, 30, 200));
+                border-top: 1px solid rgba(100, 150, 255, 60);
+                border-bottom: none;
             }
         """)
         
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(15, 5, 15, 5)
-        layout.setSpacing(15)
+        layout.setContentsMargins(20, 8, 20, 8)
+        layout.setSpacing(20)
         
-        # FPS counter
-        self.fps_label = QLabel("FPS: 0")
-        self.fps_label.setStyleSheet("color: white; font-size: 14px; font-weight: bold;")
-        layout.addWidget(self.fps_label)
+        # FPS counter with styled box
+        fps_container = QWidget()
+        fps_layout = QHBoxLayout(fps_container)
+        fps_layout.setContentsMargins(10, 5, 10, 5)
+        fps_container.setStyleSheet("""
+            QWidget {
+                background-color: rgba(40, 40, 60, 180);
+                border-radius: 8px;
+                border: 1px solid rgba(100, 150, 255, 40);
+            }
+        """)
+        self.fps_label = QLabel("⚡ FPS: 0")
+        self.fps_label.setStyleSheet("color: #a0b0ff; font-size: 14px; font-weight: bold;")
+        fps_layout.addWidget(self.fps_label)
+        layout.addWidget(fps_container)
         
         # Spacer
         layout.addStretch()
         
-        # Mic status
+        # Mic status with icon
         self.mic_label = QLabel("🎤 ON")
-        self.mic_label.setStyleSheet("color: #81C784; font-size: 14px;")
+        self.mic_label.setStyleSheet("color: #81C784; font-size: 15px; font-weight: bold; padding: 5px;")
         layout.addWidget(self.mic_label)
         
-        # Icon buttons container - horizontal layout
+        # Separator line
+        separator = QFrame()
+        separator.setFrameShape(QFrame.VLine)
+        separator.setStyleSheet("background-color: rgba(100, 150, 255, 60); min-width: 1px;")
+        separator.setFixedWidth(1)
+        layout.addWidget(separator)
+        
+        # Icon buttons container - horizontal layout with better styling
         button_layout = QHBoxLayout()
-        button_layout.setSpacing(8)
+        button_layout.setSpacing(10)
         
         # Create icon buttons
-        self.chat_button = self._create_icon_button("💬", "Chat")
-        self.mic_button = self._create_icon_button("🎤", "Microphone")
+        self.chat_button = self._create_icon_button("💬", "Open Chat")
+        self.mic_button = self._create_icon_button("🎤", "Toggle Microphone")
         self.settings_button = self._create_icon_button("⚙", "Settings")
         
         button_layout.addWidget(self.chat_button)
@@ -239,38 +328,51 @@ class StatusBar(QFrame):
     def _create_icon_button(self, icon: str, tooltip: str) -> QPushButton:
         """Create a styled icon button."""
         btn = QPushButton(icon)
-        btn.setFixedSize(30, 30)
+        btn.setFixedSize(36, 36)
         btn.setToolTip(tooltip)
+        btn.setCursor(Qt.PointingHandCursor)
         btn.setStyleSheet("""
             QPushButton {
-                background-color: rgba(50, 50, 50, 150);
-                border: 1px solid rgba(255, 255, 255, 30);
-                border-radius: 5px;
-                font-size: 16px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 rgba(60, 60, 90, 200),
+                    stop:1 rgba(40, 40, 70, 200));
+                border: 1px solid rgba(100, 150, 255, 60);
+                border-radius: 10px;
+                font-size: 18px;
                 color: white;
+                padding: 4px;
             }
             QPushButton:hover {
-                background-color: rgba(70, 70, 70, 200);
-                border: 1px solid rgba(255, 255, 255, 80);
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 rgba(80, 80, 120, 220),
+                    stop:1 rgba(60, 60, 100, 220));
+                border: 1px solid rgba(120, 170, 255, 100);
             }
             QPushButton:pressed {
-                background-color: rgba(40, 40, 40, 180);
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 rgba(50, 50, 80, 200),
+                    stop:1 rgba(30, 30, 60, 200));
+                border: 1px solid rgba(80, 130, 235, 80);
+                padding: 5px 3px 3px 5px;
             }
         """)
         return btn
     
     def update_fps(self, fps: float):
         """Update FPS display."""
-        self.fps_label.setText(f"FPS: {fps:.0f}")
+        if fps > 0:
+            self.fps_label.setText(f"⚡ FPS: {fps:.0f}")
+        else:
+            self.fps_label.setText("⚡ FPS: 0")
     
     def update_mic_status(self, is_muted: bool):
         """Update microphone status display."""
         if is_muted:
-            self.mic_label.setText("🎤 OFF")
-            self.mic_label.setStyleSheet("color: #EF5350; font-size: 14px;")
+            self.mic_label.setText("🔇 OFF")
+            self.mic_label.setStyleSheet("color: #EF5350; font-size: 15px; font-weight: bold; padding: 5px;")
         else:
             self.mic_label.setText("🎤 ON")
-            self.mic_label.setStyleSheet("color: #81C784; font-size: 14px;")
+            self.mic_label.setStyleSheet("color: #81C784; font-size: 15px; font-weight: bold; padding: 5px;")
 
 
 class QtMainWindow(QMainWindow):
@@ -311,9 +413,11 @@ class QtMainWindow(QMainWindow):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
         
-        # OpenGL widget for Live2D
+        # OpenGL widget for Live2D with custom styling
         self.gl_widget = Live2DGLWidget()
         self.gl_widget.setAutoFillBackground(False)
+        # Set minimum size to ensure it's visible
+        self.gl_widget.setMinimumSize(400, 300)
         main_layout.addWidget(self.gl_widget, 1)
         
         # Chat overlay
@@ -327,10 +431,10 @@ class QtMainWindow(QMainWindow):
         self.status_bar = StatusBar()
         main_layout.addWidget(self.status_bar, 0)  # 0 = don't stretch status bar
         
-        # Connect signals
-        self.status_bar.chat_clicked.connect(self._toggle_chat)
-        self.status_bar.mic_clicked.connect(self._toggle_mic)
-        self.status_bar.settings_clicked.connect(self._open_settings)
+        # Connect signals - CRITICAL: connect button clicks to slots
+        self.status_bar.chat_button.clicked.connect(self._toggle_chat)
+        self.status_bar.mic_button.clicked.connect(self._toggle_mic)
+        self.status_bar.settings_button.clicked.connect(self._open_settings)
         self.chat_widget.message_sent.connect(self._handle_chat_message)
         
         # GL widget signals
@@ -431,7 +535,8 @@ class QtMainWindow(QMainWindow):
         """Open settings dialog."""
         if self.app_instance and self.on_settings_save:
             from .pyside_settings import show_settings_dialog
-            show_settings_dialog(self.config, self.on_settings_save)
+            # Pass self as parent to ensure dialog appears on top of main window
+            show_settings_dialog(self.config, self.on_settings_save, parent=self)
     
     def _handle_chat_message(self, text: str):
         """Handle chat message from overlay."""
