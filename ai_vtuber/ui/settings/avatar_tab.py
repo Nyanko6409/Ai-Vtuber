@@ -3,7 +3,7 @@
 Provides Live2D model path and appearance configuration.
 """
 
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QGridLayout, QLabel, QLineEdit, QGroupBox, QSlider
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QGridLayout, QLabel, QLineEdit, QGroupBox, QSlider, QSpinBox
 from PySide6.QtCore import Qt
 
 
