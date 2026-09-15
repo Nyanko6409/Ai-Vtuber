@@ -23,6 +23,7 @@ class Microphone:
         self.device_index: int = config.get("microphone_index", -1)
         self.chunk_size: int = config.get("chunk_size", 1024)
         self.channels: int = config.get("channels", 1)
+        self.dtype: str = config.get("dtype", "int16")
         self.sample_rate: int = config.get("sample_rate", 16000)
         self.mute_during_playback: bool = config.get("mute_during_playback", True)
 
@@ -48,7 +49,7 @@ class Microphone:
             self._stream = sd.InputStream(
                 samplerate=self.sample_rate,
                 channels=self.channels,
-                dtype='int16',
+                dtype=self.dtype,
                 blocksize=self.chunk_size,
                 device=device,
                 callback=self._audio_callback

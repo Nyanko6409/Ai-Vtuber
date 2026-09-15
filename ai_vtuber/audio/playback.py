@@ -19,6 +19,8 @@ class AudioPlayer:
 
     def __init__(self, config: dict) -> None:
         self.sample_rate: int = config.get("sample_rate", 24000)
+        self.channels: int = config.get("channels", 1)
+        self.dtype: str = config.get("dtype", "float32")
         self._is_playing: bool = False
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
@@ -87,8 +89,8 @@ class AudioPlayer:
             # Start streaming playback using OutputStream (output-only)
             self._stream = sd.OutputStream(
                 samplerate=self.sample_rate,
-                channels=1,
-                dtype=np.float32,
+                channels=self.channels,
+                dtype=np.float32 if self.dtype == "float32" else np.int16,
                 callback=audio_callback
             )
             self._stream.start()
