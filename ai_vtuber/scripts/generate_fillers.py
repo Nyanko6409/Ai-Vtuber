@@ -85,8 +85,8 @@ def main():
     """Generate and save filler audio files."""
     logger.info("Starting filler generation...")
     
-    # Load config for TTS settings
-    config_path = Path(__file__).parent.parent / "config.yaml"
+    # Load config for TTS settings - config.yaml is in project root (parent of ai_vtuber)
+    config_path = Path(__file__).parent.parent.parent / "config.yaml"
     config = _load_yaml_config(config_path)
     tts_config = config["tts"]
     

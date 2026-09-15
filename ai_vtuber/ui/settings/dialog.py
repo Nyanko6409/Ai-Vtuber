@@ -155,9 +155,9 @@ class SettingsDialog(QDialog):
         """Handle save button click."""
         new_config = self._get_current_config()
         
-        # Save to file
+        # Save to file - config.yaml is in project root (parent of ai_vtuber)
         try:
-            config_path = Path(__file__).parent.parent.parent / "config.yaml"
+            config_path = Path(__file__).parent.parent.parent.parent / "config.yaml"
             
             if HAS_RUAMEL:
                 # Use ruamel.yaml to preserve comments and formatting
