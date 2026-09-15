@@ -77,6 +77,7 @@ class PygameUI:
         self.fps: int = config["avatar"]["fps"]
         self.show_fps: bool = config["ui"]["show_fps"]
         self.show_debug: bool = config["ui"]["show_debug"]
+        self.transparent: bool = config["ui"].get("transparent", False)
         self.bg_color: tuple = tuple(config["ui"]["background_color"])
         self.text_color: tuple = tuple(config["ui"]["text_color"])
         self.font_size: int = config["ui"]["font_size"]
@@ -102,6 +103,10 @@ class PygameUI:
         """Initialize Pygame and create window."""
         pygame.init()
         pygame.freetype.init()
+
+        # Request alpha channel for transparent background
+        if self.transparent:
+            pygame.display.gl_set_attribute(pygame.GL_ALPHA_SIZE, 8)
 
         # Create OpenGL-capable window
         self._screen = pygame.display.set_mode(
@@ -136,6 +141,9 @@ class PygameUI:
             elif event.type == pygame.VIDEORESIZE:
                 self.width = event.w
                 self.height = event.h
+                # Re-request alpha channel for transparent background on resize
+                if self.transparent:
+                    pygame.display.gl_set_attribute(pygame.GL_ALPHA_SIZE, 8)
                 self._screen = pygame.display.set_mode(
                     (self.width, self.height),
                     pygame.DOUBLEBUF | pygame.OPENGL | pygame.RESIZABLE
@@ -172,7 +180,7 @@ class PygameUI:
                 self.bg_color[0] / 255.0,
                 self.bg_color[1] / 255.0,
                 self.bg_color[2] / 255.0,
-                1.0
+                0.0 if self.transparent else 1.0
             )
             GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
         except ImportError:
