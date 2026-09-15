@@ -130,8 +130,8 @@ class TextNormalizer:
         ]
         
         # Stuttering patterns: w-w-what -> what, h-hello -> hello
-        # Handles single character repeats with hyphens
-        self.stutter_pattern = re.compile(r'\b(\w)(?:-\1)+[-]?(\w+)\b')
+        # Handles single character repeats with hyphens (including 3+ repeats like I-I-I think)
+        self.stutter_pattern = re.compile(r'\b([a-zA-Z]-)+([a-zA-Z]+)\b')
         
         # Repeated words: hello hello -> hello (applied multiple times for 3+ repeats)
         self.repeated_word_pattern = re.compile(r'\b(\w+)(\s+\1)+\b', re.IGNORECASE)
@@ -179,7 +179,7 @@ class TextNormalizer:
         # Fix stuttering: w-w-what -> what (apply multiple times for longer stutters)
         max_iterations = 3
         for _ in range(max_iterations):
-            new_result = self.stutter_pattern.sub(r'\1\2', result)
+            new_result = self.stutter_pattern.sub(lambda m: m.group(2), result)
             if new_result == result:
                 break
             result = new_result

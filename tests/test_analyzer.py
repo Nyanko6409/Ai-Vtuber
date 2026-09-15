@@ -1,7 +1,7 @@
 """Tests for emotion and topic analyzer."""
 
 import pytest
-from emotion.analyzer import (
+from ai_vtuber.emotion.analyzer import (
     analyze_response,
     strip_emotion_tag,
     SUPPORTED_EMOTIONS,
