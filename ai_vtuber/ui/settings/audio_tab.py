@@ -35,12 +35,6 @@ class AudioSettingsTab(QWidget):
         
         layout.addWidget(mic_group)
         layout.addStretch()
-        
-        # Wrap in scroll area
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(self)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
     
     def _get_microphone_list(self) -> list[str]:
         """Get list of available microphones."""
