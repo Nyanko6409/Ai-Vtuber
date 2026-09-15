@@ -117,12 +117,63 @@ sys.path.insert(0, project_root)
 from ai_vtuber.core.app import App
 from ai_vtuber.ui.qt_main_window import QtMainWindow
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(name)s] %(levelname)s: %(message)s',
-    datefmt='%H:%M:%S'
-)
+
+class ColoredFormatter(logging.Formatter):
+    """
+    A custom logging formatter that adds colors to log levels for CLI readability.
+    Uses ANSI escape codes for terminal coloring.
+    """
+    # ANSI color codes for different log levels
+    COLORS = {
+        'DEBUG': '\033[36m',      # Cyan
+        'INFO': '\033[32m',       # Green
+        'WARNING': '\033[33m',    # Yellow
+        'ERROR': '\033[31m',      # Red
+        'CRITICAL': '\033[35m',   # Magenta
+        'RESET': '\033[0m'        # Reset
+    }
+
+    def format(self, record):
+        log_color = self.COLORS.get(record.levelname, self.COLORS['RESET'])
+        # Store original levelname to restore later
+        original_levelname = record.levelname
+        record.levelname = f"{log_color}{original_levelname}{self.COLORS['RESET']}"
+        result = super().format(record)
+        # Restore original levelname
+        record.levelname = original_levelname
+        return result
+
+
+# Configure logging with colored output for terminal
+def setup_logging(debug: bool = False):
+    """Setup logging with colored formatter for terminal output."""
+    logger = logging.getLogger()
+    logger.setLevel(logging.DEBUG if debug else logging.INFO)
+    
+    # Clear existing handlers to avoid duplicates
+    logger.handlers.clear()
+    
+    handler = logging.StreamHandler()
+    handler.setLevel(logging.DEBUG)
+    
+    # Create formatter
+    format_str = "%(asctime)s [%(name)s] %(levelname)s: %(message)s"
+    
+    # Use colored formatter if running in a terminal
+    if hasattr(handler.stream, 'isatty') and handler.stream.isatty():
+        formatter = ColoredFormatter(format_str, datefmt='%H:%M:%S')
+    else:
+        # Use standard formatter for files or non-interactive shells
+        formatter = logging.Formatter(format_str, datefmt='%H:%M:%S')
+    
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    
+    return logger
+
+
+# Setup logging early (will be reconfigured after argument parsing)
+setup_logging()
 logger = logging.getLogger("ai_vtuber")
 
 
@@ -154,8 +205,9 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if args.debug:
-        logging.getLogger().setLevel(logging.DEBUG)
+    # Reconfigure logging with debug mode if requested
+    setup_logging(debug=args.debug)
+    logger = logging.getLogger("ai_vtuber")
 
     # Load configuration
     config = load_config(args.config)
