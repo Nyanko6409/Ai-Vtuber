@@ -50,10 +50,10 @@
 ## ⏳ PENDING / REMAINING BUGS
 
 ### Section 3: UI Bugs
-- **[PENDING] #3.1 - Debug Overlay Toggle ('D' Key)**  
-  **Location:** `ai_vtuber/ui/main_window.py`  
-  **Issue:** `self.show_debug` toggles but nothing renders.  
-  **Required:** Implement actual debug overlay rendering OR remove the key handler and config option.
+- **[FIXED] #3.1 - Debug Overlay Toggle ('D' Key)**  
+  **File:** `ai_vtuber/ui/main_window.py`  
+  **Change:** Implemented debug overlay that displays in the status bar when toggled on. Shows current state machine state, avatar zoom level, and avatar position coordinates. Pressing 'D' now visibly changes the FPS counter to show debug info.  
+  **Result:** Debug mode now provides real-time visibility into app state and avatar parameters.
 
 - **[PENDING] #3.2 - Missing Keyboard Shortcuts**  
   **Location:** `ai_vtuber/ui/main_window.py`  
@@ -122,8 +122,8 @@
 | :--- | :---: | :---: | :---: | :---: |
 | **Live2D Background** | 1 | 1 | 0 | 100% |
 | **Functional Logic** | 5 | 5 | 0 | 100% |
-| **UI Bugs** | 5 | 0 | 5 | 0% |
+| **UI Bugs** | 5 | 1 | 4 | 20% |
 | **Test Suite** | 3 | 1 | 2 | 33% |
 | **Repo Hygiene** | 4 | 0 | 4 | 0% |
 | **Code Quality** | 1 | 0 | 1 | 0% |
-| **TOTAL** | **19** | **7** | **12** | **37%** |
+| **TOTAL** | **19** | **8** | **11** | **42%** |
