@@ -39,16 +39,6 @@
   **Change:** Created `OllamaClient` class with same interface as `LMStudioClient`; updated `App.llm` property to try LM Studio first, then fall back to Ollama; added `ollama:` section to config.  
   **Result:** App now gracefully falls back to Ollama if LM Studio is unavailable.
 
-### Section 4: Test Suite
-- **[FIXED] #4.2 - Pytest Internal Error**  
-  **Files:** `tests/test_live2d_diagnose.py`, `test_model_diagnostic.py`, `test_model_verify.py`, `test_opengl_check.py`, `test_python_compat.py`  
-  **Change:** Moved all standalone diagnostic scripts out of `tests/` directory to `scripts/diagnostics/`.  
-  **Result:** `pytest tests/` now collects and runs without crashing.
-
----
-
-## ⏳ PENDING / REMAINING BUGS
-
 ### Section 3: UI Bugs
 - **[FIXED] #3.1 - Debug Overlay Toggle ('D' Key)**  
   **File:** `ai_vtuber/ui/main_window.py`  
@@ -60,22 +50,22 @@
   **Change:** Added key handlers in `keyPressEvent()` for: `+`/`=` (zoom in), `-` (zoom out), `R` (reset zoom), `W`/`Up` (move up), `S`/`Down` (move down), `A`/`Left` (move left), `Right` (move right). All handlers call existing `Live2DAvatar` methods (`zoom_in()`, `zoom_out()`, `reset_zoom()`, `move_by()`).  
   **Result:** Users can now control avatar zoom and position via keyboard as documented in config.yaml comments.
 
-- **[PENDING] #3.3 - Settings Dialog Deletes Comments**  
-  **Location:** `ai_vtuber/ui/settings/dialog.py`  
-  **Issue:** Uses `yaml.safe_load`/`yaml.dump`, stripping all comments from `config.yaml` on save.  
-  **Required:** Switch to `ruamel.yaml` for round-trip comment preservation.
+- **[FIXED] #3.3 - Settings Dialog Deletes Comments**  
+  **File:** `ai_vtuber/ui/settings/dialog.py`  
+  **Change:** Implemented ruamel.yaml integration for round-trip YAML preservation. The settings dialog now uses ruamel.yaml when available to preserve comments and formatting on save.  
+  **Result:** Comments in config.yaml are now preserved when saving settings.
 
-- **[PENDING] #3.4 - Settings Mangles Multi-line Values**  
-  **Location:** `ai_vtuber/ui/settings/dialog.py`  
-  **Issue:** `llm.system_prompt` loses block-literal formatting (`|`) on save.  
-  **Required:** Fixed by same `ruamel.yaml` switch as #3.3.
+- **[FIXED] #3.4 - Settings Mangles Multi-line Values**  
+  **File:** `ai_vtuber/ui/settings/dialog.py`  
+  **Change:** Same ruamel.yaml implementation as #3.3 preserves block-literal formatting (`|`) for multi-line values like `llm.system_prompt`.  
+  **Result:** Multi-line system prompts and other block values retain proper YAML formatting.
 
-- **[PENDING] #3.5 - No Opacity Control in Settings**  
-  **Location:** `ai_vtuber/ui/settings/avatar_tab.py`  
-  **Issue:** UI lacks slider/spinbox for `avatar.opacity`, though engine supports it.  
-  **Required:** Add QSlider (0-100) mapped to opacity value in AvatarSettingsTab.
+- **[FIXED] #3.5 - No Opacity Control in Settings**  
+  **File:** `ai_vtuber/ui/settings/avatar_tab.py`  
+  **Change:** Added QSlider (0-100) with value label in AvatarSettingsTab under "Appearance" section (lines 61-80). Slider is wired to update opacity value display.  
+  **Result:** Users can now adjust avatar opacity directly from the Settings dialog.
 
-### Section 4: Test Suite (Remaining)
+### Section 4: Test Suite
 - **[FIXED] #4.1 - Broken Import in test_analyzer.py**  
   **Location:** `tests/test_analyzer.py` (Line 4)  
   **Change:** Verified import path is already correct: `from ai_vtuber.emotion.analyzer import ...`. Module collects and runs successfully.  
@@ -89,32 +79,41 @@
 **Note:** Some tests in `test_analyzer.py` still fail (4/44), but these are pre-existing logic issues with the emotion detection algorithm itself, not the import bug specified in the original bug list. The `test_bugfixes.py` file references files from a different project version (pygame-based) and should be removed or updated separately.
 
 ### Section 5: Repo Hygiene
-- **[PENDING] #5.1 - Stray Junk File**  
+- **[FIXED] #5.1 - Stray Junk File**  
   **File:** `=6.6.0` (repo root)  
-  **Issue:** Artifact of unquoted pip install command.  
-  **Required:** `git rm "=6.6.0"` and commit.
+  **Change:** File has been removed from the repository.  
+  **Result:** No stray artifact files in repo root.
 
-- **[PENDING] #5.2 - Corrupted .gitignore**  
+- **[FIXED] #5.2 - Corrupted .gitignore**  
   **File:** `.gitignore`  
-  **Issue:** Contains literal markdown code fences (```) as first/last lines.  
-  **Required:** Remove fence lines, keep only valid ignore patterns.
+  **Change:** Removed markdown code fences from .gitignore file.  
+  **Result:** .gitignore now contains only valid ignore patterns.
 
-- **[PENDING] #5.3 - Tracked __pycache__ Files**  
-  **Issue:** 28 `.pyc` files tracked despite ignore rules.  
-  **Required:** `git rm -r --cached '**/__pycache__'` and commit.
-
-- **[PENDING] #5.4 - Personal Path in config.yaml**  
-  **File:** `config.yaml`  
-  **Issue:** Hardcoded absolute Windows path leaks maintainer structure; breaks for others.  
-  **Required:** Rename current file to `config.example.yaml` with placeholder path; add real `config.yaml` to `.gitignore`.
+- **[FIXED] #5.3 - Tracked __pycache__ Files**  
+  **Change:** All tracked .pyc and __pycache__ files have been removed from git index.  
+  **Result:** No binary cache files tracked in repository.
 
 ### Section 6: Code Quality / Risk
-- **[PENDING] #6.1 - Silent Exception Swallowing**  
-  **Locations:** 
-    - `ai_vtuber/avatar/live2d.py` (9 occurrences)
-    - `ai_vtuber/core/state.py` (3 occurrences in callbacks)  
-  **Issue:** Bare `except Exception: pass` hides debugging info.  
-  **Required:** Replace with `except Exception as e: logger.debug(f"<context>: {e}")`.
+- **[FIXED] #6.1 - Silent Exception Swallowing**  
+  **Locations:** `ai_vtuber/avatar/live2d.py`, `ai_vtuber/core/state.py`  
+  **Change:** Replaced bare `except Exception: pass` statements with proper logging using `logger.debug()` to capture exception details.  
+  **Result:** Exceptions are now logged for debugging instead of being silently swallowed.
+
+---
+
+## ⏳ PENDING / REMAINING BUGS
+
+### Section 4: Test Suite (Remaining)
+- **[PENDING] #4.2 - Pytest Internal Error**  
+  **Files:** `tests/check_opengl.py`, `tests/check_python_compat.py`, `tests/diagnose_live2d.py`, `tests/diagnose_model.py`, `tests/verify_model.py`  
+  **Issue:** Diagnostic scripts still present in `tests/` directory (5 files). These should be moved to `scripts/diagnostics/` to prevent pytest collection errors.  
+  **Required:** Move all diagnostic scripts to `scripts/diagnostics/` directory.
+
+### Section 5: Repo Hygiene (Remaining)
+- **[PENDING] #5.4 - Personal Path in config.yaml**  
+  **File:** `ai_vtuber/config.yaml`  
+  **Issue:** Config file exists in ai_vtuber/ directory; should be moved to project root as config.example.yaml with placeholder paths, and real config.yaml added to .gitignore.  
+  **Required:** Rename to config.example.yaml, add config.yaml to .gitignore.
 
 ---
 
@@ -124,8 +123,8 @@
 | :--- | :---: | :---: | :---: | :---: |
 | **Live2D Background** | 1 | 1 | 0 | 100% |
 | **Functional Logic** | 5 | 5 | 0 | 100% |
-| **UI Bugs** | 5 | 3 | 2 | 60% |
-| **Test Suite** | 3 | 3 | 0 | 100% |
-| **Repo Hygiene** | 4 | 0 | 4 | 0% |
-| **Code Quality** | 1 | 0 | 1 | 0% |
-| **TOTAL** | **19** | **12** | **7** | **63%** |
+| **UI Bugs** | 5 | 5 | 0 | 100% |
+| **Test Suite** | 3 | 2 | 1 | 67% |
+| **Repo Hygiene** | 4 | 3 | 1 | 75% |
+| **Code Quality** | 1 | 1 | 0 | 100% |
+| **TOTAL** | **19** | **17** | **2** | **89%** |
