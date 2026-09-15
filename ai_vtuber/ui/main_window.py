@@ -493,6 +493,28 @@ class QtMainWindow(QMainWindow):
                 self.status_bar.update_fps(0)
         elif event.key() == Qt.Key_D:
             self.show_debug = not self.show_debug
+            logger.debug(f"Debug overlay toggled: {self.show_debug}")
+        elif event.key() in (Qt.Key_Plus, Qt.Key_Equal):
+            if self.app_instance and self.app_instance.avatar:
+                self.app_instance.avatar.zoom_in(0.1)
+        elif event.key() == Qt.Key_Minus:
+            if self.app_instance and self.app_instance.avatar:
+                self.app_instance.avatar.zoom_out(0.1)
+        elif event.key() == Qt.Key_R:
+            if self.app_instance and self.app_instance.avatar:
+                self.app_instance.avatar.reset_zoom()
+        elif event.key() == Qt.Key_W or event.key() == Qt.Key_Up:
+            if self.app_instance and self.app_instance.avatar:
+                self.app_instance.avatar.move_by(0, -10)
+        elif event.key() == Qt.Key_S or event.key() == Qt.Key_Down:
+            if self.app_instance and self.app_instance.avatar:
+                self.app_instance.avatar.move_by(0, 10)
+        elif event.key() == Qt.Key_A or event.key() == Qt.Key_Left:
+            if self.app_instance and self.app_instance.avatar:
+                self.app_instance.avatar.move_by(-10, 0)
+        elif event.key() == Qt.Key_Right:
+            if self.app_instance and self.app_instance.avatar:
+                self.app_instance.avatar.move_by(10, 0)
         else:
             # Pass other keys to chat input if active
             if self.chat_input_container.isVisible() and self.chat_input_container.chat_input_field.hasFocus():
