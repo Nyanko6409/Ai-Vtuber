@@ -7,6 +7,12 @@
 
 ## ✅ FIXED BUGS
 
+### Section 0: Configuration Issues
+- **[FIXED] #0 - Missing config.yaml File**
+  **Issue:** Application failed to start with error "Config file not found" when config.yaml was missing.
+  **Fix:** Created config.yaml from config.example.yaml template. Users should copy config.example.yaml to config.yaml and customize paths/settings for their environment.
+  **Result:** Application now starts successfully with proper configuration file in place.
+
 ### Section 1: Live2D Avatar Background
 - **[FIXED] #1 - White Avatar Background**  
   **File:** `ai_vtuber/avatar/live2d.py`  
