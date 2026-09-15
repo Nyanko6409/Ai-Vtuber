@@ -16,17 +16,11 @@ class State(Enum):
 
 
 class StateMachine:
-    """Thread-safe state machine for the VTuber pipeline."""
-
-    # Valid state transitions
-    VALID_TRANSITIONS = {
-        State.IDLE: [State.LISTENING, State.ERROR],
-        State.LISTENING: [State.TRANSCRIBING, State.IDLE, State.ERROR],
-        State.TRANSCRIBING: [State.THINKING, State.IDLE, State.ERROR],
-        State.THINKING: [State.SPEAKING, State.IDLE, State.LISTENING, State.ERROR],
-        State.SPEAKING: [State.IDLE, State.LISTENING, State.ERROR],
-        State.ERROR: [State.IDLE],
-    }
+    """Thread-safe state machine for the VTuber pipeline.
+    
+    FIX: Removed VALID_TRANSITIONS and transition() since all call sites
+    use force_state(). The validation table was dead code providing no protection.
+    """
 
     def __init__(self) -> None:
         self._state: State = State.IDLE
@@ -46,33 +40,17 @@ class StateMachine:
         with self._lock:
             return self._error_message
 
-    def transition(self, new_state: State) -> bool:
-        """Attempt to transition to a new state.
+    def force_state(self, new_state: State) -> None:
+        """Force a state transition.
         
-        Returns True if transition was valid and executed.
+        All call sites use this method, so VALID_TRANSITIONS was removed.
+        State changes are intentional and tracked via callbacks.
         """
         with self._lock:
-            valid = self.VALID_TRANSITIONS.get(self._state, [])
-            if new_state not in valid:
-                return False
             old_state = self._state
             self._state = new_state
             if new_state != State.ERROR:
                 self._error_message = None
-
-        # Notify callbacks outside lock
-        for callback in self._callbacks:
-            try:
-                callback(old_state, new_state)
-            except Exception:
-                pass
-        return True
-
-    def force_state(self, new_state: State) -> None:
-        """Force a state transition (for error recovery)."""
-        with self._lock:
-            old_state = self._state
-            self._state = new_state
 
         for callback in self._callbacks:
             try:

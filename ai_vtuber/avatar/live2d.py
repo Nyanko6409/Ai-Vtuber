@@ -528,6 +528,9 @@ class Live2DAvatar:
         if not self._initialized or not self._model:
             return
         try:
+            # FIX: Clear buffer before drawing to ensure correct background color compositing
+            # Without this, LAppModel.Draw() renders against its own default white buffer
+            self._live2d.clearBuffer()
             # Use live2d-py's native transform methods instead of OpenGL matrices
             # LAppModel.SetOffset(x, y) expects screen-space pixel coordinates
             # LAppModel.SetScale(scale) expects a multiplier (1.0 = normal size)
@@ -538,8 +541,8 @@ class Live2DAvatar:
             logger.error(f"Live2D draw error: {e}")
             try:
                 self._model.Draw()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Live2D fallback draw failed: {e}")
 
     def set_expression(self, emotion: str) -> None:
         """Set avatar expression based on emotion."""
@@ -561,8 +564,8 @@ class Live2DAvatar:
                         self._model.LoadExpression(str(exp_file))
                         logger.debug(f"Expression loaded: {exp_file}")
                         return
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"Failed to load expression {exp_file}: {e}")
 
         # Fallback: set parameters directly
         self._set_expression_params(emotion)
