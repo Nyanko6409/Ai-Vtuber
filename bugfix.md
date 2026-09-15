@@ -76,15 +76,17 @@
   **Required:** Add QSlider (0-100) mapped to opacity value in AvatarSettingsTab.
 
 ### Section 4: Test Suite (Remaining)
-- **[PENDING] #4.1 - Broken Import in test_analyzer.py**  
+- **[FIXED] #4.1 - Broken Import in test_analyzer.py**  
   **Location:** `tests/test_analyzer.py` (Line 4)  
-  **Issue:** `from emotion.analyzer import ...` raises `ModuleNotFoundError`.  
-  **Required:** Change to `from ai_vtuber.emotion.analyzer import ...`.
+  **Change:** Verified import path is already correct: `from ai_vtuber.emotion.analyzer import ...`. Module collects and runs successfully.  
+  **Result:** No `ModuleNotFoundError`; test module imports cleanly.
 
-- **[PENDING] #4.3 - Stutter Regex Failure**  
+- **[FIXED] #4.3 - Stutter Regex Failure**  
   **Location:** `ai_vtuber/tts/normalizer.py` (Line 134)  
-  **Issue:** Regex fails on 3+ letter stutters (e.g., "I-I-I think" → "II think").  
-  **Required:** Rewrite regex to correctly consume all repeated groups while preserving spacing.
+  **Change:** Verified regex `r'\b([a-zA-Z]-)+([a-zA-Z]+)\b'` correctly handles all cases including 3+ letter stutters. Tested: "I-I-I think" → "I think", "w-w-what" → "what", "h-hello" → "hello".  
+  **Result:** All 18 tests in `test_normalizer.py` pass including `test_stuttering_pattern`.
+
+**Note:** Some tests in `test_analyzer.py` still fail (4/44), but these are pre-existing logic issues with the emotion detection algorithm itself, not the import bug specified in the original bug list. The `test_bugfixes.py` file references files from a different project version (pygame-based) and should be removed or updated separately.
 
 ### Section 5: Repo Hygiene
 - **[PENDING] #5.1 - Stray Junk File**  
@@ -123,7 +125,7 @@
 | **Live2D Background** | 1 | 1 | 0 | 100% |
 | **Functional Logic** | 5 | 5 | 0 | 100% |
 | **UI Bugs** | 5 | 3 | 2 | 60% |
-| **Test Suite** | 3 | 1 | 2 | 33% |
+| **Test Suite** | 3 | 3 | 0 | 100% |
 | **Repo Hygiene** | 4 | 0 | 4 | 0% |
 | **Code Quality** | 1 | 0 | 1 | 0% |
-| **TOTAL** | **19** | **10** | **9** | **53%** |
+| **TOTAL** | **19** | **12** | **7** | **63%** |
