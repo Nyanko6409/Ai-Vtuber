@@ -195,8 +195,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="AI VTuber - Local AI Virtual YouTuber")
     parser.add_argument(
         "--config", "-c",
-        default=os.path.join(os.path.dirname(__file__), "config.yaml"),
-        help="Path to configuration file (default: config.yaml)"
+        default=os.path.join(project_root, "config.yaml"),
+        help="Path to configuration file (default: config.yaml in project root)"
     )
     parser.add_argument(
         "--debug", "-d",
