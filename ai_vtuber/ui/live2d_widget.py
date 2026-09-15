@@ -6,7 +6,8 @@ Provides an OpenGL widget for rendering Live2D avatars with mouse interaction su
 import logging
 from typing import Optional
 
-from PySide6.QtWidgets import QOpenGLWidget, QSizePolicy
+from PySide6.QtOpenGLWidgets import QOpenGLWidget
+from PySide6.QtWidgets import QSizePolicy
 from PySide6.QtCore import Qt, Signal, QPointF
 from PySide6.QtGui import QMouseEvent, QWheelEvent
 
