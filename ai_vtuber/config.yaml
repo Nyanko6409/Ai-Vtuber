@@ -38,6 +38,14 @@ llm:
   # The system prompt above contains only technical/formatting instructions.
   # soul.md is loaded automatically at startup and combined with this system prompt.
 
+# Ollama Settings (fallback LLM provider if LM Studio unavailable)
+ollama:
+  base_url: "http://localhost:11434/v1"
+  model: "gemma2:2b"  # Make sure to pull this model first: ollama pull gemma2:2b
+  temperature: 0.8
+  max_tokens: 2000
+  timeout: null  # No timeout - wait for LLM reply
+
 # STT Settings (faster-whisper)
 # CUDA detection uses CTranslate2 directly (no PyTorch needed)
 # For WSL/Windows without CUDA: Use "cpu" to avoid library errors
