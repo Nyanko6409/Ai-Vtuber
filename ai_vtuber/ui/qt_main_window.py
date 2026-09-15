@@ -100,16 +100,17 @@ class Live2DGLWidget(QOpenGLWidget):
         return self.width(), self.height()
         
     def initializeGL(self) -> None:
-        """Called when OpenGL context is ready.
-        
-        COLOR: Sets OpenGL clear color to pure black (#000000).
-        """
+        """Called when OpenGL context is ready."""
         logger.debug("Live2D GL widget initialized")
-        # Set clear color to pure black background (#000000)
         import OpenGL.GL as gl
         gl.glClearColor(*self._clear_color)
         gl.glEnable(gl.GL_BLEND)
-        gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
+        # Straight-alpha blending: works for both opaque and transparent clear colors,
+        # since the destination alpha channel is preserved either way.
+        gl.glBlendFuncSeparate(
+            gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA,
+            gl.GL_ONE, gl.GL_ONE_MINUS_SRC_ALPHA
+        )
         
     def paintGL(self) -> None:
         """Render the Live2D avatar."""
@@ -324,6 +325,7 @@ class QtMainWindow(QMainWindow):
         
         # Get UI colors from config
         ui_config = config.get("ui", {})
+        self.transparent = ui_config.get("transparent", False)
         bg_color = ui_config.get("background_color", [0, 0, 0])
         text_color = ui_config.get("text_color", [255, 255, 255])
         font_family = ui_config.get("font_family", "Arial")
@@ -350,21 +352,38 @@ class QtMainWindow(QMainWindow):
         width = self.config.get("avatar", {}).get("window_width", 800)
         height = self.config.get("avatar", {}).get("window_height", 600)
         self.resize(width, height)
-        
-        # Set main window background to configured color
-        bg_hex = f"#{self.bg_r:02x}{self.bg_g:02x}{self.bg_b:02x}"
-        text_hex = f"#{self.text_r:02x}{self.text_g:02x}{self.text_b:02x}"
-        self.setStyleSheet(f"""
-            QMainWindow {{
-                background-color: {bg_hex};
-                color: {text_hex};
-                font-family: "{self.font_family}";
-                font-size: {self.font_size}px;
-            }}
-        """)
+
+        if self.transparent:
+            # Frameless + translucent so only the rendered avatar shows.
+            # Needs a compositing WM (default on GNOME/KDE; use picom on i3/sway-style setups).
+            self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+            self.setStyleSheet(f"""
+                QMainWindow {{
+                    background: transparent;
+                    color: #{self.text_r:02x}{self.text_g:02x}{self.text_b:02x};
+                    font-family: "{self.font_family}";
+                    font-size: {self.font_size}px;
+                }}
+            """)
+        else:
+            # Set main window background to configured color
+            bg_hex = f"#{self.bg_r:02x}{self.bg_g:02x}{self.bg_b:02x}"
+            text_hex = f"#{self.text_r:02x}{self.text_g:02x}{self.text_b:02x}"
+            self.setStyleSheet(f"""
+                QMainWindow {{
+                    background-color: {bg_hex};
+                    color: {text_hex};
+                    font-family: "{self.font_family}";
+                    font-size: {self.font_size}px;
+                }}
+            """)
         
         # Central widget
         central_widget = QWidget()
+        if self.transparent:
+            central_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+            central_widget.setStyleSheet("background: transparent;")
         self.setCentralWidget(central_widget)
         
         # Main layout
@@ -375,20 +394,32 @@ class QtMainWindow(QMainWindow):
         # OpenGL widget for Live2D with custom styling - pure black background
         self.gl_widget = Live2DGLWidget()
         self.gl_widget.setAutoFillBackground(False)
-        # Disable Qt's default background painting to ensure OpenGL controls everything
         self.gl_widget.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
-        self.gl_widget.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
-        # Set minimum size to ensure it's visible
-        self.gl_widget.setMinimumSize(400, 300)
-        # Update OpenGL clear color to match config background_color on first launch
-        self.gl_widget.update_clear_color(self.bg_r / 255.0, self.bg_g / 255.0, self.bg_b / 255.0, 1.0)
-        # Update background to pure black
-        self.gl_widget.setStyleSheet(f"""
-            QOpenGLWidget {{
-                background-color: #{self.bg_r:02x}{self.bg_g:02x}{self.bg_b:02x};
-                border-radius: 0px;
-            }}
-        """)
+        if self.transparent:
+            # The GL surface itself needs an alpha channel, or there's nothing for
+            # the compositor to blend against - must be set before the widget shows.
+            from PySide6.QtGui import QSurfaceFormat
+            fmt = QSurfaceFormat()
+            fmt.setAlphaBufferSize(8)
+            self.gl_widget.setFormat(fmt)
+            # WA_OpaquePaintEvent=True was forcing an opaque backing store, which
+            # blocked alpha from ever reaching the compositor - must be False here.
+            self.gl_widget.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, False)
+            self.gl_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+            self.gl_widget.setMinimumSize(400, 300)
+            # Alpha = 0 clear color: transparent everywhere except where the avatar draws
+            self.gl_widget.update_clear_color(0.0, 0.0, 0.0, 0.0)
+            self.gl_widget.setStyleSheet("QOpenGLWidget { background: transparent; border-radius: 0px; }")
+        else:
+            self.gl_widget.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
+            self.gl_widget.setMinimumSize(400, 300)
+            self.gl_widget.update_clear_color(self.bg_r / 255.0, self.bg_g / 255.0, self.bg_b / 255.0, 1.0)
+            self.gl_widget.setStyleSheet(f"""
+                QOpenGLWidget {{
+                    background-color: #{self.bg_r:02x}{self.bg_g:02x}{self.bg_b:02x};
+                    border-radius: 0px;
+                }}
+            """)
         main_layout.addWidget(self.gl_widget, 1)
         
         # Compact chat input container - no large panel, just input + button

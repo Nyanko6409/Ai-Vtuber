@@ -1,20 +1,5 @@
-```
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-
-# Logs and temp files
-*.log
-*.tmp
-
-# Environment
-.env
-.env.local
-*.env.*
-
-# Dependencies
-.venv/
-venv/
+```yaml
+# Configuration and UI files - assuming standard source files
+# No build artifacts, dependencies, or temp files detected in changes
+# Source code and config files should not be ignored unless generated or sensitive
 ```
