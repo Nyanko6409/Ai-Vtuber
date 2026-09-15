@@ -40,7 +40,7 @@ import yaml
 from PySide6.QtWidgets import (
     QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QLineEdit, QComboBox, QSlider, QCheckBox, QPushButton,
-    QTabWidget, QWidget, QScrollArea, QGroupBox, QSpinBox
+    QTabWidget, QWidget, QScrollArea, QGroupBox, QSpinBox, QMessageBox
 )
 from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtGui import QFont
@@ -57,7 +57,6 @@ class SettingsDialog(QDialog):
     def __init__(self, config: dict, parent=None) -> None:
         super().__init__(parent)
         self.config = config
-        self.temp_config: dict = {}
         
         self.setWindowTitle("AI VTuber Settings")
         self.setMinimumSize(700, 600)
@@ -192,7 +191,7 @@ class SettingsDialog(QDialog):
         """)
         
         self._setup_ui()
-        self._load_temp_config()
+        self._load_config_to_ui()
     
     def _setup_ui(self) -> None:
         """Set up the UI layout and widgets."""
@@ -718,18 +717,17 @@ class SettingsDialog(QDialog):
         try:
             import sounddevice as sd
             devices = sd.query_devices()
-            mics = []
-            for i, dev in enumerate(devices):
-                if dev['max_input_channels'] > 0:
-                    mics.append(f"{i}: {dev['name']}")
-            if not mics:
-                mics = ["-1: Default Microphone"]
-            return ["-1: Default Microphone"] + mics
+            mics = [
+                f"{i}: {dev['name']}"
+                for i, dev in enumerate(devices)
+                if dev["max_input_channels"] > 0
+            ]
+            return ["-1: Default Microphone", *mics]
         except Exception as e:
             logger.warning(f"Could not query microphones: {e}")
             return ["-1: Default Microphone"]
     
-    def _load_temp_config(self) -> None:
+    def _load_config_to_ui(self) -> None:
         """Load current config into UI widgets."""
         # Audio
         mic_index = self.config.get("audio", {}).get("microphone_index", -1)
@@ -866,18 +864,33 @@ class SettingsDialog(QDialog):
             
             # Load existing config to preserve structure
             with open(config_path, 'r', encoding='utf-8') as f:
-                existing_config = yaml.safe_load(f)
+                existing_config = yaml.safe_load(f) or {}
             
-            # Update sections
-            for section in ["audio", "stt", "tts", "llm", "avatar", "fillers"]:
+            if not isinstance(existing_config, dict):
+                raise ValueError("config.yaml must contain a YAML mapping/object")
+            
+            # Update sections (including \"ui\")
+            for section in ["audio", "stt", "tts", "llm", "avatar", "fillers", "ui"]:
                 if section in new_config:
                     if section not in existing_config:
                         existing_config[section] = {}
                     existing_config[section].update(new_config[section])
             
-            # Write back
-            with open(config_path, 'w', encoding='utf-8') as f:
+            # Write back atomically with backup
+            backup_path = config_path.with_suffix(".yaml.bak")
+            temp_path = config_path.with_suffix(".yaml.tmp")
+            
+            # Create backup
+            if config_path.exists():
+                import shutil
+                shutil.copy2(config_path, backup_path)
+            
+            # Write to temp file first
+            with open(temp_path, 'w', encoding='utf-8') as f:
                 yaml.dump(existing_config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+            
+            # Atomically replace original
+            temp_path.replace(config_path)
             
             logger.info("Configuration saved successfully")
             
@@ -886,7 +899,12 @@ class SettingsDialog(QDialog):
             self.accept()
             
         except Exception as e:
-            logger.error(f"Failed to save config: {e}")
+            logger.exception("Failed to save config")
+            QMessageBox.critical(
+                self,
+                "Save Failed",
+                f"Could not save configuration:\n\n{e}"
+            )
 
 
 def show_settings_dialog(config: dict, on_save: Optional[Callable[[dict], None]] = None, parent=None) -> None:
