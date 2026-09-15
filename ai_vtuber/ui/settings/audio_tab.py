@@ -5,6 +5,7 @@ Provides microphone selection and audio input configuration.
 
 import logging
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QGridLayout, QLabel, QComboBox, QGroupBox, QScrollArea
+from PySide6.QtCore import Qt
 
 logger = logging.getLogger("ai_vtuber")
 
