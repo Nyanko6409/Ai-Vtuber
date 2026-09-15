@@ -66,6 +66,7 @@ class AudioPlayer:
             audio_copy = audio_data.copy()
             total_frames = len(audio_copy)
             frame_index = [0]  # Use list for mutable closure
+            playback_success = True  # Track if playback completed successfully
             
             # Define callback for streaming playback
             def audio_callback(outdata, frames, time, status):
@@ -83,8 +84,8 @@ class AudioPlayer:
                 if remaining <= frames:
                     raise sd.CallbackStop()
             
-            # Start streaming playback
-            self._stream = sd.Stream(
+            # Start streaming playback using OutputStream (output-only)
+            self._stream = sd.OutputStream(
                 samplerate=self.sample_rate,
                 channels=1,
                 dtype=np.float32,
@@ -122,6 +123,7 @@ class AudioPlayer:
             logger.error(f"Audio playback failed: {e}")
             import traceback
             logger.error(traceback.format_exc())
+            playback_success = False
         finally:
             # Stop and close stream
             if self._stream:
@@ -135,8 +137,8 @@ class AudioPlayer:
             with self._lock:
                 self._is_playing = False
             
-            # Call on_end callback when playback finishes
-            if on_end:
+            # Call on_end callback only if playback completed successfully
+            if on_end and playback_success:
                 on_end()
 
     def stop(self) -> None:
