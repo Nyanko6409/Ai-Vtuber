@@ -666,11 +666,17 @@ class QtMainWindow(QMainWindow):
         self.text_r, self.text_g, self.text_b = text_color[0], text_color[1], text_color[2]
         self.font_family = font_family
         self.font_size = font_size
+        
+        # Check if transparency mode changed
+        transparency_changed = (self.transparent != transparent)
         self.transparent = transparent
         
         # Apply new styles based on transparency mode
         if self.transparent:
-            self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+            # Must hide window before changing window flags
+            if transparency_changed:
+                self.hide()
+                self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
             self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
             self.setStyleSheet(f"""
                 QMainWindow {{
@@ -695,6 +701,10 @@ class QtMainWindow(QMainWindow):
         else:
             bg_hex = f"#{self.bg_r:02x}{self.bg_g:02x}{self.bg_b:02x}"
             text_hex = f"#{self.text_r:02x}{self.text_g:02x}{self.text_b:02x}"
+            # Must hide window before changing window flags
+            if transparency_changed:
+                self.hide()
+                self.setWindowFlags(Qt.Window)
             self.setStyleSheet(f"""
                 QMainWindow {{
                     background-color: {bg_hex};
@@ -718,6 +728,10 @@ class QtMainWindow(QMainWindow):
                     border-radius: 0px;
                 }}
             """)
+        
+        # Show window again if transparency changed (flags were updated)
+        if transparency_changed:
+            self.show()
         
         logger.info(f"UI settings applied: transparent={transparent}, bg={bg_color}, text={text_color}, font={font_family} {font_size}px")
     
