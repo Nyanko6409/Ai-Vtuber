@@ -13,6 +13,11 @@
   **Fix:** Created config.yaml from config.example.yaml template. Users should copy config.example.yaml to config.yaml and customize paths/settings for their environment.
   **Result:** Application now starts successfully with proper configuration file in place.
 
+- **[FIXED] #0.2 - Missing Fillers Directory**
+  **Issue:** Warning "Fillers directory not found: D:\projects\Ai-Vtuber\ai_vtuber\data\fillers, disabling filler system" appeared on startup.
+  **Fix:** Created the missing `ai_vtuber/data/fillers` directory structure. This directory is required for the filler audio system that masks latency during responses.
+  **Result:** Filler system can now load properly without warnings; users can add filler audio files to this directory.
+
 ### Section 1: Live2D Avatar Background
 - **[FIXED] #1 - White Avatar Background**  
   **File:** `ai_vtuber/avatar/live2d.py`  
