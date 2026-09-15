@@ -34,6 +34,11 @@
   **Change:** Removed unused `transition()` method and `VALID_TRANSITIONS` table; consolidated logic to `force_state()`.  
   **Result:** Codebase no longer implies validation protection that didn't exist.
 
+- **[FIXED] #2.5 - No Ollama Fallback**  
+  **Files:** `ai_vtuber/llm/ollama.py` (new), `ai_vtuber/core/app.py`, `ai_vtuber/config.yaml`  
+  **Change:** Created `OllamaClient` class with same interface as `LMStudioClient`; updated `App.llm` property to try LM Studio first, then fall back to Ollama; added `ollama:` section to config.  
+  **Result:** App now gracefully falls back to Ollama if LM Studio is unavailable.
+
 ### Section 4: Test Suite
 - **[FIXED] #4.2 - Pytest Internal Error**  
   **Files:** `tests/test_live2d_diagnose.py`, `test_model_diagnostic.py`, `test_model_verify.py`, `test_opengl_check.py`, `test_python_compat.py`  
@@ -43,12 +48,6 @@
 ---
 
 ## ⏳ PENDING / REMAINING BUGS
-
-### Section 2: Functional (Remaining)
-- **[PENDING] #2.5 - No Ollama Fallback**  
-  **Location:** `ai_vtuber/llm/`  
-  **Issue:** Only `LMStudioClient` exists. If LM Studio is offline, LLM disables entirely.  
-  **Required:** Add `OllamaClient` class with same interface; update `App` init to try LM Studio then fallback to Ollama.
 
 ### Section 3: UI Bugs
 - **[PENDING] #3.1 - Debug Overlay Toggle ('D' Key)**  
@@ -122,9 +121,9 @@
 | Category | Total Issues | Fixed | Pending | % Complete |
 | :--- | :---: | :---: | :---: | :---: |
 | **Live2D Background** | 1 | 1 | 0 | 100% |
-| **Functional Logic** | 5 | 4 | 1 | 80% |
+| **Functional Logic** | 5 | 5 | 0 | 100% |
 | **UI Bugs** | 5 | 0 | 5 | 0% |
 | **Test Suite** | 3 | 1 | 2 | 33% |
 | **Repo Hygiene** | 4 | 0 | 4 | 0% |
 | **Code Quality** | 1 | 0 | 1 | 0% |
-| **TOTAL** | **19** | **6** | **13** | **32%** |
+| **TOTAL** | **19** | **7** | **12** | **37%** |

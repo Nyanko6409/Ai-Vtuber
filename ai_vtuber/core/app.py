@@ -13,6 +13,7 @@ import numpy as np
 from .state import State, StateMachine
 from .conversation import ConversationHistory
 from ..llm.lmstudio import LMStudioClient
+from ..llm.ollama import OllamaClient
 from ..stt.whisper import WhisperSTT
 from ..tts.kitten import KittenTTS, split_text_into_chunks
 from ..avatar.live2d import Live2DAvatar
@@ -54,7 +55,7 @@ class App:
         self.current_emotion: str = "neutral"
 
         # Components (initialized lazily)
-        self._llm: Optional[LMStudioClient] = None
+        self._llm: Optional[LMStudioClient | OllamaClient] = None
         self._stt: Optional[WhisperSTT] = None
         self._tts: Optional[KittenTTS] = None
         self._avatar: Optional[Live2DAvatar] = None
@@ -74,10 +75,26 @@ class App:
         self._avatar_start_drag: bool = False
 
     @property
-    def llm(self) -> LMStudioClient:
+    def llm(self) -> LMStudioClient | OllamaClient:
         if self._llm is None:
-            self._llm = LMStudioClient(self.config["llm"])
-        return self._llm
+            # Try LM Studio first, then fall back to Ollama
+            try:
+                lmstudio_client = LMStudioClient(self.config["llm"])
+                if lmstudio_client.is_available():
+                    self._llm = lmstudio_client
+                    logger.info("Using LM Studio as LLM backend")
+                else:
+                    raise ConnectionError("LM Studio not available")
+            except Exception as e:
+                logger.warning(f"LM Studio unavailable ({e}), trying Ollama fallback...")
+                ollama_client = OllamaClient(self.config.get("ollama", {}))
+                if ollama_client.is_available():
+                    self._llm = ollama_client
+                    logger.info("Using Ollama as LLM backend (fallback)")
+                else:
+                    logger.warning("Ollama also unavailable. LLM will be disabled.")
+                    self._llm = None
+        return self._llm  # type: ignore
 
     @property
     def stt(self) -> WhisperSTT:
