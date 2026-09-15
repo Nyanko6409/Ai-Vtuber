@@ -34,7 +34,7 @@ class Live2DGLWidget(QOpenGLWidget):
         self._is_dragging = False
         self.setMinimumSize(400, 300)
         self._render_callback = None
-        # Default clear color (black)
+        # Default clear color (black with full opacity)
         self._clear_color = (0.0, 0.0, 0.0, 1.0)
         # Set size policy to expand
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -52,6 +52,18 @@ class Live2DGLWidget(QOpenGLWidget):
         except Exception:
             # OpenGL context not ready yet, color will be set in initializeGL()
             pass
+    
+    def update_opacity(self, opacity: float):
+        """Update the canvas opacity (alpha channel of clear color).
+        
+        Args:
+            opacity: Float value from 0.0 (fully transparent) to 1.0 (fully opaque)
+        """
+        # Clamp opacity to valid range
+        opacity = max(0.0, min(1.0, opacity))
+        # Update alpha channel while preserving RGB values
+        r, g, b, _ = self._clear_color
+        self.update_clear_color(r, g, b, opacity)
         
     def get_widget_size(self) -> tuple[int, int]:
         """Get current widget width and height."""

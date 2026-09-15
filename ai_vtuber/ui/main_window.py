@@ -55,17 +55,19 @@ class QtMainWindow(QMainWindow):
         font_family = ui_config.get("font_family", "Arial")
         font_size = ui_config.get("font_size", 14)
         
-        # Get Live2D background color from avatar config
+        # Get Live2D background color and opacity from avatar config
         avatar_config = config.get("avatar", {})
         live2d_bg_color = avatar_config.get("background_color", [0, 0, 0])
+        live2d_opacity = avatar_config.get("opacity", 1.0)
         
         # Store color values for dynamic updates
         self.bg_r, self.bg_g, self.bg_b = bg_color[0], bg_color[1], bg_color[2]
         self.text_r, self.text_g, self.text_b = text_color[0], text_color[1], text_color[2]
         self.font_family = font_family
         self.font_size = font_size
-        # Store Live2D background color values
+        # Store Live2D background color values and opacity
         self.live2d_bg_r, self.live2d_bg_g, self.live2d_bg_b = live2d_bg_color[0], live2d_bg_color[1], live2d_bg_color[2]
+        self.live2d_opacity = live2d_opacity
         
         # Callbacks
         self.on_chat_message: Optional[Callable[[str], None]] = None
@@ -144,12 +146,12 @@ class QtMainWindow(QMainWindow):
         else:
             self.gl_widget.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
             self.gl_widget.setMinimumSize(400, 300)
-            # Use Live2D background color for the OpenGL clear color (independent of Qt UI background)
+            # Use Live2D background color and opacity from config for the OpenGL clear color
             self.gl_widget.update_clear_color(
                 self.live2d_bg_r / 255.0,
                 self.live2d_bg_g / 255.0,
                 self.live2d_bg_b / 255.0,
-                1.0
+                self.live2d_opacity
             )
             live2d_bg_hex = f"#{self.live2d_bg_r:02x}{self.live2d_bg_g:02x}{self.live2d_bg_b:02x}"
             self.gl_widget.setStyleSheet(f"""
@@ -295,9 +297,11 @@ class QtMainWindow(QMainWindow):
         ui_config = new_config.get("ui", {})
         avatar_config = new_config.get("avatar", {})
         
-        # Update Live2D background color from avatar config
+        # Update Live2D background color and opacity from avatar config
         live2d_bg_color = avatar_config.get("background_color", [0, 0, 0])
+        live2d_opacity = avatar_config.get("opacity", 1.0)
         self.live2d_bg_r, self.live2d_bg_g, self.live2d_bg_b = live2d_bg_color[0], live2d_bg_color[1], live2d_bg_color[2]
+        self.live2d_opacity = live2d_opacity
         
         # Need to restart the window if transparency changed
         transparent = ui_config.get("transparent", False)
@@ -426,14 +430,14 @@ class QtMainWindow(QMainWindow):
                 }}
             """)
 
-            # Update GL widget for opaque mode - use Live2D background color (independent of Qt UI background)
+            # Update GL widget for opaque mode - use Live2D background color and opacity from config
             self.gl_widget.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
             live2d_bg_hex = f"#{self.live2d_bg_r:02x}{self.live2d_bg_g:02x}{self.live2d_bg_b:02x}"
             self.gl_widget.update_clear_color(
                 self.live2d_bg_r / 255.0,
                 self.live2d_bg_g / 255.0,
                 self.live2d_bg_b / 255.0,
-                1.0
+                self.live2d_opacity
             )
             self.gl_widget.setStyleSheet(f"""
                 QOpenGLWidget {{
@@ -449,7 +453,7 @@ class QtMainWindow(QMainWindow):
         logger.info(f"UI settings applied: transparent={transparent}, bg={bg_color}, text={text_color}, font={font_family} {font_size}px")
 
     def _apply_live2d_background(self):
-        """Apply Live2D background color to the GL widget."""
+        """Apply Live2D background color and opacity to the GL widget."""
         if self.transparent:
             # In transparent mode, use transparent clear color
             self.gl_widget.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, False)
@@ -457,14 +461,14 @@ class QtMainWindow(QMainWindow):
             self.gl_widget.update_clear_color(0.0, 0.0, 0.0, 0.0)
             self.gl_widget.setStyleSheet("QOpenGLWidget { background: transparent; border-radius: 0px; }")
         else:
-            # In opaque mode, use configured Live2D background color
+            # In opaque mode, use configured Live2D background color and opacity
             self.gl_widget.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
             live2d_bg_hex = f"#{self.live2d_bg_r:02x}{self.live2d_bg_g:02x}{self.live2d_bg_b:02x}"
             self.gl_widget.update_clear_color(
                 self.live2d_bg_r / 255.0,
                 self.live2d_bg_g / 255.0,
                 self.live2d_bg_b / 255.0,
-                1.0
+                self.live2d_opacity
             )
             self.gl_widget.setStyleSheet(f"""
                 QOpenGLWidget {{
