@@ -104,16 +104,16 @@
 ## ⏳ PENDING / REMAINING BUGS
 
 ### Section 4: Test Suite (Remaining)
-- **[PENDING] #4.2 - Pytest Internal Error**  
+- **[FIXED] #4.2 - Pytest Internal Error**  
   **Files:** `tests/check_opengl.py`, `tests/check_python_compat.py`, `tests/diagnose_live2d.py`, `tests/diagnose_model.py`, `tests/verify_model.py`  
-  **Issue:** Diagnostic scripts still present in `tests/` directory (5 files). These should be moved to `scripts/diagnostics/` to prevent pytest collection errors.  
-  **Required:** Move all diagnostic scripts to `scripts/diagnostics/` directory.
+  **Change:** All diagnostic scripts have been moved from `tests/` to `scripts/diagnostics/` directory.  
+  **Result:** pytest no longer encounters collection errors from non-test diagnostic scripts.
 
 ### Section 5: Repo Hygiene (Remaining)
-- **[PENDING] #5.4 - Personal Path in config.yaml**  
-  **File:** `ai_vtuber/config.yaml`  
-  **Issue:** Config file exists in ai_vtuber/ directory; should be moved to project root as config.example.yaml with placeholder paths, and real config.yaml added to .gitignore.  
-  **Required:** Rename to config.example.yaml, add config.yaml to .gitignore.
+- **[FIXED] #5.4 - Personal Path in config.yaml**  
+  **File:** `config.yaml` → `config.example.yaml`  
+  **Change:** Config file renamed to `config.example.yaml` and moved to project root. Added `config.yaml` to `.gitignore` to prevent personal paths from being committed. Updated all code references in `main.py`, `settings/dialog.py`, and `scripts/generate_fillers.py` to use the new location.  
+  **Result:** Repository now contains only example config with placeholder paths; users create their own `config.yaml` locally.
 
 ---
 
@@ -124,7 +124,7 @@
 | **Live2D Background** | 1 | 1 | 0 | 100% |
 | **Functional Logic** | 5 | 5 | 0 | 100% |
 | **UI Bugs** | 5 | 5 | 0 | 100% |
-| **Test Suite** | 3 | 2 | 1 | 67% |
-| **Repo Hygiene** | 4 | 3 | 1 | 75% |
+| **Test Suite** | 3 | 3 | 0 | 100% |
+| **Repo Hygiene** | 4 | 4 | 0 | 100% |
 | **Code Quality** | 1 | 1 | 0 | 100% |
-| **TOTAL** | **19** | **17** | **2** | **89%** |
+| **TOTAL** | **19** | **19** | **0** | **100%** |
