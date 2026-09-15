@@ -23,7 +23,7 @@ class Microphone:
         self.device_index: int = config.get("microphone_index", -1)
         self.chunk_size: int = config.get("chunk_size", 1024)
         self.channels: int = config.get("channels", 1)
-        self.sample_rate: int = 16000  # Required for Whisper
+        self.sample_rate: int = config.get("sample_rate", 16000)
         self.mute_during_playback: bool = config.get("mute_during_playback", True)
 
         self._stream = None
