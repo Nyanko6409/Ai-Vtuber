@@ -265,6 +265,8 @@ class QtMainWindow(QMainWindow):
         super().resizeEvent(event)
         # Reposition chat input after resize
         QTimer.singleShot(50, self._setup_chat_input_geometry)
+        # Re-apply Live2D background color after resize
+        QTimer.singleShot(50, self._apply_live2d_background_on_resize)
 
     def _toggle_chat(self):
         """Toggle chat input visibility."""
@@ -308,6 +310,8 @@ class QtMainWindow(QMainWindow):
             QTimer.singleShot(100, lambda: self._recreate_window())
         else:
             self.apply_ui_settings(ui_config)
+            # Also apply Live2D background color update
+            self._apply_live2d_background()
         logger.info("Settings saved and applied")
 
     def _recreate_window(self):
@@ -441,6 +445,37 @@ class QtMainWindow(QMainWindow):
             self.show()
 
         logger.info(f"UI settings applied: transparent={transparent}, bg={bg_color}, text={text_color}, font={font_family} {font_size}px")
+
+    def _apply_live2d_background(self):
+        """Apply Live2D background color to the GL widget."""
+        if self.transparent:
+            # In transparent mode, use transparent clear color
+            self.gl_widget.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, False)
+            self.gl_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+            self.gl_widget.update_clear_color(0.0, 0.0, 0.0, 0.0)
+            self.gl_widget.setStyleSheet("QOpenGLWidget { background: transparent; border-radius: 0px; }")
+        else:
+            # In opaque mode, use configured Live2D background color
+            self.gl_widget.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
+            live2d_bg_hex = f"#{self.live2d_bg_r:02x}{self.live2d_bg_g:02x}{self.live2d_bg_b:02x}"
+            self.gl_widget.update_clear_color(
+                self.live2d_bg_r / 255.0,
+                self.live2d_bg_g / 255.0,
+                self.live2d_bg_b / 255.0,
+                1.0
+            )
+            self.gl_widget.setStyleSheet(f"""
+                QOpenGLWidget {{
+                    background-color: {live2d_bg_hex};
+                    border-radius: 0px;
+                }}
+            """)
+        logger.info(f"Live2D background applied: R={self.live2d_bg_r}, G={self.live2d_bg_g}, B={self.live2d_bg_b}")
+
+    def _apply_live2d_background_on_resize(self):
+        """Re-apply Live2D background color after resize (for non-transparent mode)."""
+        if not self.transparent:
+            self._apply_live2d_background()
 
     def keyPressEvent(self, event: QKeyEvent):
         """Handle key press events."""
