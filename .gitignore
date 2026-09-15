@@ -1,4 +1,4 @@
-```gitignore
+```
 # Python
 __pycache__/
 *.pyc
@@ -6,27 +6,22 @@ __pycache__/
 *.pyd
 
 # Dependencies
-venv/
 .venv/
+venv/
+env/
 .env
 .env.local
-*.env.*
+.env.*
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
 
 # Logs
 *.log
 
-# Coverage
-.coverage
-htmlcov/
-coverage/
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS
+# OS generated files
 .DS_Store
 Thumbs.db
 ```
