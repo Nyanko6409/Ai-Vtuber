@@ -1,1 +1,1 @@
-Nothing should be ignored based on the provided file changes, as only a source code file (`ai_vtuber/audio/microphone.py`) was modified and there are no build artifacts, dependencies, or temporary files in the changes.
+Nothing should be ignored based on the provided file changes, as they only include Python source files (.py) which are legitimate code files to track in version control.
