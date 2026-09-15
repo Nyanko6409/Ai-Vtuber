@@ -321,6 +321,8 @@ class QtMainWindow(QMainWindow):
         new_window.show()
         # Store reference to prevent garbage collection
         self.app_instance.main_window = new_window
+        # CRITICAL: Setup callbacks for the new window (render callback, etc.)
+        new_window._setup_callbacks()
 
     def _handle_chat_message(self, text: str):
         """Handle chat message from overlay."""
