@@ -55,10 +55,10 @@
   **Change:** Implemented debug overlay that displays in the status bar when toggled on. Shows current state machine state, avatar zoom level, and avatar position coordinates. Pressing 'D' now visibly changes the FPS counter to show debug info.  
   **Result:** Debug mode now provides real-time visibility into app state and avatar parameters.
 
-- **[PENDING] #3.2 - Missing Keyboard Shortcuts**  
-  **Location:** `ai_vtuber/ui/main_window.py`  
-  **Issue:** Config documents zoom/pan/reset keys (+, -, R, arrows) but `keyPressEvent` ignores them. `reset_zoom()` has no caller.  
-  **Required:** Wire up key handlers for zoom in/out, reset, and avatar movement.
+- **[FIXED] #3.2 - Missing Keyboard Shortcuts**  
+  **File:** `ai_vtuber/ui/main_window.py`  
+  **Change:** Added key handlers in `keyPressEvent()` for: `+`/`=` (zoom in), `-` (zoom out), `R` (reset zoom), `W`/`Up` (move up), `S`/`Down` (move down), `A`/`Left` (move left), `Right` (move right). All handlers call existing `Live2DAvatar` methods (`zoom_in()`, `zoom_out()`, `reset_zoom()`, `move_by()`).  
+  **Result:** Users can now control avatar zoom and position via keyboard as documented in config.yaml comments.
 
 - **[PENDING] #3.3 - Settings Dialog Deletes Comments**  
   **Location:** `ai_vtuber/ui/settings/dialog.py`  
@@ -122,8 +122,8 @@
 | :--- | :---: | :---: | :---: | :---: |
 | **Live2D Background** | 1 | 1 | 0 | 100% |
 | **Functional Logic** | 5 | 5 | 0 | 100% |
-| **UI Bugs** | 5 | 1 | 4 | 20% |
+| **UI Bugs** | 5 | 3 | 2 | 60% |
 | **Test Suite** | 3 | 1 | 2 | 33% |
 | **Repo Hygiene** | 4 | 0 | 4 | 0% |
 | **Code Quality** | 1 | 0 | 1 | 0% |
-| **TOTAL** | **19** | **8** | **11** | **42%** |
+| **TOTAL** | **19** | **10** | **9** | **53%** |
