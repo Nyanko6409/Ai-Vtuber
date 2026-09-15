@@ -1,1 +1,24 @@
-Nothing should be ignored based on the provided file changes. The modification of 'ai_vtuber/ui/main_window.py' represents a standard source code file change, which should be tracked by Git. No build artifacts, temporary files, or other ignorable items were included in the changes.
+```
+# Compiled Python files
+*.pyc
+__pycache__/
+
+# Dependencies
+.venv/
+venv/
+node_modules/
+
+# Logs and temp files
+*.log
+*.tmp
+*.swp
+
+# Environment
+.env
+.env.local
+*.env.*
+
+# Editors
+.vscode/
+.idea/
+```
