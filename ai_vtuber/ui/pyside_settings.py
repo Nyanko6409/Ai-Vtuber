@@ -580,6 +580,30 @@ class SettingsDialog(QDialog):
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(15)
         
+        # Transparency setting
+        transparent_group = QGroupBox("🪟 Window Transparency")
+        transparent_layout = QVBoxLayout(transparent_group)
+        transparent_layout.setSpacing(10)
+        
+        self.transparent_check = QCheckBox("Enable Transparent Background")
+        self.transparent_check.setChecked(self.config.get("ui", {}).get("transparent", False))
+        self.transparent_check.setToolTip(
+            "Makes the window background transparent, showing only the avatar.\n"
+            "Requires a compositing window manager (GNOME/KDE default, or picom on tiling WMs).\n"
+            "In OBS: Use 'Window Capture (Xcomposite)' and check 'Allow Transparency'."
+        )
+        transparent_layout.addWidget(self.transparent_check)
+        
+        transparent_info = QLabel(
+            "ℹ️ Note: When enabled, the window becomes frameless and click-through.\n"
+            "   Press ESC to quit the application. Background color is ignored in this mode."
+        )
+        transparent_info.setWordWrap(True)
+        transparent_info.setStyleSheet("color: #a0b0ff; font-size: 12px;")
+        transparent_layout.addWidget(transparent_info)
+        
+        layout.addWidget(transparent_group)
+        
         # Background color settings
         bg_group = QGroupBox("🎨 Background Color")
         bg_layout = QGridLayout(bg_group)
@@ -755,6 +779,7 @@ class SettingsDialog(QDialog):
         
         # UI
         ui_config = self.config.get("ui", {})
+        self.transparent_check.setChecked(ui_config.get("transparent", False))
         bg_colors = ui_config.get("background_color", [0, 0, 0])
         self.bg_r_spin.setValue(bg_colors[0] if len(bg_colors) > 0 else 0)
         self.bg_g_spin.setValue(bg_colors[1] if len(bg_colors) > 1 else 0)
@@ -814,6 +839,7 @@ class SettingsDialog(QDialog):
                 "stall_threshold_ms": self.filler_stall_spin.value(),
             },
             "ui": {
+                "transparent": self.transparent_check.isChecked(),
                 "background_color": [
                     self.bg_r_spin.value(),
                     self.bg_g_spin.value(),

@@ -1,5 +1,29 @@
-```yaml
-# Configuration and UI files - assuming standard source files
-# No build artifacts, dependencies, or temp files detected in changes
-# Source code and config files should not be ignored unless generated or sensitive
+```
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Dependencies
+.venv/
+venv/
+env/
+.env
+.env.local
+.env.*
+
+# Logs
+*.log
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.tmp
+
+# Build/dist
+build/
+dist/
 ```
