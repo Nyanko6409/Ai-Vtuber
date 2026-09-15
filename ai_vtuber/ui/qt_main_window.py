@@ -613,8 +613,27 @@ class QtMainWindow(QMainWindow):
         self.config.update(new_config)
         # Apply UI settings including transparency
         ui_config = new_config.get("ui", {})
-        self.apply_ui_settings(ui_config)
+        # Need to restart the window if transparency changed
+        transparent = ui_config.get("transparent", False)
+        if transparent != self.transparent:
+            # Transparency mode changed - need to recreate window
+            logger.info(f"Transparency mode changed: {self.transparent} -> {transparent}")
+            self.config["ui"]["transparent"] = transparent
+            self.close()
+            # Schedule recreation after close
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(100, lambda: self._recreate_window())
+        else:
+            self.apply_ui_settings(ui_config)
         logger.info("Settings saved and applied")
+    
+    def _recreate_window(self):
+        """Recreate the main window with new transparency setting."""
+        # Create a new instance with updated config
+        new_window = QtMainWindow(self.config, self.app_instance)
+        new_window.show()
+        # Store reference to prevent garbage collection
+        self.app_instance.main_window = new_window
     
     def _handle_chat_message(self, text: str):
         """Handle chat message from overlay."""
