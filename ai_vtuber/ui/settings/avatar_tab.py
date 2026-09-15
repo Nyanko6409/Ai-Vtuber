@@ -59,6 +59,39 @@ class AvatarSettingsTab(QWidget):
         )
         
         layout.addWidget(appearance_group)
+        
+        # Live2D Background Color settings
+        live2d_bg_group = QGroupBox("🎨 Live2D Background Color")
+        live2d_bg_layout = QGridLayout(live2d_bg_group)
+        live2d_bg_layout.setSpacing(10)
+        
+        live2d_bg_label = QLabel("Live2D Background Color (RGB):")
+        live2d_bg_layout.addWidget(live2d_bg_label, 0, 0)
+        
+        bg_colors = self.config.get("avatar", {}).get("background_color", [0, 0, 0])
+        
+        self.live2d_bg_r_spin = QSpinBox()
+        self.live2d_bg_r_spin.setMinimum(0)
+        self.live2d_bg_r_spin.setMaximum(255)
+        self.live2d_bg_r_spin.setValue(bg_colors[0] if len(bg_colors) > 0 else 0)
+        self.live2d_bg_r_spin.setPrefix("R: ")
+        live2d_bg_layout.addWidget(self.live2d_bg_r_spin, 0, 1)
+        
+        self.live2d_bg_g_spin = QSpinBox()
+        self.live2d_bg_g_spin.setMinimum(0)
+        self.live2d_bg_g_spin.setMaximum(255)
+        self.live2d_bg_g_spin.setValue(bg_colors[1] if len(bg_colors) > 1 else 0)
+        self.live2d_bg_g_spin.setPrefix("G: ")
+        live2d_bg_layout.addWidget(self.live2d_bg_g_spin, 0, 2)
+        
+        self.live2d_bg_b_spin = QSpinBox()
+        self.live2d_bg_b_spin.setMinimum(0)
+        self.live2d_bg_b_spin.setMaximum(255)
+        self.live2d_bg_b_spin.setValue(bg_colors[2] if len(bg_colors) > 2 else 0)
+        self.live2d_bg_b_spin.setPrefix("B: ")
+        live2d_bg_layout.addWidget(self.live2d_bg_b_spin, 0, 3)
+        
+        layout.addWidget(live2d_bg_group)
         layout.addStretch()
     
     def load_config(self):
@@ -68,6 +101,12 @@ class AvatarSettingsTab(QWidget):
         avatar_scale = avatar_config.get("scale", 2.0)
         self.avatar_scale_slider.setValue(int(avatar_scale * 10))
         self.avatar_scale_value_label.setText(f"{avatar_scale:.1f}x")
+        
+        # Load Live2D background color
+        bg_colors = avatar_config.get("background_color", [0, 0, 0])
+        self.live2d_bg_r_spin.setValue(bg_colors[0] if len(bg_colors) > 0 else 0)
+        self.live2d_bg_g_spin.setValue(bg_colors[1] if len(bg_colors) > 1 else 0)
+        self.live2d_bg_b_spin.setValue(bg_colors[2] if len(bg_colors) > 2 else 0)
     
     def get_config(self) -> dict:
         """Get current configuration from UI widgets."""
@@ -75,5 +114,10 @@ class AvatarSettingsTab(QWidget):
             "avatar": {
                 "model_path": self.avatar_model_edit.text(),
                 "scale": self.avatar_scale_slider.value() / 10.0,
+                "background_color": [
+                    self.live2d_bg_r_spin.value(),
+                    self.live2d_bg_g_spin.value(),
+                    self.live2d_bg_b_spin.value(),
+                ],
             }
         }

@@ -86,6 +86,7 @@ avatar:
   window_height: 600
   fps: 30
   scale: 2.0
+  background_color: [0, 0, 0]  # RGB values (0-255) for Live2D renderer background (independent of Qt UI background)
   # Zoom and movement controls:
   #   +/= : Zoom in
   #   -   : Zoom out
