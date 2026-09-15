@@ -494,6 +494,20 @@ class QtMainWindow(QMainWindow):
         elif event.key() == Qt.Key_D:
             self.show_debug = not self.show_debug
             logger.debug(f"Debug overlay toggled: {self.show_debug}")
+            # Show debug info in status bar temporarily
+            if self.show_debug and self.app_instance:
+                debug_info = (
+                    f"🔍 DEBUG | State: {self.app_instance.state_machine.current_state} | "
+                    f"Avatar Zoom: {self.app_instance.avatar._zoom:.2f} | "
+                    f"Pos: ({self.app_instance.avatar._offset_x:.1f}, {self.app_instance.avatar._offset_y:.1f})"
+                )
+                self.status_bar.fps_label.setText(debug_info[:50])  # Truncate for space
+            elif not self.show_debug:
+                # Restore FPS display when debug mode off
+                if hasattr(self, 'status_bar'):
+                    fps = self.status_bar.fps_label.text()
+                    if not fps.startswith("⚡"):
+                        self.status_bar.fps_label.setText("⚡ FPS: --")
         elif event.key() in (Qt.Key_Plus, Qt.Key_Equal):
             if self.app_instance and self.app_instance.avatar:
                 self.app_instance.avatar.zoom_in(0.1)
