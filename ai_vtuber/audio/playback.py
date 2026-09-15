@@ -62,8 +62,8 @@ class AudioPlayer:
             if max_val > 1.0:
                 audio_data = audio_data / max_val
             
-            # Create a copy for playback
-            audio_copy = audio_data.copy()
+            # Create a copy for playback and reshape to (N, 1) for mono output
+            audio_copy = audio_data.copy().reshape(-1, 1)
             total_frames = len(audio_copy)
             frame_index = [0]  # Use list for mutable closure
             playback_success = True  # Track if playback completed successfully
