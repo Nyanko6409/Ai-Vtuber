@@ -18,6 +18,11 @@
   **Fix:** Created the missing `ai_vtuber/data/fillers` directory structure. This directory is required for the filler audio system that masks latency during responses.
   **Result:** Filler system can now load properly without warnings; users can add filler audio files to this directory.
 
+- **[FIXED] #0.3 - Fillers Not Voice-Specific**
+  **Issue:** Pre-rendered filler audio files were generic and did not match the user's selected TTS voice, causing jarring voice switches during latency masking.
+  **Fix:** Modified `_load_fillers()` in `ai_vtuber/core/app.py` to check for pre-rendered fillers first, and if none exist (or they don't match current voice), automatically generate new filler phrases on-demand using the current TTS voice settings. Added new `_generate_fillers_for_voice()` method that reads phrases from `personality/fillers.md` and generates voice-matched `.npy` files saved to `data/fillers/`.
+  **Result:** Filler audio now always matches the configured TTS voice (e.g., Bella, Jasper, Luna). When switching voices in config, new fillers are automatically generated on next startup to ensure consistent voice quality throughout conversations.
+
 ### Section 1: Live2D Avatar Background
 - **[FIXED] #1 - White Avatar Background**  
   **File:** `ai_vtuber/avatar/live2d.py`  

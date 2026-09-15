@@ -199,10 +199,14 @@ class App:
         self._load_fillers()
 
     def _load_fillers(self) -> None:
-        """Load pre-rendered filler audio files from disk.
+        """Load or generate filler audio phrases for the current voice.
+        
+        First checks for pre-rendered filler files in data/fillers/.
+        If none exist or TTS is not yet initialized, generates them on-demand
+        using the current TTS voice settings.
         
         Fills self._fillers with (audio_array, duration_ms) tuples.
-        Logs a warning and disables fillers if folder is empty/missing.
+        Logs a warning and disables fillers if generation fails.
         """
         # FIX: Clear existing fillers to prevent unbounded growth on repeated calls
         self._fillers.clear()
@@ -216,46 +220,111 @@ class App:
         try:
             fillers_dir = Path(__file__).parent.parent / "data" / "fillers"
             
-            if not fillers_dir.exists():
-                logger.warning(f"Fillers directory not found: {fillers_dir}, disabling filler system")
-                self._fillers_loaded = False
-                return
+            # Ensure directory exists
+            fillers_dir.mkdir(parents=True, exist_ok=True)
             
+            # Check for existing pre-rendered fillers
             filler_files = sorted(fillers_dir.glob("filler_*.npy"))
             
-            if not filler_files:
-                logger.warning(f"No filler files found in {fillers_dir}, disabling filler system")
-                self._fillers_loaded = False
-                return
-            
-            loaded_count = 0
-            for filler_path in filler_files:
-                try:
-                    # Parse duration from filename: filler_XX_NNNms.npy
-                    match = re.search(r"_(\d+)ms\.npy$", filler_path.name)
-                    if match:
-                        duration_ms = int(match.group(1))
-                    else:
-                        # Estimate duration if not in filename
+            if filler_files:
+                # Load existing fillers
+                loaded_count = 0
+                for filler_path in filler_files:
+                    try:
+                        # Parse duration from filename: filler_XX_NNNms.npy
+                        match = re.search(r"_(\d+)ms\.npy$", filler_path.name)
+                        if match:
+                            duration_ms = int(match.group(1))
+                        else:
+                            # Estimate duration if not in filename
+                            audio_data = np.load(filler_path)
+                            duration_ms = int(len(audio_data) / self.tts.sample_rate * 1000)
+                        
                         audio_data = np.load(filler_path)
-                        duration_ms = int(len(audio_data) / self.tts.sample_rate * 1000)
-                    
-                    audio_data = np.load(filler_path)
-                    self._fillers.append((audio_data, duration_ms))
-                    loaded_count += 1
-                    
-                except Exception as e:
-                    logger.warning(f"Failed to load filler {filler_path.name}: {e}")
-            
-            if loaded_count > 0:
-                self._fillers_loaded = True
-                logger.info(f"Loaded {loaded_count} filler phrases for latency masking")
-            else:
-                logger.warning("No filler files could be loaded, disabling filler system")
-                self._fillers_loaded = False
+                        self._fillers.append((audio_data, duration_ms))
+                        loaded_count += 1
+                        
+                    except Exception as e:
+                        logger.warning(f"Failed to load filler {filler_path.name}: {e}")
                 
+                if loaded_count > 0:
+                    self._fillers_loaded = True
+                    logger.info(f"Loaded {loaded_count} pre-rendered filler phrases")
+                    return
+            
+            # No pre-rendered fillers found - generate them on-demand for current voice
+            logger.info("No pre-rendered fillers found, generating for current voice...")
+            self._generate_fillers_for_voice(fillers_dir)
+            
         except Exception as e:
-            logger.warning(f"Error loading fillers: {e}, disabling filler system")
+            logger.warning(f"Error loading/generating fillers: {e}, disabling filler system")
+            self._fillers_loaded = False
+    
+    def _generate_fillers_for_voice(self, fillers_dir: Path) -> None:
+        """Generate filler audio files for the current TTS voice.
+        
+        Args:
+            fillers_dir: Directory to save generated filler files.
+        """
+        # Get filler phrases from config or defaults
+        phrases_file = self.config.get("fillers", {}).get("phrases_file", "personality/fillers.md")
+        fillers_path = Path(__file__).parent.parent / phrases_file
+        
+        if fillers_path.exists():
+            phrases = []
+            with open(fillers_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        phrases.append(line)
+        else:
+            phrases = [
+                "Hmm, let me think...",
+                "That's a good point!",
+                "You know,",
+                "Well,",
+                "I see.",
+            ]
+        
+        if not phrases:
+            phrases = [
+                "Hmm, let me think...",
+                "That's a good point!",
+                "You know,",
+                "Well,",
+                "I see.",
+            ]
+        
+        # Generate each phrase with current TTS voice
+        generated = 0
+        for i, phrase in enumerate(phrases):
+            try:
+                logger.debug(f"Generating filler {i+1}/{len(phrases)}: '{phrase}'")
+                audio = self.tts.generate(phrase)
+                if audio is None:
+                    logger.warning(f"TTS returned None for phrase {i+1}, skipping")
+                    continue
+                
+                # Calculate duration in milliseconds
+                duration_ms = int(len(audio) / self.tts.sample_rate * 1000)
+                
+                # Save as .npy file with duration in filename
+                filename = f"filler_{i:02d}_{duration_ms}ms.npy"
+                output_path = fillers_dir / filename
+                
+                np.save(output_path, audio)
+                self._fillers.append((audio, duration_ms))
+                generated += 1
+                logger.debug(f"  Generated: {filename} ({duration_ms}ms)")
+                
+            except Exception as e:
+                logger.warning(f"Failed to generate filler {i+1}: {e}")
+        
+        if generated > 0:
+            self._fillers_loaded = True
+            logger.info(f"Generated {generated} filler phrases for voice '{self.tts.config_voice}'")
+        else:
+            logger.warning("No filler phrases could be generated, disabling filler system")
             self._fillers_loaded = False
 
     def stop(self) -> None:
