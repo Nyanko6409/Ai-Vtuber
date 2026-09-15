@@ -159,6 +159,9 @@ class App:
             self.state_machine.set_error(f"Microphone Error: {e}")
             return
 
+        # FIX: Load fillers at startup so latency masking is available by default
+        self._load_fillers()
+
         self.state_machine.force_state(State.IDLE)
         logger.info("AI VTuber started successfully")
     
@@ -184,6 +187,10 @@ class App:
         Fills self._fillers with (audio_array, duration_ms) tuples.
         Logs a warning and disables fillers if folder is empty/missing.
         """
+        # FIX: Clear existing fillers to prevent unbounded growth on repeated calls
+        self._fillers.clear()
+        self._fillers_loaded = False
+        
         if not self.config.get("fillers", {}).get("enabled", True):
             logger.info("Filler system disabled in config")
             self._fillers_loaded = False
@@ -326,6 +333,11 @@ class App:
 
             # Add to conversation
             self.conversation.add_message("user", text)
+            
+            # FIX: Auto-curate user facts from input
+            # Simple heuristic: save user messages longer than 30 chars as potential facts
+            if len(text) > 30:
+                self.memory_manager.add_user_fact(text)
 
             # Generate response with dynamic timeout
             self.state_machine.force_state(State.THINKING)
@@ -445,6 +457,12 @@ class App:
 
             # Add to conversation
             self.conversation.add_message("assistant", response_text, emotion)
+            
+            # FIX: Auto-curate memory after each bot response
+            # This wires up the previously-unused add_bot_memory() method
+            # Simple heuristic: save responses that are longer than 50 chars as "memorable moments"
+            if len(response_text) > 50:
+                self.memory_manager.add_bot_memory(f"[{emotion}] {response_text}")
 
             return (response_text, emotion)
 
