@@ -153,10 +153,10 @@ class QtMainWindow(QMainWindow):
                 self.live2d_bg_b / 255.0,
                 self.live2d_opacity
             )
-            live2d_bg_hex = f"#{self.live2d_bg_r:02x}{self.live2d_bg_g:02x}{self.live2d_bg_b:02x}"
+            # Use rgba() in stylesheet to preserve opacity (hex colors don't support alpha)
             self.gl_widget.setStyleSheet(f"""
                 QOpenGLWidget {{
-                    background-color: {live2d_bg_hex};
+                    background-color: rgba({self.live2d_bg_r}, {self.live2d_bg_g}, {self.live2d_bg_b}, {self.live2d_opacity});
                     border-radius: 0px;
                 }}
             """)
@@ -463,20 +463,20 @@ class QtMainWindow(QMainWindow):
         else:
             # In opaque mode, use configured Live2D background color and opacity
             self.gl_widget.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
-            live2d_bg_hex = f"#{self.live2d_bg_r:02x}{self.live2d_bg_g:02x}{self.live2d_bg_b:02x}"
             self.gl_widget.update_clear_color(
                 self.live2d_bg_r / 255.0,
                 self.live2d_bg_g / 255.0,
                 self.live2d_bg_b / 255.0,
                 self.live2d_opacity
             )
+            # Use rgba() in stylesheet to preserve opacity (hex colors don't support alpha)
             self.gl_widget.setStyleSheet(f"""
                 QOpenGLWidget {{
-                    background-color: {live2d_bg_hex};
+                    background-color: rgba({self.live2d_bg_r}, {self.live2d_bg_g}, {self.live2d_bg_b}, {self.live2d_opacity});
                     border-radius: 0px;
                 }}
             """)
-        logger.info(f"Live2D background applied: R={self.live2d_bg_r}, G={self.live2d_bg_g}, B={self.live2d_bg_b}")
+        logger.info(f"Live2D background applied: R={self.live2d_bg_r}, G={self.live2d_bg_g}, B={self.live2d_bg_b}, Opacity={self.live2d_opacity}")
 
     def _apply_live2d_background_on_resize(self):
         """Re-apply Live2D background color after resize (for non-transparent mode)."""
