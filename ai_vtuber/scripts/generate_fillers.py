@@ -37,13 +37,18 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def load_filler_phrases() -> list[str]:
-    """Load filler phrases from personality/fillers.md.
+def load_filler_phrases(config: dict) -> list[str]:
+    """Load filler phrases from configured path.
     
+    Args:
+        config: Full configuration dictionary containing fillers.phrases_file
+        
     Returns:
         List of filler phrase strings.
     """
-    fillers_path = Path(__file__).parent.parent / "personality" / "fillers.md"
+    # Use config value with fallback to default
+    phrases_file = config.get("fillers", {}).get("phrases_file", "personality/fillers.md")
+    fillers_path = Path(__file__).parent.parent / phrases_file
     
     if not fillers_path.exists():
         logger.warning(f"Fillers file not found at {fillers_path}, using defaults")
@@ -89,9 +94,9 @@ def main():
     logger.info(f"Initializing KittenTTS with model: {tts_config['model']}")
     tts = KittenTTS(tts_config)
     
-    # Load filler phrases
-    phrases = load_filler_phrases()
-    logger.info(f"Loaded {len(phrases)} filler phrases")
+    # Load filler phrases using config
+    phrases = load_filler_phrases(config)
+    logger.info(f"Loaded {len(phrases)} filler phrases from: {config.get('fillers', {}).get('phrases_file', 'personality/fillers.md')}")
     
     # Output directory
     output_dir = Path(__file__).parent.parent / "data" / "fillers"
