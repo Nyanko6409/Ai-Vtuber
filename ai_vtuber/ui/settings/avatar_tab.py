@@ -58,6 +58,27 @@ class AvatarSettingsTab(QWidget):
             lambda v: self.avatar_scale_value_label.setText(f"{v/10:.1f}x")
         )
         
+        # Opacity slider
+        opacity_label = QLabel("Opacity:")
+        appearance_layout.addWidget(opacity_label)
+        
+        self.avatar_opacity_slider = QSlider(Qt.Horizontal)
+        self.avatar_opacity_slider.setMinimum(0)
+        self.avatar_opacity_slider.setMaximum(100)
+        self.avatar_opacity_slider.setValue(100)
+        self.avatar_opacity_slider.setTickPosition(QSlider.TicksBelow)
+        self.avatar_opacity_slider.setTickInterval(10)
+        appearance_layout.addWidget(self.avatar_opacity_slider)
+        
+        self.avatar_opacity_value_label = QLabel("100%")
+        self.avatar_opacity_value_label.setAlignment(Qt.AlignCenter)
+        self.avatar_opacity_value_label.setStyleSheet("color: #a0b0ff; font-weight: bold;")
+        appearance_layout.addWidget(self.avatar_opacity_value_label)
+        
+        self.avatar_opacity_slider.valueChanged.connect(
+            lambda v: self.avatar_opacity_value_label.setText(f"{v}%")
+        )
+        
         layout.addWidget(appearance_group)
         
         # Live2D Background Color settings
@@ -102,6 +123,11 @@ class AvatarSettingsTab(QWidget):
         self.avatar_scale_slider.setValue(int(avatar_scale * 10))
         self.avatar_scale_value_label.setText(f"{avatar_scale:.1f}x")
         
+        # Load opacity
+        avatar_opacity = avatar_config.get("opacity", 1.0)
+        self.avatar_opacity_slider.setValue(int(avatar_opacity * 100))
+        self.avatar_opacity_value_label.setText(f"{int(avatar_opacity * 100)}%")
+        
         # Load Live2D background color
         bg_colors = avatar_config.get("background_color", [0, 0, 0])
         self.live2d_bg_r_spin.setValue(bg_colors[0] if len(bg_colors) > 0 else 0)
@@ -114,6 +140,7 @@ class AvatarSettingsTab(QWidget):
             "avatar": {
                 "model_path": self.avatar_model_edit.text(),
                 "scale": self.avatar_scale_slider.value() / 10.0,
+                "opacity": self.avatar_opacity_slider.value() / 100.0,
                 "background_color": [
                     self.live2d_bg_r_spin.value(),
                     self.live2d_bg_g_spin.value(),

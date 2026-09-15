@@ -6,7 +6,13 @@ Main settings dialog that coordinates all configuration tabs.
 import logging
 from typing import Optional, Callable
 from pathlib import Path
-import yaml
+
+try:
+    from ruamel.yaml import YAML
+    HAS_RUAMEL = True
+except ImportError:
+    HAS_RUAMEL = False
+    import yaml
 
 from PySide6.QtWidgets import (
     QApplication, QDialog, QVBoxLayout, QHBoxLayout,
@@ -153,35 +159,69 @@ class SettingsDialog(QDialog):
         try:
             config_path = Path(__file__).parent.parent.parent / "config.yaml"
             
-            # Load existing config to preserve structure
-            with open(config_path, 'r', encoding='utf-8') as f:
-                existing_config = yaml.safe_load(f) or {}
-            
-            if not isinstance(existing_config, dict):
-                raise ValueError("config.yaml must contain a YAML mapping/object")
-            
-            # Update sections (including "ui")
-            for section in ["audio", "stt", "tts", "llm", "avatar", "fillers", "ui"]:
-                if section in new_config:
-                    if section not in existing_config:
-                        existing_config[section] = {}
-                    existing_config[section].update(new_config[section])
-            
-            # Write back atomically with backup
-            backup_path = config_path.with_suffix(".yaml.bak")
-            temp_path = config_path.with_suffix(".yaml.tmp")
-            
-            # Create backup
-            if config_path.exists():
-                import shutil
-                shutil.copy2(config_path, backup_path)
-            
-            # Write to temp file first
-            with open(temp_path, 'w', encoding='utf-8') as f:
-                yaml.dump(existing_config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
-            
-            # Atomically replace original
-            temp_path.replace(config_path)
+            if HAS_RUAMEL:
+                # Use ruamel.yaml to preserve comments and formatting
+                yaml_rt = YAML()
+                yaml_rt.preserve_quotes = True
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    existing_config = yaml_rt.load(f) or {}
+                
+                if not isinstance(existing_config, dict):
+                    raise ValueError("config.yaml must contain a YAML mapping/object")
+                
+                # Update sections (including "ui")
+                for section in ["audio", "stt", "tts", "llm", "avatar", "fillers", "ui"]:
+                    if section in new_config:
+                        if section not in existing_config:
+                            existing_config[section] = {}
+                        existing_config[section].update(new_config[section])
+                
+                # Write back atomically with backup
+                backup_path = config_path.with_suffix(".yaml.bak")
+                temp_path = config_path.with_suffix(".yaml.tmp")
+                
+                # Create backup
+                if config_path.exists():
+                    import shutil
+                    shutil.copy2(config_path, backup_path)
+                
+                # Write to temp file first
+                with open(temp_path, 'w', encoding='utf-8') as f:
+                    yaml_rt.dump(existing_config, f)
+                
+                # Atomically replace original
+                temp_path.replace(config_path)
+            else:
+                # Fallback to PyYAML (loses comments but still works)
+                # Load existing config to preserve structure
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    existing_config = yaml.safe_load(f) or {}
+                
+                if not isinstance(existing_config, dict):
+                    raise ValueError("config.yaml must contain a YAML mapping/object")
+                
+                # Update sections (including "ui")
+                for section in ["audio", "stt", "tts", "llm", "avatar", "fillers", "ui"]:
+                    if section in new_config:
+                        if section not in existing_config:
+                            existing_config[section] = {}
+                        existing_config[section].update(new_config[section])
+                
+                # Write back atomically with backup
+                backup_path = config_path.with_suffix(".yaml.bak")
+                temp_path = config_path.with_suffix(".yaml.tmp")
+                
+                # Create backup
+                if config_path.exists():
+                    import shutil
+                    shutil.copy2(config_path, backup_path)
+                
+                # Write to temp file first
+                with open(temp_path, 'w', encoding='utf-8') as f:
+                    yaml.dump(existing_config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+                
+                # Atomically replace original
+                temp_path.replace(config_path)
             
             logger.info("Configuration saved successfully")
             
