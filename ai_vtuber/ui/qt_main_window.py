@@ -340,6 +340,7 @@ class QtMainWindow(QMainWindow):
         # Callbacks
         self.on_chat_message: Optional[Callable[[str], None]] = None
         self.on_settings_save: Optional[Callable[[Dict], None]] = None
+        self.on_settings_save = self._on_settings_saved
         
         self._setup_ui()
         
@@ -601,10 +602,19 @@ class QtMainWindow(QMainWindow):
     
     def _open_settings(self):
         """Open settings dialog."""
-        if self.app_instance and self.on_settings_save:
+        if self.app_instance:
             from .pyside_settings import show_settings_dialog
             # Pass self as parent to ensure dialog appears on top of main window
-            show_settings_dialog(self.config, self.on_settings_save, parent=self)
+            show_settings_dialog(self.config, self._on_settings_saved, parent=self)
+    
+    def _on_settings_saved(self, new_config: Dict[str, Any]):
+        """Handle settings save event."""
+        # Update config with new values
+        self.config.update(new_config)
+        # Apply UI settings including transparency
+        ui_config = new_config.get("ui", {})
+        self.apply_ui_settings(ui_config)
+        logger.info("Settings saved and applied")
     
     def _handle_chat_message(self, text: str):
         """Handle chat message from overlay."""
@@ -644,40 +654,72 @@ class QtMainWindow(QMainWindow):
         self.status_bar.update_mic_status(is_muted)
     
     def apply_ui_settings(self, ui_config: Dict[str, Any]):
-        """Apply UI settings from config (background color, text color, font)."""
+        """Apply UI settings from config (background color, text color, font, transparency)."""
         bg_color = ui_config.get("background_color", [0, 0, 0])
         text_color = ui_config.get("text_color", [255, 255, 255])
         font_family = ui_config.get("font_family", "Arial")
         font_size = ui_config.get("font_size", 14)
+        transparent = ui_config.get("transparent", False)
         
         # Update stored values
         self.bg_r, self.bg_g, self.bg_b = bg_color[0], bg_color[1], bg_color[2]
         self.text_r, self.text_g, self.text_b = text_color[0], text_color[1], text_color[2]
         self.font_family = font_family
         self.font_size = font_size
+        self.transparent = transparent
         
-        # Apply new styles
-        bg_hex = f"#{self.bg_r:02x}{self.bg_g:02x}{self.bg_b:02x}"
-        text_hex = f"#{self.text_r:02x}{self.text_g:02x}{self.text_b:02x}"
-        self.setStyleSheet(f"""
-            QMainWindow {{
-                background-color: {bg_hex};
-                color: {text_hex};
-                font-family: "{self.font_family}";
-                font-size: {self.font_size}px;
-            }}
-        """)
-        
-        # Update OpenGL clear color via the GL widget
-        if hasattr(self.gl_widget, 'update_clear_color'):
+        # Apply new styles based on transparency mode
+        if self.transparent:
+            self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+            self.setStyleSheet(f"""
+                QMainWindow {{
+                    background: transparent;
+                    color: #{self.text_r:02x}{self.text_g:02x}{self.text_b:02x};
+                    font-family: "{self.font_family}";
+                    font-size: {self.font_size}px;
+                }}
+            """)
+            
+            # Update central widget
+            central_widget = self.centralWidget()
+            if central_widget:
+                central_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+                central_widget.setStyleSheet("background: transparent;")
+            
+            # Update GL widget for transparency
+            self.gl_widget.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, False)
+            self.gl_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+            self.gl_widget.update_clear_color(0.0, 0.0, 0.0, 0.0)
+            self.gl_widget.setStyleSheet("QOpenGLWidget { background: transparent; border-radius: 0px; }")
+        else:
+            bg_hex = f"#{self.bg_r:02x}{self.bg_g:02x}{self.bg_b:02x}"
+            text_hex = f"#{self.text_r:02x}{self.text_g:02x}{self.text_b:02x}"
+            self.setStyleSheet(f"""
+                QMainWindow {{
+                    background-color: {bg_hex};
+                    color: {text_hex};
+                    font-family: "{self.font_family}";
+                    font-size: {self.font_size}px;
+                }}
+            """)
+            
+            # Update GL widget for opaque mode
+            self.gl_widget.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
             self.gl_widget.update_clear_color(
                 self.bg_r / 255.0,
                 self.bg_g / 255.0,
                 self.bg_b / 255.0,
                 1.0
             )
+            self.gl_widget.setStyleSheet(f"""
+                QOpenGLWidget {{
+                    background-color: {bg_hex};
+                    border-radius: 0px;
+                }}
+            """)
         
-        logger.info(f"UI settings applied: bg={bg_hex}, text={text_hex}, font={font_family} {font_size}px")
+        logger.info(f"UI settings applied: transparent={transparent}, bg={bg_color}, text={text_color}, font={font_family} {font_size}px")
     
     def _send_chat_message(self):
         """Send the typed message."""
