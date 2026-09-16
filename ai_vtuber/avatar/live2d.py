@@ -601,8 +601,8 @@ class Live2DAvatar:
         if not talking and self._model:
             try:
                 self._model.SetParameterValue(self._param_mouth_open, 0.0)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to reset mouth parameter: {e}")
 
     def _update_blink(self, delta_time: float) -> None:
         """Update blink animation."""
@@ -633,8 +633,8 @@ class Live2DAvatar:
         try:
             self._model.SetParameterValue(self._param_eye_l_open, eye_value)
             self._model.SetParameterValue(self._param_eye_r_open, eye_value)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to set eye parameters during blink: {e}")
 
     def _update_lip_sync(self, delta_time: float) -> None:
         """Update lip sync animation driven by actual TTS audio amplitude."""
@@ -662,16 +662,16 @@ class Live2DAvatar:
                 self._mouth_value = mouth
             try:
                 self._model.SetParameterValue(self._param_mouth_open, mouth)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to set mouth parameter for lip sync: {e}")
         elif self._mouth_value > 0.01:
             # Decay mouth value when not talking or when talking but no new audio chunk
             with self._lock:
                 self._mouth_value *= 0.8
             try:
                 self._model.SetParameterValue(self._param_mouth_open, self._mouth_value)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to decay mouth parameter: {e}")
 
     def start_lip_sync(self, audio_data: np.ndarray, sample_rate: int) -> None:
         """Begin real lip sync driven by actual TTS audio amplitude."""
@@ -814,8 +814,8 @@ class Live2DAvatar:
         if self._live2d:
             try:
                 self._live2d.dispose()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to dispose Live2D model: {e}")
         self._model = None
         self._initialized = False
         self._gl_initialized = False

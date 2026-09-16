@@ -55,8 +55,8 @@ class StateMachine:
         for callback in self._callbacks:
             try:
                 callback(old_state, new_state)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"State transition callback raised: {e}")
 
     def set_error(self, message: str) -> None:
         """Set error state with message."""
@@ -68,8 +68,8 @@ class StateMachine:
         for callback in self._callbacks:
             try:
                 callback(old_state, State.ERROR)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Error state transition callback raised: {e}")
 
     def on_transition(self, callback: Callable[[State, State], None]) -> None:
         """Register a state transition callback."""
