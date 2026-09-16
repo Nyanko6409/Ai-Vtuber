@@ -172,6 +172,8 @@ class QtMainWindow(QMainWindow):
         
         # Connect chat input signal to handler
         self.chat_input_container.message_submitted.connect(self._handle_chat_message_from_widget)
+        # Connect position change signal for tracking widget movement
+        self.chat_input_container.position_changed.connect(self._on_chat_position_changed)
 
         # Status bar
         self.status_bar = StatusBar()
@@ -359,6 +361,13 @@ class QtMainWindow(QMainWindow):
                 self.app_instance.avatar.drag(x, y, width, height)
             except Exception as e:
                 logger.debug(f"Mouse move handling error: {e}")
+    
+    def _on_chat_position_changed(self, new_x: int, new_y: int):
+        """Handle chat widget position change (from dragging)."""
+        # Optionally store the position in config for persistence across sessions
+        # For now, just log it - could be extended to save to config
+        logger.debug(f"Chat widget moved to ({new_x}, {new_y})")
+
 
     def on_avatar_resize(self, width: int, height: int):
         """Handle avatar resize event."""

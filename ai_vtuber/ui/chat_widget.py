@@ -4,7 +4,8 @@ Provides a chat input field with send button for user messages.
 """
 
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QLineEdit, QPushButton
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QPointF
+from PySide6.QtGui import QMouseEvent
 
 
 class ChatInputWidget(QWidget):
@@ -25,6 +26,8 @@ class ChatInputWidget(QWidget):
     
     # Signal emitted when user submits a message
     message_submitted = Signal(str)
+    # Signal emitted when widget is dragged
+    position_changed = Signal(int, int)  # new_x, new_y
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -85,6 +88,13 @@ class ChatInputWidget(QWidget):
         """)
         self.chat_send_button.clicked.connect(self._send_message)
         layout.addWidget(self.chat_send_button)
+        
+        # Dragging state
+        self._dragging = False
+        self._drag_start_pos = None
+        
+        # Enable mouse tracking for smooth dragging
+        self.setMouseTracking(True)
     
     def _send_message(self):
         """Send the typed message."""
@@ -108,3 +118,41 @@ class ChatInputWidget(QWidget):
     def set_focus(self):
         """Set focus to the input field."""
         self.chat_input_field.setFocus()
+    
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        """Handle mouse press for dragging the widget."""
+        if event.button() == Qt.LeftButton:
+            # Only start dragging if clicking on empty space (not on input field or button)
+            # Check if the click is not on any child widget
+            child = self.childAt(event.position().toPoint())
+            if child is None:
+                self._dragging = True
+                self._drag_start_pos = event.position()
+                event.accept()
+                return
+        # Pass event to parent for normal handling
+        super().mousePressEvent(event)
+    
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        """Handle mouse move for dragging the widget."""
+        if self._dragging and self._drag_start_pos is not None:
+            delta = event.position() - self._drag_start_pos
+            new_pos = self.pos() + delta.toPoint()
+            self.move(new_pos)
+            self._drag_start_pos = event.position()
+            # Emit signal with new position relative to parent
+            self.position_changed.emit(new_pos.x(), new_pos.y())
+            event.accept()
+            return
+        # Pass event to parent for normal handling
+        super().mouseMoveEvent(event)
+    
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        """Handle mouse release after dragging."""
+        if event.button() == Qt.LeftButton:
+            self._dragging = False
+            self._drag_start_pos = None
+            event.accept()
+            return
+        # Pass event to parent for normal handling
+        super().mouseReleaseEvent(event)
