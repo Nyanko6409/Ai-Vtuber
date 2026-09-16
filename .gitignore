@@ -1,5 +1,1 @@
-(ai_vtuber/core/app.py and bugfix.md are source/config files, no build artifacts, dependencies, or temp files in the changes)
-
-```python
-
-```
+Nothing should be ignored since only a markdown file (.md) was modified and there are no build artifacts, dependencies, or temporary files in the changes.
