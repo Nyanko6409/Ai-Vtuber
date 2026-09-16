@@ -1,41 +1,5 @@
-```
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
+(ai_vtuber/core/app.py and bugfix.md are source/config files, no build artifacts, dependencies, or temp files in the changes)
 
-# Dependencies
-.venv/
-venv/
-env/
-Lib/site-packages/
+```python
 
-# Build artifacts
-build/
-dist/
-*.egg-info/
-
-# Logs
-*.log
-
-# Environment variables
-.env
-.env.local
-*.env.*
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Coverage
-.coverage
-coverage/
-htmlcov/
-
-# Testing
-.pytest_cache/
-.mypy_cache/
 ```

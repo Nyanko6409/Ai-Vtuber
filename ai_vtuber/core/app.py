@@ -205,7 +205,8 @@ class App:
         If none exist or TTS is not yet initialized, generates them on-demand
         using the current TTS voice settings.
         
-        Fills self._fillers with (audio_array, duration_ms) tuples.
+        Fills self._fillers with categorized (audio_array, duration_ms, category) tuples.
+        Categories: 'thinking', 'engaged', 'empathetic', 'acknowledgment'
         Logs a warning and disables fillers if generation fails.
         """
         # FIX: Clear existing fillers to prevent unbounded growth on repeated calls
@@ -231,17 +232,19 @@ class App:
                 loaded_count = 0
                 for filler_path in filler_files:
                     try:
-                        # Parse duration from filename: filler_XX_NNNms.npy
-                        match = re.search(r"_(\d+)ms\.npy$", filler_path.name)
+                        # Parse duration and category from filename: filler_XX_NNNms_CATEGORY.npy
+                        match = re.search(r"_(\d+)ms_([a-z]+)\.npy$", filler_path.name)
                         if match:
                             duration_ms = int(match.group(1))
+                            category = match.group(2)
                         else:
-                            # Estimate duration if not in filename
+                            # Estimate duration if not in filename, default category
                             audio_data = np.load(filler_path)
                             duration_ms = int(len(audio_data) / self.tts.sample_rate * 1000)
+                            category = "thinking"
                         
                         audio_data = np.load(filler_path)
-                        self._fillers.append((audio_data, duration_ms))
+                        self._fillers.append((audio_data, duration_ms, category))
                         loaded_count += 1
                         
                     except Exception as e:
@@ -266,63 +269,75 @@ class App:
         Args:
             fillers_dir: Directory to save generated filler files.
         """
-        # Get filler phrases from config or defaults
+        # Get filler phrases from config or defaults, organized by category
         phrases_file = self.config.get("fillers", {}).get("phrases_file", "personality/fillers.md")
         fillers_path = Path(__file__).parent.parent / phrases_file
         
+        # Parse fillers.md into categories
+        categories = {
+            "thinking": [],
+            "engaged": [],
+            "empathetic": [],
+            "acknowledgment": []
+        }
+        current_category = "thinking"
+        
         if fillers_path.exists():
-            phrases = []
             with open(fillers_path, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
-                    if line and not line.startswith("#"):
-                        phrases.append(line)
+                    if not line:
+                        continue
+                    if line.startswith("#"):
+                        # Category headers in comments
+                        if "thinking" in line.lower():
+                            current_category = "thinking"
+                        elif "engag" in line.lower():
+                            current_category = "engaged"
+                        elif "empath" in line.lower():
+                            current_category = "empathetic"
+                        elif "quick" in line.lower() or "acknowledg" in line.lower():
+                            current_category = "acknowledgment"
+                        continue
+                    categories.setdefault(current_category, []).append(line)
         else:
-            phrases = [
-                "Hmm, let me think...",
-                "That's a good point!",
-                "You know,",
-                "Well,",
-                "I see.",
-            ]
-        
-        if not phrases:
-            phrases = [
-                "Hmm, let me think...",
-                "That's a good point!",
-                "You know,",
-                "Well,",
-                "I see.",
-            ]
+            # Default phrases if file doesn't exist
+            categories["thinking"] = ["Hmm, let me think...", "That's a good point!"]
+            categories["engaged"] = ["You know,", "Well,", "Here's the thing..."]
+            categories["empathetic"] = ["I understand.", "That makes sense."]
+            categories["acknowledgment"] = ["Mm-hmm!", "Yeah!", "Exactly!"]
         
         # Generate each phrase with current TTS voice
         generated = 0
-        for i, phrase in enumerate(phrases):
-            try:
-                logger.debug(f"Generating filler {i+1}/{len(phrases)}: '{phrase}'")
-                audio = self.tts.generate(phrase)
-                if audio is None:
-                    logger.warning(f"TTS returned None for phrase {i+1}, skipping")
-                    continue
-                
-                # Calculate duration in milliseconds
-                duration_ms = int(len(audio) / self.tts.sample_rate * 1000)
-                
-                # Save as .npy file with duration in filename
-                filename = f"filler_{i:02d}_{duration_ms}ms.npy"
-                output_path = fillers_dir / filename
-                
-                np.save(output_path, audio)
-                self._fillers.append((audio, duration_ms))
-                generated += 1
-                logger.debug(f"  Generated: {filename} ({duration_ms}ms)")
-                
-            except Exception as e:
-                logger.warning(f"Failed to generate filler {i+1}: {e}")
+        for category, phrases in categories.items():
+            if not phrases:
+                continue
+            for i, phrase in enumerate(phrases):
+                try:
+                    logger.debug(f"Generating filler [{category}] {i+1}/{len(phrases)}: '{phrase}'")
+                    audio = self.tts.generate(phrase)
+                    if audio is None:
+                        logger.warning(f"TTS returned None for phrase {i+1}, skipping")
+                        continue
+                    
+                    # Calculate duration in milliseconds
+                    duration_ms = int(len(audio) / self.tts.sample_rate * 1000)
+                    
+                    # Save as .npy file with duration and category in filename
+                    filename = f"filler_{generated:02d}_{duration_ms}ms_{category}.npy"
+                    output_path = fillers_dir / filename
+                    
+                    np.save(output_path, audio)
+                    self._fillers.append((audio, duration_ms, category))
+                    generated += 1
+                    logger.debug(f"  Generated: {filename} ({duration_ms}ms)")
+                    
+                except Exception as e:
+                    logger.warning(f"Failed to generate filler {i+1}: {e}")
         
         if generated > 0:
             self._fillers_loaded = True
-            logger.info(f"Generated {generated} filler phrases for voice '{self.tts.config_voice}'")
+            logger.info(f"Generated {generated} filler phrases for voice '{self.tts.config_voice}' across {len(categories)} categories")
         else:
             logger.warning("No filler phrases could be generated, disabling filler system")
             self._fillers_loaded = False
@@ -589,7 +604,7 @@ class App:
             sentence_buffer = ""  # Complete sentences ready for TTS
             raw_response = ""  # Full raw response for emotion analysis
             
-            # Queue for sending sentences to TTS producer
+            # Queue for sending sentences to TTS producer (includes emotion context)
             tts_input_queue: queue.Queue = queue.Queue(maxsize=3)
             
             # Thread control
@@ -599,6 +614,7 @@ class App:
             # Track first chunk playback start for lip sync
             first_chunk_played = False
             on_start_called = False
+            current_emotion_context = "neutral"  # Will be updated after LLM response
             
             # Callbacks for avatar lip sync and mic control
             def on_playback_start():
@@ -623,17 +639,24 @@ class App:
                 self.microphone.unmute()
             
             def tts_producer():
-                """Producer thread: synthesizes sentences and queues audio chunks."""
+                """Producer thread: synthesizes sentences and queues audio chunks with emotion context."""
                 nonlocal first_chunk_played, on_start_called
                 
                 try:
                     while not producer_stop_event.is_set():
                         try:
                             # Get next sentence from queue (blocking with timeout)
-                            sentence = tts_input_queue.get(timeout=0.1)
+                            item = tts_input_queue.get(timeout=0.1)
                             
-                            if sentence is None:  # Sentinel value signals end
+                            if item is None:  # Sentinel value signals end
                                 break
+                            
+                            # Handle both old format (string) and new format (tuple: sentence, emotion)
+                            if isinstance(item, tuple):
+                                sentence, emotion = item
+                            else:
+                                sentence = item
+                                emotion = "neutral"
                             
                             # Normalize text before TTS
                             from ai_vtuber.tts import normalize_text
@@ -683,9 +706,9 @@ class App:
                             producer_thread and producer_thread.is_alive() and
                             elapsed_since_last > stall_threshold and
                             self._fillers_loaded):
-                            # Play a filler while waiting
-                            logger.debug(f"Stall detected ({elapsed_since_last:.2f}s), playing filler")
-                            self._play_filler(interrupt_check)
+                            # Play a filler while waiting - use 'thinking' category for stalls
+                            logger.debug(f"Stall detected ({elapsed_since_last:.2f}s), playing thinking filler")
+                            self._play_filler(interrupt_check, category="thinking")
                             last_chunk_end_time = time.time()
                         
                         # Get next audio chunk (blocking with timeout)
@@ -802,14 +825,15 @@ class App:
                                 pass  # normalize_text handles tag stripping
                         
                         try:
-                            tts_input_queue.put(sentence, block=False)
+                            # Send sentence with neutral emotion initially; emotion will be determined after full response
+                            tts_input_queue.put((sentence, "neutral"), block=False)
                         except queue.Full:
                             logger.warning("TTS input queue full, dropping sentence")
             
             # Handle any remaining text in buffer
             if token_buffer.strip():
                 try:
-                    tts_input_queue.put(token_buffer.strip(), block=False)
+                    tts_input_queue.put((token_buffer.strip(), "neutral"), block=False)
                 except queue.Full:
                     logger.warning("TTS input queue full, dropping final text")
             
@@ -909,20 +933,34 @@ class App:
         except Exception as e:
             logger.error(f"Audio chunk playback error: {e}")
     
-    def _play_filler(self, interrupt_check) -> None:
+    def _play_filler(self, interrupt_check, category=None) -> None:
         """Play a random filler phrase from the pre-loaded list.
         
         No-ops if fillers are not loaded or list is empty.
         
         Args:
             interrupt_check: Callable returning True if playback should stop.
+            category: Optional category filter ('thinking', 'engaged', 'empathetic', 'acknowledgment').
+                     If None or no fillers found in category, falls back to any available filler.
         """
         if not self._fillers_loaded or not self._fillers:
             return
         
         import random
-        filler_audio, duration_ms = random.choice(self._fillers)
-        logger.debug(f"Playing filler ({duration_ms}ms)")
+        
+        # Try to find a filler matching the requested category
+        if category:
+            category_fillers = [(a, d, c) for a, d, c in self._fillers if c == category]
+            if category_fillers:
+                filler_audio, duration_ms, filler_category = random.choice(category_fillers)
+                logger.debug(f"Playing {category} filler ({duration_ms}ms)")
+            else:
+                # Fallback to any filler if category is empty
+                filler_audio, duration_ms, filler_category = random.choice(self._fillers)
+                logger.debug(f"Playing fallback filler ({duration_ms}ms), category '{category}' not available")
+        else:
+            filler_audio, duration_ms, filler_category = random.choice(self._fillers)
+            logger.debug(f"Playing filler ({duration_ms}ms)")
         
         # Play filler with interruption support, no special callbacks needed
         self.player.play(

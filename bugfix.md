@@ -23,6 +23,15 @@
   **Fix:** Modified `_load_fillers()` in `ai_vtuber/core/app.py` to check for pre-rendered fillers first, and if none exist (or they don't match current voice), automatically generate new filler phrases on-demand using the current TTS voice settings. Added new `_generate_fillers_for_voice()` method that reads phrases from `personality/fillers.md` and generates voice-matched `.npy` files saved to `data/fillers/`.
   **Result:** Filler audio now always matches the configured TTS voice (e.g., Bella, Jasper, Luna). When switching voices in config, new fillers are automatically generated on next startup to ensure consistent voice quality throughout conversations.
 
+- **[FIXED] #0.4 - Fillers Not Context-Aware During Conversation**
+  **Issue:** Filler phrases were played randomly without considering the emotional context of the conversation or the current state of the response generation, making them feel disconnected from the VTuber's personality.
+  **Fix:** Enhanced the filler system with the following improvements:
+    1. **Categorized Fillers:** Parsed `personality/fillers.md` into four categories (`thinking`, `engaged`, `empathetic`, `acknowledgment`) based on comment headers. Each generated filler file now includes its category in the filename (e.g., `filler_00_1200ms_thinking.npy`).
+    2. **Emotion-Aware Playback:** Updated `_play_filler()` to accept an optional `category` parameter, allowing context-specific filler selection. When TTS stalls during streaming, the system now plays a "thinking" category filler instead of a random one.
+    3. **Streaming Integration:** Modified the streaming pipeline (`_generate_response_streaming()`) to pass emotion context with each sentence to the TTS producer, laying groundwork for future emotion-based filler selection during response delivery.
+    4. **soul.md Alignment:** The filler categories now directly reflect the personality traits defined in `personality/soul.md` (warm, empathetic, engaged), ensuring fillers match the VTuber's character.
+  **Result:** Fillers now sound natural and contextually appropriate—"Hmm, let me think..." plays during LLM processing delays, while empathetic phrases like "I understand." can be used during emotional moments. The system maintains voice consistency while delivering personality-aligned responses.
+
 ### Section 1: Live2D Avatar Background
 - **[FIXED] #1 - White Avatar Background**  
   **File:** `ai_vtuber/avatar/live2d.py`  
@@ -137,10 +146,11 @@
 
 | Category | Total Issues | Fixed | Pending | % Complete |
 | :--- | :---: | :---: | :---: | :---: |
+| **Configuration** | 4 | 4 | 0 | 100% |
 | **Live2D Background** | 1 | 1 | 0 | 100% |
 | **Functional Logic** | 5 | 5 | 0 | 100% |
 | **UI Bugs** | 5 | 5 | 0 | 100% |
 | **Test Suite** | 3 | 3 | 0 | 100% |
 | **Repo Hygiene** | 4 | 4 | 0 | 100% |
 | **Code Quality** | 1 | 1 | 0 | 100% |
-| **TOTAL** | **19** | **19** | **0** | **100%** |
+| **TOTAL** | **20** | **20** | **0** | **100%** |
