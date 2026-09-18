@@ -29,6 +29,7 @@ from .llm_tab import LLMSettingsTab
 from .avatar_tab import AvatarSettingsTab
 from .fillers_tab import FillersSettingsTab
 from .ui_tab import UISettingsTab
+from .vision_tab import VisionSettingsTab
 
 logger = logging.getLogger("ai_vtuber")
 
@@ -106,6 +107,7 @@ class SettingsDialog(QDialog):
         self.avatar_tab = AvatarSettingsTab(self.config)
         self.fillers_tab = FillersSettingsTab(self.config)
         self.ui_tab = UISettingsTab(self.config)
+        self.vision_tab = VisionSettingsTab(self.config)
         
         # Load config into each tab
         self.audio_tab.load_config()
@@ -115,6 +117,7 @@ class SettingsDialog(QDialog):
         self.avatar_tab.load_config()
         self.fillers_tab.load_config()
         self.ui_tab.load_config()
+        self.vision_tab.load_config()
         
         # Add tabs to widget with scroll areas
         self.tab_widget.addTab(self._create_scroll_area(self.audio_tab), "🎤 Audio")
@@ -124,6 +127,7 @@ class SettingsDialog(QDialog):
         self.tab_widget.addTab(self._create_scroll_area(self.avatar_tab), "🎭 Avatar")
         self.tab_widget.addTab(self._create_scroll_area(self.fillers_tab), "🎬 Fillers")
         self.tab_widget.addTab(self._create_scroll_area(self.ui_tab), "🎨 UI")
+        self.tab_widget.addTab(self._create_scroll_area(self.vision_tab), "👁️ Vision")
     
     def _create_scroll_area(self, widget: QWidget) -> QScrollArea:
         """Create a scrollable area for a widget."""
@@ -148,6 +152,7 @@ class SettingsDialog(QDialog):
         config.update(self.avatar_tab.get_config())
         config.update(self.fillers_tab.get_config())
         config.update(self.ui_tab.get_config())
+        config.update(self.vision_tab.get_config())
         return config
     
     @Slot()
@@ -169,8 +174,8 @@ class SettingsDialog(QDialog):
                 if not isinstance(existing_config, dict):
                     raise ValueError("config.yaml must contain a YAML mapping/object")
                 
-                # Update sections (including "ui")
-                for section in ["audio", "stt", "tts", "llm", "avatar", "fillers", "ui"]:
+                # Update sections (including "ui" and "vision")
+                for section in ["audio", "stt", "tts", "llm", "avatar", "fillers", "ui", "vision"]:
                     if section in new_config:
                         if section not in existing_config:
                             existing_config[section] = {}
@@ -200,8 +205,8 @@ class SettingsDialog(QDialog):
                 if not isinstance(existing_config, dict):
                     raise ValueError("config.yaml must contain a YAML mapping/object")
                 
-                # Update sections (including "ui")
-                for section in ["audio", "stt", "tts", "llm", "avatar", "fillers", "ui"]:
+                # Update sections (including "ui" and "vision")
+                for section in ["audio", "stt", "tts", "llm", "avatar", "fillers", "ui", "vision"]:
                     if section in new_config:
                         if section not in existing_config:
                             existing_config[section] = {}
