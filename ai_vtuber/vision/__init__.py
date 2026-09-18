@@ -26,7 +26,8 @@ Usage:
 from .screen_capture import ScreenCaptureService, ScreenCaptureConfig, CapturedFrame
 from .frame_processor import FrameProcessor, FrameProcessingConfig, ProcessedFrame
 from .game_cache import GameCache, CachedEntity, ScreenState
-from .analyzer import VisionAnalyzer, VisionAnalysisResult
+from .analyzer import VisionAnalyzer, VisionAnalysisResult, SceneInfo, StateInfo, EntityInfo
+from .manager import VisionManager, VisionConfig
 
 
 __all__ = [
@@ -41,4 +42,9 @@ __all__ = [
     'ScreenState',
     'VisionAnalyzer',
     'VisionAnalysisResult',
+    'SceneInfo',
+    'StateInfo',
+    'EntityInfo',
+    'VisionManager',
+    'VisionConfig',
 ]
