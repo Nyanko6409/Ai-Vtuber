@@ -122,14 +122,45 @@ def _check_native_compatibility(package_path: Path) -> tuple[bool, str]:
 
 
 def _resolve_model_path(raw_path: str) -> Optional[Path]:
-    """Resolve and validate a Live2D model path."""
+    """Resolve and validate a Live2D model path.
+    
+    Supports:
+    - Absolute paths (Windows, Linux, WSL)
+    - Relative paths (resolved from project root)
+    - Paths with spaces
+    - Environment variable expansion
+    
+    Args:
+        raw_path: Raw path string from configuration
+        
+    Returns:
+        Resolved Path object if valid, None otherwise
+    """
     if not raw_path or not raw_path.strip():
         return None
 
-    p = Path(raw_path).expanduser().resolve()
+    p = Path(raw_path).expanduser()
+    
+    # If path is relative, resolve it relative to the project root
+    # Project root is 2 levels up from ai_vtuber/avatar/live2d.py
+    if not p.is_absolute():
+        try:
+            project_root = Path(__file__).resolve().parents[2]
+            p = project_root / p
+        except Exception as e:
+            logger.warning(f"Could not determine project root for relative path: {e}")
+    
+    p = p.resolve()
 
     if not p.exists():
         logger.error(f"Live2D model path does not exist: {p}")
+        logger.error(
+            "Please update config.yaml 'avatar.model_path' to point to your Live2D model file.\n"
+            "You can use:\n"
+            "  - Absolute path: C:/Users/Name/Models/model.model3.json\n"
+            "  - Relative path: assets/avatars/my_model/model.model3.json (from project root)\n"
+            "  - WSL path: /mnt/e/SteamLibrary/.../model.model3.json"
+        )
         return None
 
     if not p.is_file():

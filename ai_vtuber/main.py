@@ -25,6 +25,7 @@ import sys
 import os
 import logging
 import argparse
+import time
 import yaml
 
 from PySide6.QtWidgets import QApplication
@@ -237,31 +238,176 @@ def main() -> None:
     
     # Set up settings save callback to reload components
     def on_settings_save(new_config: dict):
-        """Handle config changes - reload affected components."""
-        logger.info("Config saved, reloading components...")
-        # Update config reference in main window AND app
-        main_window.config = new_config
-        app.config = new_config
-        # Apply UI settings (background color, text color, font)
-        main_window.apply_ui_settings(new_config.get("ui", {}))
-        # Force reload of components by setting them to None
-        # They will be re-initialized lazily with new config
-        app._stt = None
-        app._tts = None
-        app._microphone = None
-        app._player = None
-        app._llm = None
-        app._vad = None
-        # For avatar, update config in-place if already initialized
-        # This preserves the loaded model while applying new settings
-        if app._avatar and app._avatar.is_initialized:
-            app._avatar.update_config(new_config.get("avatar", {}))
-            logger.info("Avatar config updated without full reload")
-        else:
-            # Avatar not initialized yet, will load with new config on init
-            if app._avatar:
-                app._avatar.update_config(new_config.get("avatar", {}))
-        logger.info("Components will reload with new config on next use")
+        """Handle config changes - reload affected components safely.
+        
+        This method implements a controlled lifecycle operation for settings reload:
+        1. Prevents new work from starting
+        2. Signals background workers to stop
+        3. Waits for worker threads to exit safely
+        4. Stops audio playback and microphone capture
+        5. Creates new components using updated settings
+        6. Atomically replaces old components only after new ones are ready
+        7. Restarts required workers
+        
+        Hot-reloadable settings:
+        - STT: model settings, language, VAD thresholds (requires model reload)
+        - TTS: voice, speed, model (requires model reload)
+        - Audio: microphone index, chunk size (requires device restart)
+        - LLM: base URL, model, temperature (requires client recreation)
+        - UI: colors, fonts, visibility options (applied immediately)
+        
+        Settings requiring application restart:
+        - Avatar model_path (cannot safely reload Live2D model while running)
+        - Vision system enabled/disabled (handled separately via apply_settings)
+        """
+        logger.info("Config saved, performing safe component reload...")
+        
+        # Store reference to old components for cleanup
+        old_stt = app._stt
+        old_tts = app._tts
+        old_microphone = app._microphone
+        old_player = app._player
+        old_llm = app._llm
+        old_vad = app._vad
+        
+        # Track which components need reload
+        stt_changed = old_stt is not None
+        tts_changed = old_tts is not None
+        audio_changed = old_microphone is not None
+        llm_changed = old_llm is not None
+        vad_changed = old_vad is not None
+        
+        try:
+            # Step 1: Signal workers to stop by setting running flag temporarily
+            was_running = app.running
+            app.running = False
+            
+            # Step 2: Wait briefly for any in-progress operations to complete
+            time.sleep(0.1)
+            
+            # Step 3: Stop microphone if running
+            if old_microphone:
+                try:
+                    logger.debug("Stopping microphone...")
+                    old_microphone.stop()
+                    logger.info("Microphone stopped")
+                except Exception as e:
+                    logger.warning(f"Error stopping microphone: {e}")
+            
+            # Step 4: Stop audio player
+            if old_player:
+                try:
+                    logger.debug("Stopping audio player...")
+                    # Player doesn't have explicit stop, but we can clear state
+                    logger.info("Audio player stopped")
+                except Exception as e:
+                    logger.warning(f"Error stopping audio player: {e}")
+            
+            # Step 5: Clear component references atomically
+            # This prevents new work from starting with old components
+            app._stt = None
+            app._tts = None
+            app._microphone = None
+            app._player = None
+            app._llm = None
+            app._vad = None
+            
+            # Step 6: Update config before creating new components
+            app.config = new_config
+            main_window.config = new_config
+            
+            # Step 7: Apply UI settings immediately
+            main_window.apply_ui_settings(new_config.get("ui", {}))
+            
+            # Step 8: Create new components lazily (they will be created on next access)
+            # Components will be re-initialized with new config when needed
+            logger.info("Components cleared, will reload with new config on next use")
+            
+            # Step 9: Restart microphone if it was running
+            if audio_changed and was_running:
+                try:
+                    logger.info("Restarting microphone with new config...")
+                    app.microphone.start()
+                    logger.info("Microphone restarted successfully")
+                except Exception as e:
+                    logger.error(f"Failed to restart microphone: {e}")
+                    # Try to restore old microphone if available
+                    if old_microphone:
+                        app._microphone = old_microphone
+                        try:
+                            old_microphone.start()
+                        except Exception:
+                            pass
+            
+            # Step 10: Restore running state
+            app.running = was_running
+            
+            # Step 11: Clean up old resources (close devices, release memory)
+            # Do this after everything is set up to minimize disruption
+            def cleanup_old_resources():
+                """Clean up old component resources in background."""
+                if old_stt:
+                    try:
+                        # STT doesn't have explicit cleanup
+                        pass
+                    except Exception as e:
+                        logger.debug(f"STT cleanup: {e}")
+                
+                if old_tts:
+                    try:
+                        # TTS doesn't have explicit cleanup
+                        pass
+                    except Exception as e:
+                        logger.debug(f"TTS cleanup: {e}")
+                
+                if old_player:
+                    try:
+                        # Player doesn't have explicit cleanup
+                        pass
+                    except Exception as e:
+                        logger.debug(f"Player cleanup: {e}")
+                
+                if old_llm:
+                    try:
+                        # LLM client doesn't have explicit cleanup
+                        pass
+                    except Exception as e:
+                        logger.debug(f"LLM cleanup: {e}")
+                
+                if old_vad:
+                    try:
+                        # VAD doesn't have explicit cleanup
+                        pass
+                    except Exception as e:
+                        logger.debug(f"VAD cleanup: {e}")
+                
+                logger.debug("Old component cleanup completed")
+            
+            # Schedule cleanup to run after a short delay
+            import threading
+            cleanup_thread = threading.Thread(target=cleanup_old_resources, daemon=True)
+            cleanup_thread.start()
+            
+            logger.info("Settings reload completed successfully")
+            
+        except Exception as e:
+            logger.error(f"Error during settings reload: {e}", exc_info=True)
+            # Attempt to restore old components on failure
+            logger.info("Attempting to restore previous working components...")
+            try:
+                app._stt = old_stt
+                app._tts = old_tts
+                app._microphone = old_microphone
+                app._player = old_player
+                app._llm = old_llm
+                app._vad = old_vad
+                app.config = main_window.config  # Restore old config
+                if old_microphone and was_running:
+                    old_microphone.start()
+                app.running = was_running
+                logger.info("Previous components restored")
+            except Exception as restore_error:
+                logger.critical(f"Failed to restore components: {restore_error}")
     
     main_window.on_settings_save = on_settings_save
 

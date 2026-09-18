@@ -105,12 +105,15 @@ tts:
 #   - WSL paths: /mnt/e/SteamLibrary/...
 #   - Windows paths: C:/Users/Name/Models/model.model3.json or C:\\Users\\Name\\...
 #   - Paths with spaces: /home/user/My Models/model.model3.json
+#   - Relative paths: assets/avatars/ganyu/ganyu.model3.json (resolved from project root)
 avatar:
-  # Windows example: "C:/Users/YourName/VTubeStudio/Models/ganyu/ganyu.model3.json"
-  # Windows Steam example: "E:/SteamLibrary/steamapps/common/VTube Studio/VTube Studio_Data/StreamingAssets/Live2DModels/ganyu/ganyu.model3.json"
-  # WSL example: "/mnt/e/SteamLibrary/steamapps/common/VTube Studio/VTube Studio_Data/StreamingAssets/Live2DModels/ganyu/ganyu.model3.json"
-  # Linux example: "/home/user/models/ganyu/ganyu.model3.json"
-  model_path: "E:/SteamLibrary/steamapps/common/VTube Studio/VTube Studio_Data/StreamingAssets/Live2DModels/ganyu/ganyu.model3.json"
+  # Example paths (replace with your actual model location):
+  # Windows: "C:/Users/YourName/VTubeStudio/Models/ganyu/ganyu.model3.json"
+  # Windows Steam: "E:/SteamLibrary/steamapps/common/VTube Studio/VTube Studio_Data/StreamingAssets/Live2DModels/ganyu/ganyu.model3.json"
+  # WSL: "/mnt/e/SteamLibrary/steamapps/common/VTube Studio/VTube Studio_Data/StreamingAssets/Live2DModels/ganyu/ganyu.model3.json"
+  # Linux: "/home/user/models/ganyu/ganyu.model3.json"
+  # Relative (project root): "assets/avatars/ganyu/ganyu.model3.json"
+  model_path: "assets/avatars/default/model3.json"
   window_width: 800
   window_height: 600
   fps: 30
