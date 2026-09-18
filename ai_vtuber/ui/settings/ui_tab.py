@@ -22,17 +22,18 @@ class UISettingsTab(QWidget):
         transparent_layout = QVBoxLayout(transparent_group)
         transparent_layout.setSpacing(10)
         
-        self.transparent_check = QCheckBox("Enable Transparent Background")
+        self.transparent_check = QCheckBox("Enable Transparent Background (Click-Through)")
         self.transparent_check.setChecked(self.config.get("ui", {}).get("transparent", False))
         self.transparent_check.setToolTip(
-            "Makes the window background transparent, showing only the avatar.\n"
+            "Makes the window background transparent and click-through, showing only the avatar.\n"
+            "Mouse clicks will pass through to windows behind the avatar.\n"
             "Requires a compositing window manager (GNOME/KDE default, or picom on tiling WMs).\n"
             "In OBS: Use 'Window Capture (Xcomposite)' and check 'Allow Transparency'."
         )
         transparent_layout.addWidget(self.transparent_check)
         
         transparent_info = QLabel(
-            "ℹ️ Note: When enabled, the window becomes frameless and click-through.\n"
+            "ℹ️ Note: When enabled, the window becomes frameless and clicks pass through to windows behind.\n"
             "   Press ESC to quit the application. Background color is ignored in this mode."
         )
         transparent_info.setWordWrap(True)

@@ -28,6 +28,11 @@ logger = logging.getLogger("ai_vtuber")
 class QtMainWindow(QMainWindow):
     """Main Qt window for AI VTuber application.
     
+    TRANSPARENT MODE:
+    When transparent mode is enabled, the window uses Qt.WindowTransparentForInput
+    to allow mouse clicks to pass through to windows behind. The avatar is visible
+    but does not block interaction with other applications.
+    
     COLOR REFERENCE (see module docstring for complete palette):
     - #000000 (Pure Black): Main window background, Live2D OpenGL widget
     - transparent: Chat input container (no surrounding box)
@@ -89,7 +94,7 @@ class QtMainWindow(QMainWindow):
         if self.transparent:
             # Frameless + translucent so only the rendered avatar shows.
             # Needs a compositing WM (default on GNOME/KDE; use picom on i3/sway-style setups).
-            self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+            self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.WindowTransparentForInput)
             self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
             self.setStyleSheet(f"""
                 QMainWindow {{
@@ -401,7 +406,7 @@ class QtMainWindow(QMainWindow):
             # Must hide window before changing window flags
             if transparency_changed:
                 self.hide()
-                self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+                self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.WindowTransparentForInput)
             self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
             self.setStyleSheet(f"""
                 QMainWindow {{
