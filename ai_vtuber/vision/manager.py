@@ -20,15 +20,16 @@ class VisionConfig:
     enabled: bool = False
     source: str = "screen"  # 'screen' or 'window'
     monitor_index: int = 0
-    capture_interval: float = 0.5  # Seconds between captures
-    analysis_interval: float = 5.0  # Minimum seconds between analyses
+    capture_interval: float = 2.0  # Seconds between captures (increased default)
+    analysis_interval: float = 10.0  # Minimum seconds between analyses (increased default)
     change_detection: bool = True
-    change_threshold: float = 0.15
+    change_threshold: float = 0.20  # Higher threshold = fewer triggers
     ocr_enabled: bool = False  # Reserved for future OCR integration
     game_cache_enabled: bool = True
     inject_into_conversation: bool = False  # Don't auto-inject into chat
     max_width: int = 1280
     max_height: int = 720
+    on_demand_only: bool = True  # Only capture when explicitly requested
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'VisionConfig':
@@ -37,15 +38,16 @@ class VisionConfig:
             enabled=data.get('enabled', False),
             source=data.get('source', 'screen'),
             monitor_index=data.get('monitor_index', 0),
-            capture_interval=data.get('capture_interval', 0.5),
-            analysis_interval=data.get('analysis_interval', 5.0),
+            capture_interval=data.get('capture_interval', 2.0),
+            analysis_interval=data.get('analysis_interval', 10.0),
             change_detection=data.get('change_detection', True),
-            change_threshold=data.get('change_threshold', 0.15),
+            change_threshold=data.get('change_threshold', 0.20),
             ocr_enabled=data.get('ocr_enabled', False),
             game_cache_enabled=data.get('game_cache_enabled', True),
             inject_into_conversation=data.get('inject_into_conversation', False),
             max_width=data.get('max_width', 1280),
-            max_height=data.get('max_height', 720)
+            max_height=data.get('max_height', 720),
+            on_demand_only=data.get('on_demand_only', True)
         )
 
 
@@ -59,6 +61,7 @@ class VisionManager:
     - Manage analysis requests to LLM
     - Maintain current visual state
     - Provide thread-safe access to visual context
+    - Support on-demand capture (only when asked)
     """
     
     def __init__(
@@ -82,23 +85,38 @@ class VisionManager:
         self._running = False
         self._lock = threading.Lock()
         
-        # Initialize components
-        self._capture_config = ScreenCaptureConfig(
-            monitor_index=config.monitor_index,
-            capture_interval=config.capture_interval,
-            enabled=config.enabled,
-            max_width=config.max_width,
-            max_height=config.max_height
-        )
+        # On-demand mode: don't auto-capture, wait for explicit requests
+        self._on_demand_mode = config.on_demand_only
+        self._capture_requested = threading.Event()
         
-        self._processor_config = FrameProcessingConfig(
-            analysis_interval=config.analysis_interval,
-            change_threshold=config.change_threshold,
-            enable_change_detection=config.change_detection
-        )
-        
-        self._capture_service = ScreenCaptureService(self._capture_config)
-        self._frame_processor = FrameProcessor(self._processor_config)
+        # Initialize components only if not in on-demand mode or if enabled
+        if not self._on_demand_mode and config.enabled:
+            self._capture_config = ScreenCaptureConfig(
+                monitor_index=config.monitor_index,
+                capture_interval=config.capture_interval,
+                enabled=config.enabled,
+                max_width=config.max_width,
+                max_height=config.max_height
+            )
+            
+            self._processor_config = FrameProcessingConfig(
+                analysis_interval=config.analysis_interval,
+                change_threshold=config.change_threshold,
+                enable_change_detection=config.change_detection
+            )
+            
+            self._capture_service = ScreenCaptureService(self._capture_config)
+            self._frame_processor = FrameProcessor(self._processor_config)
+            
+            # Set up callbacks
+            self._capture_service.set_frame_callback(self._on_frame_captured)
+            self._frame_processor.set_analysis_callback(self._on_frame_ready)
+        else:
+            # Lazy initialization for on-demand mode
+            self._capture_config = None
+            self._processor_config = None
+            self._capture_service = None
+            self._frame_processor = None
         
         self._game_cache: Optional[GameCache] = None
         if config.game_cache_enabled:
@@ -110,15 +128,12 @@ class VisionManager:
         self._current_state = ScreenState()
         self._last_significant_event: Optional[str] = None
         self._analysis_pending = False
+        self._last_capture_time: float = 0.0
         
         # Statistics
         self._frames_processed = 0
         self._analyses_completed = 0
         self._errors = 0
-        
-        # Set up callbacks
-        self._capture_service.set_frame_callback(self._on_frame_captured)
-        self._frame_processor.set_analysis_callback(self._on_frame_ready)
     
     def start(self) -> bool:
         """Start all vision services."""
@@ -143,14 +158,18 @@ class VisionManager:
             else:
                 logger.warning("LLM client not available, vision analysis disabled")
             
-            # Start frame processor
-            self._frame_processor.start()
-            
-            # Start screen capture
-            if not self._capture_service.start():
-                logger.error("Failed to start screen capture")
-                self.stop()
-                return False
+            # In on-demand mode, we don't start continuous capture
+            if not self._on_demand_mode:
+                # Start frame processor
+                self._frame_processor.start()
+                
+                # Start screen capture
+                if not self._capture_service.start():
+                    logger.error("Failed to start screen capture")
+                    self.stop()
+                    return False
+            else:
+                logger.info("Vision system started in ON-DEMAND mode (only captures when asked)")
             
             self._running = True
             logger.info("Vision system started successfully")
@@ -166,10 +185,119 @@ class VisionManager:
         logger.info("Stopping vision system...")
         self._running = False
         
-        self._capture_service.stop()
-        self._frame_processor.stop()
+        if self._capture_service:
+            self._capture_service.stop()
+        if self._frame_processor:
+            self._frame_processor.stop()
         
         logger.info("Vision system stopped")
+    
+    def request_screen_analysis(self) -> bool:
+        """
+        Request an immediate screen capture and analysis.
+        
+        This is the primary method for on-demand vision.
+        Call this when you want Airi to "look at the screen".
+        
+        Returns:
+            True if analysis was initiated, False if busy or unavailable
+        """
+        if not self._running:
+            logger.warning("Vision system not running, cannot capture")
+            return False
+        
+        if not self._analyzer or not self._analyzer.is_available:
+            logger.warning("Vision analyzer not available")
+            return False
+        
+        if self._analysis_pending:
+            logger.debug("Analysis already pending, skipping request")
+            return False
+        
+        if self._analyzer.is_busy:
+            logger.debug("Analyzer busy, skipping request")
+            return False
+        
+        # Check minimum time between captures
+        now = time.time()
+        min_interval = 3.0  # Minimum 3 seconds between on-demand captures
+        if now - self._last_capture_time < min_interval:
+            logger.debug(f"Too soon since last capture ({now - self._last_capture_time:.1f}s)")
+            return False
+        
+        logger.info("On-demand screen capture requested")
+        
+        # Capture and analyze in background thread
+        thread = threading.Thread(
+            target=self._on_demand_capture_and_analyze,
+            daemon=True,
+            name="OnDemandVision"
+        )
+        thread.start()
+        
+        return True
+    
+    def _on_demand_capture_and_analyze(self) -> None:
+        """Capture screen and analyze immediately (on-demand mode)."""
+        try:
+            from .screen_capture import ScreenCaptureService, ScreenCaptureConfig
+            from mss import mss
+            import io
+            from PIL import Image
+            
+            self._last_capture_time = time.time()
+            self._analysis_pending = True
+            
+            # One-time capture
+            with mss() as sct:
+                monitor = sct.monitors[self.config.monitor_index]
+                screenshot = sct.grab(monitor)
+                
+                # Convert to PIL Image
+                img = Image.frombytes(
+                    "RGB",
+                    (screenshot.width, screenshot.height),
+                    screenshot.bgra,
+                    "raw",
+                    "BGRX"
+                )
+                
+                # Resize if needed
+                if img.width > self.config.max_width or img.height > self.config.max_height:
+                    img.thumbnail((self.config.max_width, self.config.max_height), Image.Resampling.LANCZOS)
+                
+                # Encode to JPEG
+                buf = io.BytesIO()
+                img.save(buf, format="JPEG", quality=85)
+                image_bytes = buf.getvalue()
+            
+            # Get cached state for context
+            cached_state = None
+            if self._game_cache:
+                cached_state = self._game_cache.get_current_state().to_dict()
+            
+            # Analyze with LLM
+            result = self._analyzer.analyze(
+                image_bytes,
+                cached_state=cached_state
+            )
+            
+            if result:
+                self._update_state_from_result(result)
+                self._analyses_completed += 1
+                
+                # Update game cache
+                if self._game_cache:
+                    self._update_cache_from_result(result)
+            
+            self._frames_processed += 1
+            
+        except Exception as e:
+            self._errors += 1
+            logger.error(f"On-demand vision analysis error: {e}")
+            
+        finally:
+            self._analysis_pending = False
     
     @property
     def is_running(self) -> bool:
@@ -252,11 +380,25 @@ class VisionManager:
         
         Returns True when there's significant visual information that
         hasn't been shared yet and would enhance the conversation.
+        
+        In on-demand mode, this ALWAYS returns True after a recent analysis
+        so Airi can reference what she just saw.
         """
-        if not self.config.inject_into_conversation:
+        if not self._running:
             return False
         
-        if not self._running:
+        # In on-demand mode, inject context after any recent analysis
+        if self.config.on_demand_only:
+            # Check if we have recent visual state (within last 10 seconds)
+            if self._current_state.last_update > 0:
+                import time
+                elapsed = time.time() - self._current_state.last_update
+                if elapsed < 10.0:  # Recent analysis
+                    return True
+            return False
+        
+        # Continuous mode: only inject if explicitly enabled and significant event
+        if not self.config.inject_into_conversation:
             return False
         
         state = self._current_state
@@ -267,6 +409,8 @@ class VisionManager:
         if state.player_health_low:
             return True
         if state.loading:
+            return True
+        if state.last_significant_event:
             return True
         
         return False

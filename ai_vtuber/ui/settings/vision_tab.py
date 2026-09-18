@@ -122,6 +122,15 @@ class VisionSettingsTab(QWidget):
         advanced_layout = QVBoxLayout(advanced_group)
         advanced_layout.setSpacing(10)
         
+        # On-demand mode (CRITICAL setting)
+        self.vision_on_demand_check = QCheckBox("On-Demand Mode Only (Recommended)")
+        self.vision_on_demand_check.setToolTip(
+            "When enabled: Airi only looks at the screen when you ask something.\n"
+            "When disabled: Continuous background capture (can cause performance issues)."
+        )
+        self.vision_on_demand_check.setChecked(True)  # Default to recommended setting
+        advanced_layout.addWidget(self.vision_on_demand_check)
+        
         # OCR (reserved)
         self.vision_ocr_check = QCheckBox("Enable OCR (Reserved for future use)")
         self.vision_ocr_check.setEnabled(False)  # Not implemented yet
@@ -134,7 +143,10 @@ class VisionSettingsTab(QWidget):
         
         # Inject into conversation
         self.vision_inject_check = QCheckBox("Auto-inject Visual Context into Conversation")
-        self.vision_inject_check.setToolTip("Automatically share screen observations in chat")
+        self.vision_inject_check.setToolTip(
+            "Automatically share screen observations in chat.\n"
+            "Only works when On-Demand Mode is disabled."
+        )
         advanced_layout.addWidget(self.vision_inject_check)
         
         # Resolution limits
@@ -173,10 +185,11 @@ class VisionSettingsTab(QWidget):
         self.vision_enabled_check.setChecked(vision_config.get("enabled", False))
         self.vision_source_combo.setCurrentText(vision_config.get("source", "screen"))
         self.vision_monitor_spin.setValue(vision_config.get("monitor_index", 0))
-        self.vision_capture_interval_spin.setValue(vision_config.get("capture_interval", 0.5))
-        self.vision_analysis_interval_spin.setValue(vision_config.get("analysis_interval", 5.0))
+        self.vision_capture_interval_spin.setValue(vision_config.get("capture_interval", 2.0))
+        self.vision_analysis_interval_spin.setValue(vision_config.get("analysis_interval", 10.0))
         self.vision_change_detection_check.setChecked(vision_config.get("change_detection", True))
-        self.vision_threshold_spin.setValue(vision_config.get("change_threshold", 0.15))
+        self.vision_threshold_spin.setValue(vision_config.get("change_threshold", 0.20))
+        self.vision_on_demand_check.setChecked(vision_config.get("on_demand_only", True))
         self.vision_ocr_check.setChecked(vision_config.get("ocr_enabled", False))
         self.vision_game_cache_check.setChecked(vision_config.get("game_cache_enabled", True))
         self.vision_inject_check.setChecked(vision_config.get("inject_into_conversation", False))
@@ -194,6 +207,7 @@ class VisionSettingsTab(QWidget):
                 "analysis_interval": self.vision_analysis_interval_spin.value(),
                 "change_detection": self.vision_change_detection_check.isChecked(),
                 "change_threshold": self.vision_threshold_spin.value(),
+                "on_demand_only": self.vision_on_demand_check.isChecked(),
                 "ocr_enabled": self.vision_ocr_check.isChecked(),
                 "game_cache_enabled": self.vision_game_cache_check.isChecked(),
                 "inject_into_conversation": self.vision_inject_check.isChecked(),

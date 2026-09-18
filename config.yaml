@@ -54,15 +54,18 @@ vision:
   enabled: false  # Set true to enable screen watching
   source: "screen"  # 'screen' or 'window'
   monitor_index: 0  # Monitor to capture (0 = primary)
-  capture_interval: 0.5  # Seconds between screen captures
-  analysis_interval: 5.0  # Minimum seconds between LLM analyses
+  capture_interval: 2.0  # Seconds between screen captures (increased for on-demand mode)
+  analysis_interval: 10.0  # Minimum seconds between LLM analyses (increased for on-demand)
   change_detection: true  # Skip frames with no significant changes
-  change_threshold: 0.15  # Fraction of pixels that must change (0.0-1.0)
+  change_threshold: 0.20  # Fraction of pixels that must change (0.0-1.0, higher = fewer triggers)
   ocr_enabled: false  # Reserved for future OCR integration
   game_cache_enabled: true  # Cache recognized entities across sessions
-  inject_into_conversation: false  # Don't auto-inject visual context into chat
+  inject_into_conversation: false  # Don't auto-inject visual context into chat (uses on-demand instead)
   max_width: 1280  # Resize captured screens for efficiency
   max_height: 720
+  on_demand_only: true  # CRITICAL: Only capture screen when user asks something (recommended)
+                        # When true: No continuous capture, only triggered before LLM responses
+                        # When false: Continuous background capture (can cause queue overflow)
 
 # STT Settings (faster-whisper)
 # CUDA detection uses CTranslate2 directly (no PyTorch needed)
