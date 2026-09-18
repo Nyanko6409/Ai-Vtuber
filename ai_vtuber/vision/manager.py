@@ -47,11 +47,21 @@ class VisionManager:
     
     Responsibilities:
     - Start/stop all vision services
-    - Route frames through processing pipeline
     - Manage analysis requests to LLM
     - Maintain current visual state
     - Provide thread-safe access to visual context
     - Support on-demand capture (only when asked)
+    
+    Architecture:
+    VisionManager (single source of truth)
+        ↓ uses on-demand
+    ScreenCaptureService.capture_once()
+        ↓
+    VisionAnalyzer.analyze()
+        ↓
+    GameCache (optional persistence)
+        ↓
+    Airi Context (via get_context_summary)
     """
     
     def __init__(
@@ -73,17 +83,16 @@ class VisionManager:
         self._vision_model = vision_model
         
         self._running = False
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()  # Reentrant lock for nested calls
         
         # On-demand mode: don't auto-capture, wait for explicit requests
         self._on_demand_mode = config.on_demand_only
         self._capture_requested = threading.Event()
         
-        # SIMPLIFIED: Only on-demand mode is supported now
-        # No continuous background capture - only capture when user asks something
-        self._capture_config = None
-        self._processor_config = None
-        self._capture_service = None
+        # Single capture service instance for on-demand use
+        self._capture_service: Optional[ScreenCaptureService] = None
+        
+        # No frame processor in on-demand mode - direct to analyzer
         self._frame_processor = None
         
         self._game_cache: Optional[GameCache] = None
@@ -92,12 +101,17 @@ class VisionManager:
         
         self._analyzer: Optional[VisionAnalyzer] = None
         
-        # State tracking
+        # State tracking - protected by _lock
         self._current_state = ScreenState()
         self._last_significant_event: Optional[str] = None
         self._analysis_pending = False
         self._last_capture_time: float = 0.0
-        self._last_context_injection_time: float = 0.0  # Track last context injection
+        self._last_context_injection_time: float = 0.0
+        self._last_observation_id: Optional[str] = None  # Deduplication
+        
+        # Worker thread management
+        self._worker_thread: Optional[threading.Thread] = None
+        self._shutdown_event = threading.Event()
         
         # Statistics
         self._frames_processed = 0
@@ -110,40 +124,76 @@ class VisionManager:
             logger.info("Vision system disabled in config")
             return False
         
-        if self._running:
-            logger.warning("Vision system already running")
-            return True
-        
-        logger.info("Starting vision system...")
-        
-        try:
-            # Initialize analyzer if LLM client available
-            if self._llm_client and self._llm_client.is_available():
-                self._analyzer = VisionAnalyzer(
-                    self._llm_client,
-                    model=self._vision_model
+        with self._lock:
+            if self._running:
+                logger.warning("Vision system already running")
+                return True
+            
+            logger.info("Starting vision system...")
+            
+            try:
+                # Initialize capture service for on-demand use
+                capture_config = ScreenCaptureConfig(
+                    monitor_index=self.config.monitor_index,
+                    max_width=self.config.max_width,
+                    max_height=self.config.max_height,
+                    jpeg_quality=85,
+                    enabled=False  # Disabled by default, only used on-demand
                 )
-                logger.info(f"Vision analyzer initialized with {self._vision_model}")
-            else:
-                logger.warning("LLM client not available, vision analysis disabled")
-            
-            # SIMPLIFIED: Always in on-demand mode - no continuous capture
-            logger.info("Vision system started in ON-DEMAND mode (only captures when asked)")
-            
-            self._running = True
-            logger.info("Vision system started successfully")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to start vision system: {e}")
-            self.stop()
-            return False
+                self._capture_service = ScreenCaptureService(capture_config)
+                
+                # Initialize analyzer if LLM client available
+                if self._llm_client and self._llm_client.is_available():
+                    self._analyzer = VisionAnalyzer(
+                        self._llm_client,
+                        model=self._vision_model
+                    )
+                    logger.info(f"Vision analyzer initialized with {self._vision_model}")
+                else:
+                    logger.warning("LLM client not available, vision analysis disabled")
+                
+                self._running = True
+                self._shutdown_event.clear()
+                logger.info("Vision system started successfully in ON-DEMAND mode")
+                return True
+                
+            except Exception as e:
+                logger.error(f"Failed to start vision system: {e}")
+                self._cleanup_services()
+                return False
+    
+    def _cleanup_services(self) -> None:
+        """Clean up internal services."""
+        if self._capture_service:
+            try:
+                self._capture_service.stop()
+            except Exception:
+                pass
+            self._capture_service = None
     
     def stop(self) -> None:
-        """Stop all vision services."""
+        """Stop all vision services and clean up resources."""
         logger.info("Stopping vision system...")
-        self._running = False
-        # No capture_service or frame_processor to stop anymore
+        
+        with self._lock:
+            if not self._running:
+                return  # Already stopped (idempotent)
+            
+            self._running = False
+            self._shutdown_event.set()
+        
+        # Wait for worker thread to finish
+        if self._worker_thread and self._worker_thread.is_alive():
+            self._worker_thread.join(timeout=3.0)
+        
+        # Clean up services
+        self._cleanup_services()
+        
+        # Clear state
+        with self._lock:
+            self._analysis_pending = False
+            self._worker_thread = None
+        
         logger.info("Vision system stopped")
     
     def request_screen_analysis(self) -> bool:
@@ -199,24 +249,19 @@ class VisionManager:
     def _on_demand_capture_and_analyze(self) -> None:
         """Capture screen and analyze immediately (on-demand mode) using ScreenCaptureService."""
         request_id = f"req_{int(time.time() * 1000)}"
+        observation_id = f"obs_{int(time.time() * 1000)}"
         logger.debug(f"[VISION {request_id}] Starting on-demand capture...")
         
         try:
             self._last_capture_time = time.time()
-            self._analysis_pending = True
             
-            # Use ScreenCaptureService.capture_once() - single unified capture path
-            from .screen_capture import ScreenCaptureConfig
+            # Use the pre-initialized capture service (unified capture path)
+            if not self._capture_service:
+                logger.error(f"[VISION {request_id}] Capture service not initialized")
+                self._errors += 1
+                return
             
-            config = ScreenCaptureConfig(
-                monitor_index=self.config.monitor_index,
-                max_width=self.config.max_width,
-                max_height=self.config.max_height,
-                jpeg_quality=85
-            )
-            
-            capture_service = ScreenCaptureService(config)
-            image_bytes = capture_service.capture_once()
+            image_bytes = self._capture_service.capture_once()
             
             if not image_bytes:
                 logger.error(f"[VISION {request_id}] Capture failed: no image data")
@@ -225,7 +270,7 @@ class VisionManager:
             
             logger.debug(f"[VISION {request_id}] Captured {len(image_bytes)} bytes, sending to LLM...")
             
-            # Get cached state for context
+            # Get cached state for context (defensive copy)
             cached_state = None
             if self._game_cache:
                 cached_state = self._game_cache.get_current_state().to_dict()
@@ -239,12 +284,18 @@ class VisionManager:
             logger.debug(f"[VISION {request_id}] LLM analysis completed: {result is not None}")
             
             if result:
-                self._update_state_from_result(result, request_id=request_id)
-                self._analyses_completed += 1
-                
-                # Update game cache
-                if self._game_cache:
-                    self._update_cache_from_result(result)
+                # Check for duplicate observations before updating state
+                obs_hash = self._compute_observation_hash(result)
+                if obs_hash == self._last_observation_id:
+                    logger.debug(f"[VISION {request_id}] Duplicate observation detected, skipping state update")
+                else:
+                    self._last_observation_id = obs_hash
+                    self._update_state_from_result(result, request_id=request_id, observation_id=observation_id)
+                    self._analyses_completed += 1
+                    
+                    # Update game cache
+                    if self._game_cache:
+                        self._update_cache_from_result(result)
             
             self._frames_processed += 1
             
@@ -253,9 +304,25 @@ class VisionManager:
             logger.error(f"[VISION {request_id}] On-demand vision analysis error: {e}")
             
         finally:
-            self._analysis_pending = False
+            with self._lock:
+                self._analysis_pending = False
             logger.debug(f"[VISION {request_id}] Vision analysis cycle complete")
-            logger.debug("[VISION DEBUG] Vision analysis cycle complete")
+    
+    def _compute_observation_hash(self, result: VisionAnalysisResult) -> str:
+        """Compute a hash of the observation for deduplication."""
+        import hashlib
+        
+        # Create a signature from key fields
+        parts = []
+        if result.scene:
+            parts.append(f"scene:{result.scene.application}:{result.scene.game_name}:{result.scene.location}")
+        if result.state:
+            parts.append(f"state:{result.state.in_combat}:{result.state.in_menu}:{result.state.in_dialogue}")
+        if result.observations:
+            parts.append(f"obs:{len(result.observations)}")
+        
+        signature = "|".join(parts)
+        return hashlib.sha256(signature.encode()).hexdigest()[:16]
     
     @property
     def is_running(self) -> bool:
@@ -409,9 +476,17 @@ class VisionManager:
     def _update_state_from_result(
         self, 
         result: VisionAnalysisResult,
-        request_id: str = "unknown"
+        request_id: str = "unknown",
+        observation_id: Optional[str] = None
     ) -> None:
-        """Update current state from analysis result."""
+        """
+        Update current state from analysis result.
+        
+        Args:
+            result: Vision analysis result
+            request_id: Request tracking ID for logging
+            observation_id: Unique ID for this observation (for provenance)
+        """
         with self._lock:
             # Use structured scene and state from new JSON output
             if result.scene:
@@ -448,6 +523,10 @@ class VisionManager:
                     logger.info(f"[VISION {request_id}] Visual event: {event}")
             
             self._current_state.last_update = time.time()
+            
+            # Store observation ID for provenance tracking
+            if observation_id:
+                logger.debug(f"[VISION {request_id}] Observation ID: {observation_id}")
     
     def _update_cache_from_result(self, result: VisionAnalysisResult) -> None:
         """Extract and cache entities from analysis result."""
