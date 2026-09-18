@@ -24,6 +24,7 @@ class VisionConfig:
     max_width: int = 1920  # Full HD resolution for better analysis
     max_height: int = 1080
     game_cache_enabled: bool = True
+    inject_into_conversation: bool = True  # Whether to inject visual context into conversation
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'VisionConfig':
@@ -35,7 +36,8 @@ class VisionConfig:
             on_demand_only=data.get('on_demand_only', True),
             max_width=data.get('max_width', 1920),
             max_height=data.get('max_height', 1080),
-            game_cache_enabled=data.get('game_cache_enabled', True)
+            game_cache_enabled=data.get('game_cache_enabled', True),
+            inject_into_conversation=data.get('inject_into_conversation', True)
         )
 
 
@@ -195,47 +197,33 @@ class VisionManager:
         return True
     
     def _on_demand_capture_and_analyze(self) -> None:
-        """Capture screen and analyze immediately (on-demand mode)."""
+        """Capture screen and analyze immediately (on-demand mode) using ScreenCaptureService."""
+        request_id = f"req_{int(time.time() * 1000)}"
+        logger.debug(f"[VISION {request_id}] Starting on-demand capture...")
+        
         try:
-            from .screen_capture import ScreenCaptureService, ScreenCaptureConfig
-            from mss import mss
-            import io
-            from PIL import Image
-            
             self._last_capture_time = time.time()
             self._analysis_pending = True
             
-            logger.debug("[VISION DEBUG] Starting screenshot capture...")
+            # Use ScreenCaptureService.capture_once() - single unified capture path
+            from .screen_capture import ScreenCaptureConfig
             
-            # One-time capture at 1920x1080
-            with mss() as sct:
-                monitor = sct.monitors[self.config.monitor_index]
-                logger.debug(f"[VISION DEBUG] Capturing monitor {self.config.monitor_index}: {monitor}")
-                
-                screenshot = sct.grab(monitor)
-                logger.debug(f"[VISION DEBUG] Screenshot captured: {screenshot.width}x{screenshot.height}")
-                
-                # Convert to PIL Image
-                img = Image.frombytes(
-                    "RGB",
-                    (screenshot.width, screenshot.height),
-                    screenshot.bgra,
-                    "raw",
-                    "BGRX"
-                )
-                
-                # Resize to max 1920x1080 if needed
-                if img.width > self.config.max_width or img.height > self.config.max_height:
-                    logger.debug(f"[VISION DEBUG] Resizing from {img.width}x{img.height} to max {self.config.max_width}x{self.config.max_height}")
-                    img.thumbnail((self.config.max_width, self.config.max_height), Image.Resampling.LANCZOS)
-                
-                logger.debug(f"[VISION DEBUG] Final image size: {img.width}x{img.height}")
-                
-                # Encode to JPEG
-                buf = io.BytesIO()
-                img.save(buf, format="JPEG", quality=85)
-                image_bytes = buf.getvalue()
-                logger.debug(f"[VISION DEBUG] Image encoded to {len(image_bytes)} bytes, sending to LLM...")
+            config = ScreenCaptureConfig(
+                monitor_index=self.config.monitor_index,
+                max_width=self.config.max_width,
+                max_height=self.config.max_height,
+                jpeg_quality=85
+            )
+            
+            capture_service = ScreenCaptureService(config)
+            image_bytes = capture_service.capture_once()
+            
+            if not image_bytes:
+                logger.error(f"[VISION {request_id}] Capture failed: no image data")
+                self._errors += 1
+                return
+            
+            logger.debug(f"[VISION {request_id}] Captured {len(image_bytes)} bytes, sending to LLM...")
             
             # Get cached state for context
             cached_state = None
@@ -243,15 +231,15 @@ class VisionManager:
                 cached_state = self._game_cache.get_current_state().to_dict()
             
             # Analyze with LLM
-            logger.debug("[VISION DEBUG] Calling LLM analyzer...")
+            logger.debug(f"[VISION {request_id}] Calling LLM analyzer...")
             result = self._analyzer.analyze(
                 image_bytes,
                 cached_state=cached_state
             )
-            logger.debug(f"[VISION DEBUG] LLM analysis completed: {result is not None}")
+            logger.debug(f"[VISION {request_id}] LLM analysis completed: {result is not None}")
             
             if result:
-                self._update_state_from_result(result)
+                self._update_state_from_result(result, request_id=request_id)
                 self._analyses_completed += 1
                 
                 # Update game cache
@@ -262,10 +250,11 @@ class VisionManager:
             
         except Exception as e:
             self._errors += 1
-            logger.error(f"[VISION DEBUG] On-demand vision analysis error: {e}")
+            logger.error(f"[VISION {request_id}] On-demand vision analysis error: {e}")
             
         finally:
             self._analysis_pending = False
+            logger.debug(f"[VISION {request_id}] Vision analysis cycle complete")
             logger.debug("[VISION DEBUG] Vision analysis cycle complete")
     
     @property
@@ -417,46 +406,38 @@ class VisionManager:
     
     # Removed: _on_frame_captured, _on_frame_ready, _analyze_frame - no longer needed for simplified on-demand mode
     
-    def _update_state_from_result(self, result: VisionAnalysisResult) -> None:
+    def _update_state_from_result(
+        self, 
+        result: VisionAnalysisResult,
+        request_id: str = "unknown"
+    ) -> None:
         """Update current state from analysis result."""
         with self._lock:
-            gs = result.game_state
+            # Use structured scene and state from new JSON output
+            if result.scene:
+                if result.scene.game_name:
+                    self._current_state.game_name = result.scene.game_name
+                if result.scene.application:
+                    self._current_state.app_name = result.scene.application
+                if result.scene.location:
+                    self._current_state.location = result.scene.location
             
-            # Game-specific fields
-            if gs.get('in_combat') is not None:
-                self._current_state.in_combat = gs['in_combat']
-            if gs.get('in_menu') is not None:
-                self._current_state.in_menu = gs['in_menu']
-            if gs.get('in_dialogue') is not None:
-                self._current_state.in_dialogue = gs['in_dialogue']
-            if gs.get('loading') is not None:
-                self._current_state.loading = gs['loading']
-            if gs.get('player_health_low') is not None:
-                self._current_state.player_health_low = gs['player_health_low']
+            if result.state:
+                if result.state.in_combat is not None:
+                    self._current_state.in_combat = result.state.in_combat
+                if result.state.in_menu is not None:
+                    self._current_state.in_menu = result.state.in_menu
+                if result.state.in_dialogue is not None:
+                    self._current_state.in_dialogue = result.state.in_dialogue
+                if result.state.loading is not None:
+                    self._current_state.loading = result.state.loading
+                if result.state.player_health_low is not None:
+                    self._current_state.player_health_low = result.state.player_health_low
             
-            # Extract game name and location from analysis
-            if gs.get('game_name'):
-                self._current_state.game_name = gs['game_name']
-            if gs.get('location'):
-                self._current_state.location = gs['location']
-            
-            # Generic application/screen fields (for any screen content)
-            if gs.get('app_name'):
-                self._current_state.app_name = gs['app_name']
-            if gs.get('is_browser') is not None:
-                self._current_state.is_browser = gs['is_browser']
-            if gs.get('is_video') is not None:
-                self._current_state.is_video = gs['is_video']
-            if gs.get('is_code') is not None:
-                self._current_state.is_code = gs['is_code']
-            if gs.get('is_document') is not None:
-                self._current_state.is_document = gs['is_document']
-            if gs.get('is_social') is not None:
-                self._current_state.is_social = gs['is_social']
-            if gs.get('is_image') is not None:
-                self._current_state.is_image = gs['is_image']
-            if gs.get('visible_text'):
-                self._current_state.visible_text = gs['visible_text']
+            # Handle visible text (list of strings)
+            if result.visible_text:
+                # Join multiple text snippets or take first one
+                self._current_state.visible_text = result.visible_text[0][:200] if result.visible_text else None
             
             # Track significant events
             if result.significant_changes:
@@ -464,7 +445,7 @@ class VisionManager:
                 if event != self._last_significant_event:
                     self._current_state.last_significant_event = event
                     self._last_significant_event = event
-                    logger.info(f"Visual event: {event}")
+                    logger.info(f"[VISION {request_id}] Visual event: {event}")
             
             self._current_state.last_update = time.time()
     
