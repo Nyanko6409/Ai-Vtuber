@@ -244,38 +244,17 @@ class VisionAnalyzer:
         
         base_prompt = """You are analyzing a screen image for an AI VTuber assistant. Return your analysis as VALID JSON only, no markdown, no explanations.
 
-Required JSON structure:
-{
-  "scene": {
-    "application": "<app/window name or null>",
-    "application_type": "<game|browser|video|code|document|social|image|other or null>",
-    "activity": "<what user is doing or null>",
-    "game_name": "<game name if playing, else null>",
-    "location": "<in-game location or null>"
-  },
-  "state": {
-    "in_combat": <boolean or null>,
-    "in_menu": <boolean or null>,
-    "in_dialogue": <boolean or null>,
-    "loading": <boolean or null>,
-    "player_health_low": <boolean or null>
-  },
-  "observations": ["<short observation 1>", "<short observation 2>"],
-  "visible_text": ["<text snippet 1>", "<text snippet 2>"],
-  "entities": [
-    {"type": "<character|enemy|npc|item|location|ui_element>", "name": "<name>", "confidence": <0.0-1.0>}
-  ],
-  "events": ["<event 1>", "<event 2>"],
-  "confidence": <0.0-1.0 overall confidence>
-}
+Required JSON structure (use null for unknown values):
+{"scene":{"application":null,"application_type":"other","activity":"screen shows logs and video","game_name":null,"location":null},"state":{"in_combat":null,"in_menu":null,"in_dialogue":null,"loading":null,"player_health_low":null},"observations":["short observation"],"visible_text":["text on screen"],"entities":[],"events":[],"confidence":0.8}
 
 Rules:
 - Use null for unknown/unsure values, do not invent information
-- Keep observations concise (5-10 words each)
+- Keep observations concise (3-5 words each)
 - Only include entities you are confident about (confidence >= 0.6)
 - For state booleans, use null if cannot determine from image
 - application_type must be exactly one of: game, browser, video, code, document, social, image, other
-- Return ONLY valid JSON, no markdown formatting"""
+- Return ONLY valid JSON, no markdown formatting, no trailing commas
+- Keep total response under 600 tokens"""
 
         parts = [base_prompt]
         
