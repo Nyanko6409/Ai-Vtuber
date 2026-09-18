@@ -38,6 +38,7 @@ class CachedEntity:
 @dataclass
 class ScreenState:
     """Current recognized screen state."""
+    # Game-specific fields
     game_name: Optional[str] = None
     location: Optional[str] = None
     in_combat: bool = False
@@ -45,6 +46,18 @@ class ScreenState:
     in_dialogue: bool = False
     loading: bool = False
     player_health_low: bool = False
+    
+    # Generic application/screen fields (for any screen content)
+    app_name: Optional[str] = None
+    is_browser: bool = False
+    is_video: bool = False
+    is_code: bool = False
+    is_document: bool = False
+    is_social: bool = False
+    is_image: bool = False
+    visible_text: Optional[str] = None
+    
+    # Metadata
     last_update: float = 0.0
     last_significant_event: Optional[str] = None
     
@@ -58,12 +71,21 @@ class ScreenState:
             'in_dialogue': self.in_dialogue,
             'loading': self.loading,
             'player_health_low': self.player_health_low,
+            'app_name': self.app_name,
+            'is_browser': self.is_browser,
+            'is_video': self.is_video,
+            'is_code': self.is_code,
+            'is_document': self.is_document,
+            'is_social': self.is_social,
+            'is_image': self.is_image,
+            'visible_text': self.visible_text,
             'last_update': self.last_update,
             'last_significant_event': self.last_significant_event
         }
     
     def clear(self) -> None:
         """Clear all state (e.g., when game changes)."""
+        # Game-specific fields
         self.game_name = None
         self.location = None
         self.in_combat = False
@@ -71,6 +93,18 @@ class ScreenState:
         self.in_dialogue = False
         self.loading = False
         self.player_health_low = False
+        
+        # Generic application/screen fields
+        self.app_name = None
+        self.is_browser = False
+        self.is_video = False
+        self.is_code = False
+        self.is_document = False
+        self.is_social = False
+        self.is_image = False
+        self.visible_text = None
+        
+        # Metadata
         self.last_update = 0.0
         self.last_significant_event = None
 
