@@ -291,6 +291,51 @@ Be concise and specific. Format: 2-3 sentences maximum."""
             game_state['player_health_low'] = True
             significant_changes.append("Low health warning")
         
+        # Extract game name - look for patterns like "playing X", "game is X"
+        game_name = None
+        import re
+        
+        # Try multiple patterns to extract game name more accurately
+        # Pattern 1: "You are playing [Game]" or "Playing [Game]"
+        play_match = re.search(r'(?:you\'?re\s+)?playing\s+([A-Z][A-Za-z0-9\s\'\-:]+?)(?:\s+in\s+|\s+at\s+|\.|,|$)', response_text)
+        if not play_match:
+            # Pattern 2: "The game is [Game]" or "game is [Game]"
+            play_match = re.search(r'(?:the\s+)?game\s+is\s+([A-Z][A-Za-z0-9\s\'\-:]+?)(?:\.|,|$)', response_text)
+        
+        if play_match:
+            game_name = play_match.group(1).strip()
+            # Clean up common artifacts
+            if game_name.lower().startswith('the '):
+                game_name = game_name[4:]
+            # Remove trailing location markers
+            for marker in [' in ', ' at ']:
+                if marker in game_name:
+                    game_name = game_name.split(marker)[0].strip()
+            if game_name:
+                game_state['game_name'] = game_name
+        
+        # Extract location - look for patterns like "in [Location]", "at [Location]", "Location: [Location]"
+        location = None
+        # Pattern 1: "Location: X" or "location: X"
+        loc_match = re.search(r'location:\s*([A-Z][A-Za-z0-9\s\'\-:]+?)(?:\.|,|$)', response_text, re.IGNORECASE)
+        if not loc_match:
+            # Pattern 2: "in [Location]" (but not "in combat", "in menu", etc.)
+            loc_match = re.search(r'\s+in\s+([A-Z][A-Za-z0-9\s\'\-:]+?)(?:\.|,|$)', response_text)
+            if loc_match:
+                potential_loc = loc_match.group(1).strip().lower()
+                # Filter out non-location matches
+                if potential_loc in ['combat', 'menu', 'dialogue', 'a', 'an', 'the']:
+                    loc_match = None
+        if not loc_match:
+            # Pattern 3: "at [Location]"
+            loc_match = re.search(r'\s+at\s+([A-Z][A-Za-z0-9\s\'\-:]+?)(?:\.|,|$)', response_text)
+        
+        if loc_match:
+            location = loc_match.group(1).strip()
+            # Avoid false positives
+            if location.lower() not in ['the', 'a', 'an', 'this', 'that', 'combat', 'menu', 'dialogue']:
+                game_state['location'] = location
+        
         # Estimate confidence based on response clarity
         confidence = 0.7  # Base confidence
         if len(response_text) < 20:

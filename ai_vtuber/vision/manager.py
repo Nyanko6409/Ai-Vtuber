@@ -501,6 +501,12 @@ class VisionManager:
             if gs.get('player_health_low') is not None:
                 self._current_state.player_health_low = gs['player_health_low']
             
+            # Extract game name and location from analysis
+            if gs.get('game_name'):
+                self._current_state.game_name = gs['game_name']
+            if gs.get('location'):
+                self._current_state.location = gs['location']
+            
             # Track significant events
             if result.significant_changes:
                 event = "; ".join(result.significant_changes)
