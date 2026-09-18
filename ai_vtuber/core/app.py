@@ -6,7 +6,7 @@ import re
 import threading
 import time
 from pathlib import Path
-from typing import Optional, Iterator
+from typing import Any, Iterator, Optional
 
 import numpy as np
 
@@ -834,7 +834,7 @@ class App:
                 if not on_start_called:
                     if self._avatar:
                         logger.debug("TTS playback starting, initiating lip sync")
-                        self.avatar.start_lip_sync(None, self.tts.sample_rate)  # Audio passed per-chunk
+                        # Lip sync will be started per-chunk in _play_audio_chunk_with_lipsync
                     # Mute mic during playback to prevent feedback
                     if self.config["audio"].get("mute_during_playback", True):
                         self.microphone.mute()
@@ -1135,6 +1135,10 @@ class App:
             on_end: Optional callback invoked when playback ends.
         """
         try:
+            # Start lip sync with actual audio data for this chunk
+            if self._avatar and audio_data is not None and len(audio_data) > 0:
+                self.avatar.start_lip_sync(audio_data, self.tts.sample_rate)
+            
             self.player.play(
                 audio_data,
                 interrupt_check=interrupt_check,
