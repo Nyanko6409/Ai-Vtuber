@@ -610,7 +610,15 @@ class App:
             # so any new facts/memories are reflected in the next request
             self.conversation.set_soul_prompt(self.memory_manager.get_full_context())
             
-            messages = self.conversation.get_messages_for_llm()
+            # Get visual context from vision system if available and enabled
+            visual_context = None
+            if self._vision_manager and self._vision_manager.is_running:
+                context_summary = self._vision_manager.get_context_summary()
+                if context_summary:
+                    visual_context = context_summary
+                    logger.debug(f"Adding visual context to LLM: {context_summary[:100]}...")
+            
+            messages = self.conversation.get_messages_for_llm(visual_context=visual_context)
             raw_response = self.llm.chat(messages, timeout=timeout)
 
             if not raw_response:
@@ -676,7 +684,16 @@ class App:
         try:
             # Refresh soul prompt before generating
             self.conversation.set_soul_prompt(self.memory_manager.get_full_context())
-            messages = self.conversation.get_messages_for_llm()
+            
+            # Get visual context from vision system if available and enabled
+            visual_context = None
+            if self._vision_manager and self._vision_manager.is_running:
+                context_summary = self._vision_manager.get_context_summary()
+                if context_summary:
+                    visual_context = context_summary
+                    logger.debug(f"Adding visual context to streaming LLM: {context_summary[:100]}...")
+            
+            messages = self.conversation.get_messages_for_llm(visual_context=visual_context)
             
             # Sentence boundary pattern - matches sentence-ending punctuation
             sentence_end_pattern = re.compile(r'([.!?]+)(?:\s+|$)')

@@ -1,7 +1,7 @@
 """AI VTuber - Conversation History Manager"""
 
 import logging
-from typing import Optional
+from typing import Optional, List
 from dataclasses import dataclass, field
 import threading
 
@@ -60,13 +60,22 @@ class ConversationHistory:
                     new_messages.append(msg)
             self._messages = new_messages
 
-    def get_messages_for_llm(self) -> list[dict[str, str]]:
-        """Get messages formatted for LLM API call."""
+    def get_messages_for_llm(self, visual_context: Optional[str] = None) -> list[dict[str, str]]:
+        """Get messages formatted for LLM API call.
+        
+        Args:
+            visual_context: Optional visual context from screen vision system.
+                           If provided, will be appended to the system prompt.
+        """
         with self._lock:
             # Build combined system prompt: technical instructions + soul/personality
             combined_system = self.system_prompt.strip()
             if self.soul_prompt:
                 combined_system = f"{combined_system}\n\n{self.soul_prompt.strip()}"
+            
+            # Append visual context if available (from screen vision system)
+            if visual_context:
+                combined_system = f"{combined_system}\n\n=== CURRENT SCREEN CONTEXT ===\n{visual_context}"
             
             # Estimate tokens for system prompt
             system_tokens = self._estimate_tokens(combined_system) if combined_system else 0
