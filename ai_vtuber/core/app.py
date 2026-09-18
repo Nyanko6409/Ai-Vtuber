@@ -56,6 +56,7 @@ class App:
         
         # Vision state for on-demand mode
         self._vision_context_ready: bool = False
+        self._vision_trigger_lock = threading.Lock()  # Prevent concurrent vision triggers
 
         # Components (initialized lazily)
         self._llm: Optional[LMStudioClient | OllamaClient] = None
@@ -535,6 +536,40 @@ class App:
         self._pipeline_thread = threading.Thread(target=self._listen_and_process, daemon=True)
         self._pipeline_thread.start()
 
+    def _trigger_vision_if_needed(self) -> bool:
+        """
+        Trigger on-demand vision analysis if enabled and wait for completion.
+        Returns True if vision context is ready, False otherwise.
+        Used by both voice and chat message processing.
+        """
+        with self._vision_trigger_lock:
+            self._vision_context_ready = False
+            
+            if not self._vision_manager or not self._vision_manager.is_running:
+                return False
+            
+            if not self._vision_manager.config.on_demand_only:
+                return False
+            
+            # Request screen analysis
+            if not self._vision_manager.request_screen_analysis():
+                logger.debug("Vision analysis request failed or already pending")
+                return False
+            
+            # Wait for analysis to complete (max 2 seconds)
+            wait_time = 0.0
+            max_wait = 2.0
+            while wait_time < max_wait:
+                if not self._vision_manager.is_analyzing:
+                    self._vision_context_ready = True
+                    logger.debug("Vision analysis completed successfully")
+                    return True
+                time.sleep(0.1)
+                wait_time += 0.1
+            
+            logger.warning("Vision analysis timed out after %.1f seconds", wait_time)
+            return False
+
     def _listen_and_process(self) -> None:
         """Full listen -> transcribe -> think -> speak pipeline."""
         try:
@@ -582,28 +617,7 @@ class App:
             # TRIGGER on-demand screen analysis BEFORE generating response
             # This allows Airi to "look at the screen" when the user asks something
             # Only trigger if vision is enabled and in on-demand mode
-            self._vision_context_ready = False
-            if self._vision_manager and self._vision_manager.is_running:
-                # Request screen capture for context (on-demand mode)
-                if self._vision_manager.config.on_demand_only:
-                    logger.debug("Requesting on-demand screen analysis before response")
-                    if self._vision_manager.request_screen_analysis():
-                        # Wait briefly for analysis to complete (max 2 seconds)
-                        # This ensures visual context is available when calling LLM
-                        wait_time = 0.0
-                        max_wait = 2.0
-                        while wait_time < max_wait:
-                            if not self._vision_manager.is_analyzing:
-                                # Analysis completed (or wasn't needed)
-                                self._vision_context_ready = True
-                                break
-                            time.sleep(0.1)
-                            wait_time += 0.1
-                        
-                        if self._vision_context_ready:
-                            logger.debug("Vision analysis completed before LLM call")
-                        else:
-                            logger.debug("Vision analysis still pending, proceeding without full context")
+            self._trigger_vision_if_needed()
 
             # Generate response with dynamic timeout
             self.state_machine.force_state(State.THINKING)
@@ -1223,6 +1237,10 @@ class App:
             
             # Add to conversation history
             self.conversation.add_message("user", text)
+            
+            # TRIGGER on-demand screen analysis BEFORE generating response
+            # Same behavior as voice pipeline - allows Airi to see screen for chat messages too
+            self._trigger_vision_if_needed()
             
             # Generate response with dynamic timeout
             response_text, emotion = self._generate_response(timeout=self.llm_timeout)
