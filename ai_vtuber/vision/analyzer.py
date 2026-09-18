@@ -123,8 +123,8 @@ class VisionAnalyzer:
         self,
         llm_client,
         model: str,
-        max_tokens: int = 300,
-        timeout: int = 60  # Increased timeout for vision analysis
+        max_tokens: int = 800,  # Increased for full JSON output from vision models
+        timeout: int = 60
     ):
         """
         Initialize the vision analyzer.
@@ -132,7 +132,7 @@ class VisionAnalyzer:
         Args:
             llm_client: LLM client instance (must support vision/images)
             model: Vision model name (e.g., 'google/gemma-4-e2b')
-            max_tokens: Maximum tokens in response
+            max_tokens: Maximum tokens in response (800+ recommended for JSON output)
             timeout: Request timeout in seconds
         """
         self.client = llm_client
@@ -378,12 +378,15 @@ Rules:
                 preview = content[:200] + "..." if len(content) > 200 else content
                 logger.debug(f"[VISION_CALL] Raw response (truncated): {preview}")
             else:
-                logger.warning("[VISION_CALL] Response content is None or empty")
                 # Check if there's a refusal or error in other fields
-                if hasattr(message, 'refusal'):
+                finish_reason = getattr(choice, 'finish_reason', None)
+                if finish_reason == 'length':
+                    logger.warning(f"[VISION_CALL] Response truncated due to max_tokens limit. Consider increasing max_tokens (current: {self.max_tokens})")
+                elif finish_reason:
+                    logger.warning(f"[VISION_CALL] Finish reason: {finish_reason}")
+                if hasattr(message, 'refusal') and message.refusal:
                     logger.warning(f"[VISION_CALL] Model refusal: {message.refusal}")
-                if hasattr(choice, 'finish_reason'):
-                    logger.warning(f"[VISION_CALL] Finish reason: {choice.finish_reason}")
+                logger.warning("[VISION_CALL] Response content is None or empty - model may not support vision or returned empty response")
             
             return content if content else ""
             
