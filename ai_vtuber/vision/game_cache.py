@@ -283,14 +283,15 @@ class GameCache:
         
         Args:
             entity_type: Filter by entity type (None for all)
-            min_confidence: Minimum confidence threshold
+            min_confidence: Minimum confidence threshold (use 0.0 to include all)
             max_age_seconds: Maximum age in seconds (None for no limit)
             
         Returns:
-            List of matching CachedEntity objects
+            List of matching CachedEntity objects (defensive copies)
         """
         now = time.time()
-        threshold_conf = min_confidence or self.min_confidence
+        # Fix: Use explicit None check to allow min_confidence=0.0
+        threshold_conf = min_confidence if min_confidence is not None else self.min_confidence
         
         with self._lock:
             entities = []
@@ -304,13 +305,14 @@ class GameCache:
                 if entity.confidence < threshold_conf:
                     continue
                 
-                # Filter by age
-                if max_age_seconds:
+                # Filter by age (use explicit None check to allow max_age_seconds=0.0)
+                if max_age_seconds is not None:
                     age = now - entity.last_seen
                     if age > max_age_seconds:
                         continue
                 
-                entities.append(entity)
+                # Return defensive copy
+                entities.append(self._copy_entity(entity))
             
             # Sort by confidence (highest first)
             entities.sort(key=lambda e: e.confidence, reverse=True)
@@ -322,10 +324,18 @@ class GameCache:
         entity_type: str,
         name: str
     ) -> Optional[CachedEntity]:
-        """Get a specific entity by type and name."""
+        """Get a specific entity by type and name. Returns defensive copy."""
         key = f"{entity_type}:{name}"
         with self._lock:
-            return self._entities.get(key)
+            entity = self._entities.get(key)
+            if entity:
+                return self._copy_entity(entity)
+            return None
+    
+    def _copy_entity(self, entity: CachedEntity) -> CachedEntity:
+        """Create a defensive copy of an entity."""
+        import copy
+        return copy.deepcopy(entity)
     
     def remove_entity(self, entity_type: str, name: str) -> bool:
         """Remove an entity from the cache."""
@@ -369,9 +379,11 @@ class GameCache:
         return removed
     
     def get_current_state(self) -> ScreenState:
-        """Get current screen state."""
+        """Get current screen state. Returns a defensive copy."""
         with self._lock:
-            return self._current_state
+            # Return a copy to prevent external modification
+            import copy
+            return copy.deepcopy(self._current_state)
     
     def update_state(self, updates: Dict[str, Any]) -> None:
         """
@@ -379,10 +391,13 @@ class GameCache:
         
         Args:
             updates: Dictionary of state fields to update
+        
+        Note: Uses explicit None checks to allow False boolean values.
         """
         with self._lock:
             state = self._current_state
             
+            # Use explicit 'in' checks to allow False values (not falsy checks)
             if 'game_name' in updates:
                 state.game_name = updates['game_name']
             if 'location' in updates:
@@ -397,6 +412,22 @@ class GameCache:
                 state.loading = updates['loading']
             if 'player_health_low' in updates:
                 state.player_health_low = updates['player_health_low']
+            if 'app_name' in updates:
+                state.app_name = updates['app_name']
+            if 'is_browser' in updates:
+                state.is_browser = updates['is_browser']
+            if 'is_video' in updates:
+                state.is_video = updates['is_video']
+            if 'is_code' in updates:
+                state.is_code = updates['is_code']
+            if 'is_document' in updates:
+                state.is_document = updates['is_document']
+            if 'is_social' in updates:
+                state.is_social = updates['is_social']
+            if 'is_image' in updates:
+                state.is_image = updates['is_image']
+            if 'visible_text' in updates:
+                state.visible_text = updates['visible_text']
             if 'last_significant_event' in updates:
                 state.last_significant_event = updates['last_significant_event']
             
@@ -433,7 +464,8 @@ class GameCache:
                 logger.error(f"Failed to reset game cache database: {e}")
     
     def _persist_entity(self, entity: CachedEntity) -> None:
-        """Persist entity to SQLite database."""
+        """Persist entity to SQLite database. Handles both new and updated entities."""
+        conn = None
         try:
             conn = sqlite3.connect(self._db_path)
             cursor = conn.cursor()
@@ -441,6 +473,7 @@ class GameCache:
             import json
             metadata_json = json.dumps(entity.metadata)
             
+            # Use INSERT OR REPLACE to handle both new and updated entities
             cursor.execute("""
                 INSERT OR REPLACE INTO entities 
                 (entity_type, name, confidence, source, first_seen, last_seen, metadata)
@@ -456,13 +489,24 @@ class GameCache:
             ))
             
             conn.commit()
-            conn.close()
             
         except Exception as e:
             logger.error(f"Failed to persist entity to database: {e}")
+            if conn:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
     
     def _remove_entity_from_db(self, entity_type: str, name: str) -> None:
         """Remove entity from SQLite database."""
+        conn = None
         try:
             conn = sqlite3.connect(self._db_path)
             cursor = conn.cursor()
@@ -473,10 +517,20 @@ class GameCache:
             )
             
             conn.commit()
-            conn.close()
             
         except Exception as e:
             logger.error(f"Failed to remove entity from database: {e}")
+            if conn:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
     
     def load_entities_from_db(self) -> int:
         """
