@@ -521,6 +521,17 @@ class App:
             # Simple heuristic: save user messages longer than 30 chars as potential facts
             if len(text) > 30:
                 self.memory_manager.add_user_fact(text)
+            
+            # TRIGGER on-demand screen analysis BEFORE generating response
+            # This allows Airi to "look at the screen" when the user asks something
+            # Only trigger if vision is enabled and in on-demand mode
+            if self._vision_manager and self._vision_manager.is_running:
+                # Request screen capture for context (on-demand mode)
+                if self._vision_manager.config.on_demand_only:
+                    logger.debug("Requesting on-demand screen analysis before response")
+                    self._vision_manager.request_screen_analysis()
+                    # Give it a moment to capture (but don't block waiting for analysis)
+                    # The analysis will complete asynchronously and update the state
 
             # Generate response with dynamic timeout
             self.state_machine.force_state(State.THINKING)
@@ -610,13 +621,16 @@ class App:
             # so any new facts/memories are reflected in the next request
             self.conversation.set_soul_prompt(self.memory_manager.get_full_context())
             
-            # Get visual context from vision system if available and enabled
+            # Get visual context from vision system ONLY if on-demand mode is disabled
+            # or if there's a significant event to report
             visual_context = None
             if self._vision_manager and self._vision_manager.is_running:
-                context_summary = self._vision_manager.get_context_summary()
-                if context_summary:
-                    visual_context = context_summary
-                    logger.debug(f"Adding visual context to LLM: {context_summary[:100]}...")
+                # Check if vision manager has a significant event to share
+                if self._vision_manager.should_inject_context():
+                    context_summary = self._vision_manager.get_context_summary()
+                    if context_summary:
+                        visual_context = context_summary
+                        logger.debug(f"Adding visual context to LLM: {context_summary[:100]}...")
             
             messages = self.conversation.get_messages_for_llm(visual_context=visual_context)
             raw_response = self.llm.chat(messages, timeout=timeout)
@@ -685,13 +699,16 @@ class App:
             # Refresh soul prompt before generating
             self.conversation.set_soul_prompt(self.memory_manager.get_full_context())
             
-            # Get visual context from vision system if available and enabled
+            # Get visual context from vision system ONLY if on-demand mode is disabled
+            # or if there's a significant event to report
             visual_context = None
             if self._vision_manager and self._vision_manager.is_running:
-                context_summary = self._vision_manager.get_context_summary()
-                if context_summary:
-                    visual_context = context_summary
-                    logger.debug(f"Adding visual context to streaming LLM: {context_summary[:100]}...")
+                # Check if vision manager has a significant event to share
+                if self._vision_manager.should_inject_context():
+                    context_summary = self._vision_manager.get_context_summary()
+                    if context_summary:
+                        visual_context = context_summary
+                        logger.debug(f"Adding visual context to streaming LLM: {context_summary[:100]}...")
             
             messages = self.conversation.get_messages_for_llm(visual_context=visual_context)
             
