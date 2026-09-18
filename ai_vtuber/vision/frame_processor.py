@@ -1,13 +1,14 @@
 """AI VTuber - Frame Processing and Change Detection"""
 
 import hashlib
+import io
 import logging
 import queue
 import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Optional, Callable, Deque, List
+from typing import Optional, Callable, Deque, List, Tuple
 
 import numpy as np
 from PIL import Image
@@ -25,6 +26,7 @@ class FrameProcessingConfig:
     resize_width: int = 320  # Resize for change detection
     resize_height: int = 180
     hash_bins: int = 16  # For perceptual hashing
+    max_history_size: int = 5  # Maximum number of frames in history
 
 
 @dataclass
@@ -35,6 +37,8 @@ class ProcessedFrame:
     change_score: float  # 0.0-1.0, how much changed from previous
     is_significant: bool  # Whether to send for analysis
     frame_hash: str
+    width: int = 0
+    height: int = 0
 
 
 class FrameProcessor:
@@ -57,13 +61,16 @@ class FrameProcessor:
         self._analysis_lock = threading.Lock()
         self._is_analyzing = False
         
-        # Frame history for change detection
-        self._frame_history: Deque[np.ndarray] = deque(maxlen=5)
+        # Frame history for change detection (bounded)
+        # Stores tuples of (numpy_array, timestamp, hash)
+        self._frame_history: Deque[Tuple[np.ndarray, float, str]] = deque(
+            maxlen=config.max_history_size
+        )
         self._last_hash: Optional[str] = None
         self._last_analysis_time: float = 0.0
         self._frames_since_analysis: int = 0
         
-        # Queue for pending frames
+        # Bounded queue for pending frames (latest-frame strategy)
         self._frame_queue: queue.Queue[ProcessedFrame] = queue.Queue(
             maxsize=config.max_queue_size
         )
@@ -73,6 +80,7 @@ class FrameProcessor:
         self._significant_frames: int = 0
         self._duplicate_frames: int = 0
         self._dropped_frames: int = 0
+        self._invalid_frames: int = 0
         
         # Callback for frames ready for analysis
         self._analysis_callback: Optional[Callable[[ProcessedFrame], None]] = None
@@ -91,47 +99,52 @@ class FrameProcessor:
     def stop(self) -> None:
         """Stop the frame processor."""
         self._running = False
+        # Clear queue on stop
+        while not self._frame_queue.empty():
+            try:
+                self._frame_queue.get_nowait()
+            except queue.Empty:
+                break
         logger.info("Frame processor stopped")
     
-    def process_frame(self, image_bytes: bytes, timestamp: float) -> Optional[ProcessedFrame]:
+    def process_frame(
+        self, image_bytes: bytes, timestamp: Optional[float] = None
+    ) -> Optional[ProcessedFrame]:
         """
         Process a captured frame and determine if it should be analyzed.
         
         Args:
-            image_bytes: JPEG-encoded image data
-            timestamp: Frame timestamp
+            image_bytes: JPEG or PNG encoded image data
+            timestamp: Frame timestamp (uses current time if None)
             
         Returns:
-            ProcessedFrame if significant, None if skipped
+            ProcessedFrame if significant, None if skipped or invalid
         """
         if not self._running:
             return None
             
         self._total_frames += 1
         
-        try:
-            # Decode image
-            img = Image.frombytes(
-                "RGB",
-                (image_bytes[0:4], image_bytes[4:8]),  # Placeholder
-                image_bytes,
-                "raw",
-                "JPEG"
-            )
-        except Exception:
-            # Fallback: load from bytes
-            img = Image.open(io.BytesIO(image_bytes))
+        if timestamp is None:
+            timestamp = time.time()
+        
+        # Decode image safely
+        img = self._decode_image(image_bytes)
+        if img is None:
+            self._invalid_frames += 1
+            logger.warning(f"Invalid/empty image data received (frame #{self._total_frames})")
+            return None
         
         # Compute perceptual hash
         frame_hash = self._compute_hash(img)
         
-        # Check for duplicate
+        # Check for duplicate (cheap comparison first)
         if self._last_hash == frame_hash:
             self._duplicate_frames += 1
-            logger.debug("Duplicate frame detected, skipping")
+            logger.debug("Duplicate frame detected (hash match), skipping")
             return None
         
-        # Compute change score
+        # Compute change score (more expensive comparison)
         change_score = self._compute_change(img)
         
         # Determine if significant
@@ -142,15 +155,20 @@ class FrameProcessor:
             timestamp=timestamp,
             change_score=change_score,
             is_significant=is_significant,
-            frame_hash=frame_hash
+            frame_hash=frame_hash,
+            width=img.width,
+            height=img.height
         )
         
         if is_significant:
             self._significant_frames += 1
             self._last_hash = frame_hash
+            
+            # Update frame history when submitting for analysis
+            self._update_frame_history(img, timestamp, frame_hash)
             self._frames_since_analysis += 1
             
-            # Add to queue
+            # Add to queue (non-blocking, drops oldest if full via replacement strategy)
             try:
                 self._frame_queue.put_nowait(processed)
                 
@@ -171,9 +189,28 @@ class FrameProcessor:
         
         return processed
     
+    def _decode_image(self, image_bytes: bytes) -> Optional[Image.Image]:
+        """
+        Safely decode image bytes to PIL Image.
+        
+        Handles JPEG, PNG, and other common formats.
+        Returns None for invalid/empty data.
+        """
+        if not image_bytes or len(image_bytes) < 16:
+            return None
+        
+        try:
+            # Use proper byte-stream decoding
+            img = Image.open(io.BytesIO(image_bytes))
+            img.load()  # Force load to detect truncated images
+            return img.convert("RGB")  # Normalize to RGB
+        except Exception as e:
+            logger.debug(f"Image decode failed: {type(e).__name__}: {e}")
+            return None
+    
     def _compute_hash(self, img: Image.Image) -> str:
         """Compute a perceptual hash of the image."""
-        # Resize to small size
+        # Resize to small size for hash computation
         small = img.resize(
             (self.config.hash_bins, self.config.hash_bins),
             Image.Resampling.LANCZOS
@@ -211,8 +248,8 @@ class FrameProcessor:
         
         current = np.array(small, dtype=np.float32)
         
-        # Compare with most recent frame
-        previous = self._frame_history[-1]
+        # Compare with most recent frame in history
+        previous = self._frame_history[-1][0]  # Get numpy array from tuple
         
         # Compute difference
         diff = np.abs(current - previous) / 255.0
@@ -237,29 +274,33 @@ class FrameProcessor:
         
         return True
     
+    def _update_frame_history(
+        self, img: Image.Image, timestamp: float, frame_hash: str
+    ) -> None:
+        """Update frame history with new frame (called when submitting for analysis)."""
+        # Resize for storage in history
+        small = img.resize(
+            (self.config.resize_width, self.config.resize_height),
+            Image.Resampling.LANCZOS
+        ).convert("L")
+        arr = np.array(small, dtype=np.float32)
+        self._frame_history.append((arr, timestamp, frame_hash))
+    
     def mark_analysis_complete(self) -> None:
         """Call this when LLM analysis completes."""
         with self._lock:
             self._is_analyzing = False
             self._last_analysis_time = time.time()
             self._frames_since_analysis = 0
-            
-            # Update frame history
-            # (done when frame is submitted for analysis)
     
     def is_busy(self) -> bool:
         """Check if currently analyzing a frame."""
         return self._is_analyzing
     
-    def mark_frame_submitted(self, img: Image.Image) -> None:
-        """Call when frame is submitted for LLM analysis."""
-        # Update frame history for change detection
-        small = img.resize(
-            (self.config.resize_width, self.config.resize_height),
-            Image.Resampling.LANCZOS
-        ).convert("L")
-        arr = np.array(small, dtype=np.float32)
-        self._frame_history.append(arr)
+    def set_analyzing(self, value: bool) -> None:
+        """Set the analyzing state (thread-safe)."""
+        with self._lock:
+            self._is_analyzing = value
     
     @property
     def stats(self) -> dict:
@@ -269,10 +310,8 @@ class FrameProcessor:
             "significant_frames": self._significant_frames,
             "duplicate_frames": self._duplicate_frames,
             "dropped_frames": self._dropped_frames,
+            "invalid_frames": self._invalid_frames,
             "queue_size": self._frame_queue.qsize(),
+            "history_size": len(self._frame_history),
             "is_analyzing": self._is_analyzing
         }
-
-
-# Import io at module level for the fallback in process_frame
-import io
