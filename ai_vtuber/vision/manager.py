@@ -129,6 +129,7 @@ class VisionManager:
         self._last_significant_event: Optional[str] = None
         self._analysis_pending = False
         self._last_capture_time: float = 0.0
+        self._last_context_injection_time: float = 0.0  # Track last context injection
         
         # Statistics
         self._frames_processed = 0
@@ -343,8 +344,12 @@ class VisionManager:
         Get a concise text summary of visual context.
         
         Use this for injecting into LLM conversation when appropriate.
+        Records the injection time to avoid repetition.
         """
         state = self.get_current_state()
+        
+        # Record injection time
+        self._last_context_injection_time = time.time()
         
         parts = []
         
@@ -391,7 +396,6 @@ class VisionManager:
         if self.config.on_demand_only:
             # Check if we have recent visual state (within last 10 seconds)
             if self._current_state.last_update > 0:
-                import time
                 elapsed = time.time() - self._current_state.last_update
                 if elapsed < 10.0:  # Recent analysis
                     return True
