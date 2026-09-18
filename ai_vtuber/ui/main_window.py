@@ -29,9 +29,10 @@ class QtMainWindow(QMainWindow):
     """Main Qt window for AI VTuber application.
     
     TRANSPARENT MODE:
-    When transparent mode is enabled, the window uses Qt.WindowTransparentForInput
-    to allow mouse clicks to pass through to windows behind. The avatar is visible
-    but does not block interaction with other applications.
+    When transparent mode is enabled, the window becomes frameless with a transparent
+    background. Hold Right Mouse Button (RMB) to drag the entire UI/window position.
+    Left mouse button interacts with the avatar (drag/zoom). The avatar is visible
+    but the window still captures mouse events for interaction.
     
     COLOR REFERENCE (see module docstring for complete palette):
     - #000000 (Pure Black): Main window background, Live2D OpenGL widget
@@ -94,7 +95,8 @@ class QtMainWindow(QMainWindow):
         if self.transparent:
             # Frameless + translucent so only the rendered avatar shows.
             # Needs a compositing WM (default on GNOME/KDE; use picom on i3/sway-style setups).
-            self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.WindowTransparentForInput)
+            # Note: No WindowTransparentForInput - we want to capture mouse events for dragging
+            self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
             self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
             self.setStyleSheet(f"""
                 QMainWindow {{
@@ -406,7 +408,8 @@ class QtMainWindow(QMainWindow):
             # Must hide window before changing window flags
             if transparency_changed:
                 self.hide()
-                self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.WindowTransparentForInput)
+                # Note: No WindowTransparentForInput - we want to capture mouse events for dragging
+                self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
             self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
             self.setStyleSheet(f"""
                 QMainWindow {{
@@ -548,3 +551,34 @@ class QtMainWindow(QMainWindow):
             if self.chat_input_container.isVisible() and self.chat_input_container.chat_input_field.hasFocus():
                 # Let Qt handle it normally
                 super().keyPressEvent(event)
+
+    def mousePressEvent(self, event):
+        """Handle mouse press for window dragging with RMB in transparent mode."""
+        if self.transparent and event.button() == Qt.RightButton:
+            # Start dragging the window
+            self._drag_position = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
+        else:
+            # Pass to parent for normal handling
+            super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        """Handle mouse move for window dragging with RMB in transparent mode."""
+        if self.transparent and hasattr(self, '_drag_position') and event.buttons() & Qt.RightButton:
+            # Move the window
+            self.move(event.globalPosition().toPoint() - self._drag_position)
+            event.accept()
+        else:
+            # Pass to parent for normal handling
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        """Handle mouse release for window dragging with RMB in transparent mode."""
+        if self.transparent and event.button() == Qt.RightButton:
+            # Stop dragging
+            if hasattr(self, '_drag_position'):
+                del self._drag_position
+            event.accept()
+        else:
+            # Pass to parent for normal handling
+            super().mouseReleaseEvent(event)
