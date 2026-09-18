@@ -540,27 +540,36 @@ class VisionManager:
         if state.get('player_health_low'):
             parts.append("- LOW HEALTH WARNING")
         
-        # Generic screen content fields (for any application)
+        # Generic application/screen content - show app_name first if available
         if state.get('app_name'):
             parts.append(f"Viewing: {state['app_name']}")
         
-        if state.get('is_browser'):
+        # Add type flags only if they provide additional info beyond app_name
+        # (avoid redundancy like "Viewing: Chrome | Browser window active")
+        has_type_flag = False
+        if state.get('is_browser') and not state.get('app_name'):
             parts.append("- Browser window active")
-        
-        if state.get('is_video'):
+            has_type_flag = True
+        elif state.get('is_video') and not state.get('app_name'):
             parts.append("- Video playing")
-        
-        if state.get('is_code'):
+            has_type_flag = True
+        elif state.get('is_code') and not state.get('app_name'):
             parts.append("- Code editor open")
-        
-        if state.get('is_document'):
+            has_type_flag = True
+        elif state.get('is_document') and not state.get('app_name'):
             parts.append("- Document visible")
-        
-        if state.get('is_social'):
+            has_type_flag = True
+        elif state.get('is_social') and not state.get('app_name'):
             parts.append("- Social media/chat app")
-        
-        if state.get('is_image'):
+            has_type_flag = True
+        elif state.get('is_image') and not state.get('app_name'):
             parts.append("- Image/photo displayed")
+            has_type_flag = True
+        
+        # If we have both app_name and a type, add the type as extra context
+        if state.get('app_name') and has_type_flag:
+            # Remove the redundant type-only entry, it's implied by app_name
+            pass  # The type flag was already skipped above since app_name exists
         
         if state.get('visible_text'):
             parts.append(f"Text: \"{state['visible_text'][:80]}...\"")
@@ -638,6 +647,17 @@ class VisionManager:
                     self._current_state.app_name = result.scene.application
                 if result.scene.location:
                     self._current_state.location = result.scene.location
+                
+                # Map application_type to boolean flags for context summary
+                app_type = result.scene.application_type
+                if app_type:
+                    self._current_state.is_browser = (app_type == 'browser')
+                    self._current_state.is_video = (app_type == 'video')
+                    self._current_state.is_code = (app_type == 'code')
+                    self._current_state.is_document = (app_type == 'document')
+                    self._current_state.is_social = (app_type == 'social')
+                    self._current_state.is_image = (app_type == 'image')
+                    # Don't set any flag for 'game' (use game_name) or 'other'
             
             if result.state:
                 if result.state.in_combat is not None:
