@@ -61,8 +61,8 @@ vision:
   ocr_enabled: false  # Reserved for future OCR integration
   game_cache_enabled: true  # Cache recognized entities across sessions
   inject_into_conversation: false  # Don't auto-inject visual context into chat (uses on-demand instead)
-  max_width: 1280  # Resize captured screens for efficiency
-  max_height: 720
+  max_width: 1920  # Full HD resolution for better screen analysis
+  max_height: 1080
   on_demand_only: true  # CRITICAL: Only capture screen when user asks something (recommended)
                         # When true: No continuous capture, only triggered before LLM responses
                         # When false: Continuous background capture (can cause queue overflow)
