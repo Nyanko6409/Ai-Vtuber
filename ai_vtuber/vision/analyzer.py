@@ -1,4 +1,4 @@
-"""AI VTuber - Visual Scene Analysis using Gemma via Ollama"""
+"""AI VTuber - Visual Scene Analysis using Vision-Capable LLM"""
 
 import io
 import logging
@@ -24,7 +24,7 @@ class VisionAnalysisResult:
 
 class VisionAnalyzer:
     """
-    Visual scene understanding using Gemma 4 E4B via Ollama.
+    Visual scene understanding using a vision-capable LLM.
     
     Focuses on:
     - What is happening on screen (game state, actions, events)
@@ -37,8 +37,8 @@ class VisionAnalyzer:
     
     def __init__(
         self,
-        ollama_client,
-        model: str = "gemma4:e4b",
+        llm_client,
+        model: str,
         max_tokens: int = 300,
         timeout: int = 30
     ):
@@ -46,12 +46,12 @@ class VisionAnalyzer:
         Initialize the vision analyzer.
         
         Args:
-            ollama_client: OllamaClient instance (must support vision)
-            model: Vision model name
+            llm_client: LLM client instance (must support vision/images)
+            model: Vision model name (e.g., 'google/gemma-4-e2b')
             max_tokens: Maximum tokens in response
             timeout: Request timeout in seconds
         """
-        self.client = ollama_client
+        self.client = llm_client
         self.model = model
         self.max_tokens = max_tokens
         self.timeout = timeout
@@ -94,7 +94,7 @@ class VisionAnalyzer:
         context_hint: Optional[str] = None
     ) -> Optional[VisionAnalysisResult]:
         """
-        Analyze a screenshot using Gemma vision model.
+        Analyze a screenshot using vision-capable LLM.
         
         Args:
             image_bytes: JPEG-encoded screenshot
@@ -121,8 +121,8 @@ class VisionAnalyzer:
             # Load image
             img = Image.open(io.BytesIO(image_bytes))
             
-            # Send to Ollama with image
-            response = self._call_ollama_vision(img, prompt)
+            # Send to LLM with image
+            response = self._call_vision(img, prompt)
             
             if not response:
                 self._error_count += 1
@@ -192,13 +192,16 @@ Be concise and specific. Format: 2-3 sentences maximum."""
         
         return "\n".join(parts)
     
-    def _call_ollama_vision(
+    def _call_vision(
         self,
         image: Image.Image,
         prompt: str
     ) -> Optional[str]:
         """
-        Call Ollama vision API with image.
+        Call LLM vision API with image.
+        
+        This method uses the OpenAI-compatible API which supports
+        multimodal content (images + text).
         
         Args:
             image: PIL Image object
@@ -208,9 +211,6 @@ Be concise and specific. Format: 2-3 sentences maximum."""
             Response text or None on failure
         """
         try:
-            # Check if client supports vision
-            # Ollama's OpenAI-compatible API accepts images as base64
-            
             import base64
             
             # Convert image to base64
@@ -219,6 +219,8 @@ Be concise and specific. Format: 2-3 sentences maximum."""
             image_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
             
             # Build messages for OpenAI-compatible API
+            # This format works with LM Studio and other OpenAI-compatible APIs
+            # that support vision/multimodal input
             messages = [{
                 "role": "user",
                 "content": [
@@ -232,9 +234,8 @@ Be concise and specific. Format: 2-3 sentences maximum."""
                 ]
             }]
             
-            # Use chat method - need to check if it supports images
-            # The OpenAI Python client handles multimodal content
-            
+            # Use chat.completions.create with multimodal content
+            # The OpenAI Python client handles encoding images properly
             response = self.client._client.chat.completions.create(
                 model=self.model,
                 messages=messages,
@@ -247,7 +248,7 @@ Be concise and specific. Format: 2-3 sentences maximum."""
             return content if content else ""
             
         except Exception as e:
-            logger.error(f"Ollama vision call failed: {e}")
+            logger.error(f"Vision call failed: {e}")
             return None
     
     def _parse_response(

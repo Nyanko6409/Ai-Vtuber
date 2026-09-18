@@ -1,40 +1,49 @@
 ```
 # Python
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
+*.py[cod]
+*$py.class
 *.so
-*.egg-info/
-dist/
+.Python
 build/
 develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
 .installed.cfg
-.tox/
-.coverage
-htmlcov/
-.pytest_cache/
-.mypy_cache/
+*.egg
+MANIFEST
 
 # Environment
 .venv/
 venv/
-.env
-.env.local
-*.env.*
+env/
+ENV/
 
 # Logs
 *.log
 
-# Editor/IDE
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-*.tmp
 
 # OS
 .DS_Store
 Thumbs.db
+
+# Coverage
+.coverage
+htmlcov/
+.coverage.*
+.coverage.xml
 ```

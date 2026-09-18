@@ -10,7 +10,8 @@
 # LLM Settings (LM Studio OpenAI-compatible API)
 llm:
   base_url: "http://localhost:1234/v1"
-  model: "google/gemma-4-e2b"
+  model: "google/gemma-4-e2b"  # Primary LLM model for text chat
+  vision_model: "google/gemma-4-e2b"  # Vision-capable model for screen analysis (same or different)
   temperature: 0.8
   max_tokens: 2000
   max_context: 64000
@@ -39,16 +40,16 @@ llm:
   # soul.md is loaded automatically at startup and combined with this system prompt.
 
 # Ollama Settings (fallback LLM provider if LM Studio unavailable)
-# For vision: gemma4:e4b supports image analysis
 ollama:
   base_url: "http://localhost:11434/v1"
   model: "gemma2:2b"  # Make sure to pull this model first: ollama pull gemma2:2b
   temperature: 0.8
   max_tokens: 2000
   timeout: null  # No timeout - wait for LLM reply
-  vision_model: "gemma4:e4b"  # Vision-capable model for screen analysis (pull with: ollama pull gemma4:e4b)
+  vision_model: "google/gemma-4-e2b"  # Vision-capable model for screen analysis (if using Ollama)
 
 # Screen Vision Settings (for Airi's desktop/game watching)
+# Uses LM Studio with vision-capable model (e.g., google/gemma-4-e2b)
 vision:
   enabled: false  # Set true to enable screen watching
   source: "screen"  # 'screen' or 'window'

@@ -56,7 +56,7 @@ class VisionManager:
     Responsibilities:
     - Start/stop all vision services
     - Route frames through processing pipeline
-    - Manage analysis requests to Ollama
+    - Manage analysis requests to LLM
     - Maintain current visual state
     - Provide thread-safe access to visual context
     """
@@ -64,19 +64,19 @@ class VisionManager:
     def __init__(
         self,
         config: VisionConfig,
-        ollama_client=None,
-        vision_model: str = "gemma4:e4b"
+        llm_client=None,
+        vision_model: str = "google/gemma-4-e2b"
     ):
         """
         Initialize vision manager.
         
         Args:
             config: Vision configuration
-            ollama_client: OllamaClient instance for vision analysis
-            vision_model: Model name for vision analysis
+            llm_client: LLM client instance for vision analysis (must support images)
+            vision_model: Model name for vision analysis (from config)
         """
         self.config = config
-        self._ollama_client = ollama_client
+        self._llm_client = llm_client
         self._vision_model = vision_model
         
         self._running = False
@@ -133,15 +133,15 @@ class VisionManager:
         logger.info("Starting vision system...")
         
         try:
-            # Initialize analyzer if Ollama available
-            if self._ollama_client and self._ollama_client.is_available():
+            # Initialize analyzer if LLM client available
+            if self._llm_client and self._llm_client.is_available():
                 self._analyzer = VisionAnalyzer(
-                    self._ollama_client,
+                    self._llm_client,
                     model=self._vision_model
                 )
                 logger.info(f"Vision analyzer initialized with {self._vision_model}")
             else:
-                logger.warning("Ollama not available, vision analysis disabled")
+                logger.warning("LLM client not available, vision analysis disabled")
             
             # Start frame processor
             self._frame_processor.start()
@@ -315,7 +315,7 @@ class VisionManager:
             if self._game_cache:
                 cached_state = self._game_cache.get_current_state().to_dict()
             
-            # Analyze
+            # Analyze with LLM
             result = self._analyzer.analyze(
                 processed.image_bytes,
                 cached_state=cached_state
