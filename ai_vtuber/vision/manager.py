@@ -21,8 +21,8 @@ class VisionConfig:
     source: str = "screen"  # 'screen' or 'window'
     monitor_index: int = 0
     on_demand_only: bool = True  # Only capture when explicitly requested (SIMPLIFIED)
-    max_width: int = 1280
-    max_height: int = 720
+    max_width: int = 1920  # Full HD resolution for better analysis
+    max_height: int = 1080
     game_cache_enabled: bool = True
     
     @classmethod
@@ -33,8 +33,8 @@ class VisionConfig:
             source=data.get('source', 'screen'),
             monitor_index=data.get('monitor_index', 0),
             on_demand_only=data.get('on_demand_only', True),
-            max_width=data.get('max_width', 1280),
-            max_height=data.get('max_height', 720),
+            max_width=data.get('max_width', 1920),
+            max_height=data.get('max_height', 1080),
             game_cache_enabled=data.get('game_cache_enabled', True)
         )
 
@@ -164,22 +164,22 @@ class VisionManager:
         
         # CRITICAL FIX: Set _analysis_pending BEFORE starting thread (race condition fix)
         if self._analysis_pending:
-            logger.debug("Analysis already pending, skipping request")
+            logger.debug("[VISION DEBUG] Analysis already pending, skipping request")
             return False
         
         # Check if analyzer is busy using our internal flag instead of analyzer's state
         if self.is_analyzing:
-            logger.debug("Analyzer busy, skipping request")
+            logger.debug("[VISION DEBUG] Analyzer busy, skipping request")
             return False
         
         # Check minimum time between captures
         now = time.time()
         min_interval = 3.0  # Minimum 3 seconds between on-demand captures
         if now - self._last_capture_time < min_interval:
-            logger.debug(f"Too soon since last capture ({now - self._last_capture_time:.1f}s)")
+            logger.debug(f"[VISION DEBUG] Too soon since last capture ({now - self._last_capture_time:.1f}s)")
             return False
         
-        logger.info("On-demand screen capture requested")
+        logger.info("[VISION DEBUG] On-demand screen capture requested")
         
         # Set pending flag synchronously BEFORE starting thread
         self._analysis_pending = True
@@ -205,10 +205,15 @@ class VisionManager:
             self._last_capture_time = time.time()
             self._analysis_pending = True
             
-            # One-time capture
+            logger.debug("[VISION DEBUG] Starting screenshot capture...")
+            
+            # One-time capture at 1920x1080
             with mss() as sct:
                 monitor = sct.monitors[self.config.monitor_index]
+                logger.debug(f"[VISION DEBUG] Capturing monitor {self.config.monitor_index}: {monitor}")
+                
                 screenshot = sct.grab(monitor)
+                logger.debug(f"[VISION DEBUG] Screenshot captured: {screenshot.width}x{screenshot.height}")
                 
                 # Convert to PIL Image
                 img = Image.frombytes(
@@ -219,14 +224,18 @@ class VisionManager:
                     "BGRX"
                 )
                 
-                # Resize if needed
+                # Resize to max 1920x1080 if needed
                 if img.width > self.config.max_width or img.height > self.config.max_height:
+                    logger.debug(f"[VISION DEBUG] Resizing from {img.width}x{img.height} to max {self.config.max_width}x{self.config.max_height}")
                     img.thumbnail((self.config.max_width, self.config.max_height), Image.Resampling.LANCZOS)
+                
+                logger.debug(f"[VISION DEBUG] Final image size: {img.width}x{img.height}")
                 
                 # Encode to JPEG
                 buf = io.BytesIO()
                 img.save(buf, format="JPEG", quality=85)
                 image_bytes = buf.getvalue()
+                logger.debug(f"[VISION DEBUG] Image encoded to {len(image_bytes)} bytes, sending to LLM...")
             
             # Get cached state for context
             cached_state = None
@@ -234,10 +243,12 @@ class VisionManager:
                 cached_state = self._game_cache.get_current_state().to_dict()
             
             # Analyze with LLM
+            logger.debug("[VISION DEBUG] Calling LLM analyzer...")
             result = self._analyzer.analyze(
                 image_bytes,
                 cached_state=cached_state
             )
+            logger.debug(f"[VISION DEBUG] LLM analysis completed: {result is not None}")
             
             if result:
                 self._update_state_from_result(result)
@@ -251,10 +262,11 @@ class VisionManager:
             
         except Exception as e:
             self._errors += 1
-            logger.error(f"On-demand vision analysis error: {e}")
+            logger.error(f"[VISION DEBUG] On-demand vision analysis error: {e}")
             
         finally:
             self._analysis_pending = False
+            logger.debug("[VISION DEBUG] Vision analysis cycle complete")
     
     @property
     def is_running(self) -> bool:
