@@ -53,6 +53,9 @@ class App:
         self.current_transcription: str = ""
         self.current_response: str = ""
         self.current_emotion: str = "neutral"
+        
+        # Vision state for on-demand mode
+        self._vision_context_ready: bool = False
 
         # Components (initialized lazily)
         self._llm: Optional[LMStudioClient | OllamaClient] = None
@@ -525,7 +528,7 @@ class App:
             # TRIGGER on-demand screen analysis BEFORE generating response
             # This allows Airi to "look at the screen" when the user asks something
             # Only trigger if vision is enabled and in on-demand mode
-            vision_context_ready = False
+            self._vision_context_ready = False
             if self._vision_manager and self._vision_manager.is_running:
                 # Request screen capture for context (on-demand mode)
                 if self._vision_manager.config.on_demand_only:
@@ -538,12 +541,12 @@ class App:
                         while wait_time < max_wait:
                             if not self._vision_manager.is_analyzing:
                                 # Analysis completed (or wasn't needed)
-                                vision_context_ready = True
+                                self._vision_context_ready = True
                                 break
                             time.sleep(0.1)
                             wait_time += 0.1
                         
-                        if vision_context_ready:
+                        if self._vision_context_ready:
                             logger.debug("Vision analysis completed before LLM call")
                         else:
                             logger.debug("Vision analysis still pending, proceeding without full context")
@@ -640,7 +643,7 @@ class App:
             visual_context = None
             if self._vision_manager and self._vision_manager.is_running:
                 # In on-demand mode, always try to inject context after recent analysis
-                if self._vision_manager.config.on_demand_only and vision_context_ready:
+                if self._vision_manager.config.on_demand_only and self._vision_context_ready:
                     # Just completed an analysis, inject the context
                     context_summary = self._vision_manager.get_context_summary()
                     if context_summary:
@@ -724,7 +727,7 @@ class App:
             visual_context = None
             if self._vision_manager and self._vision_manager.is_running:
                 # In on-demand mode, always try to inject context after recent analysis
-                if self._vision_manager.config.on_demand_only and vision_context_ready:
+                if self._vision_manager.config.on_demand_only and self._vision_context_ready:
                     # Just completed an analysis, inject the context
                     context_summary = self._vision_manager.get_context_summary()
                     if context_summary:
