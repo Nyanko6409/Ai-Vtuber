@@ -25,6 +25,8 @@ class ScreenCaptureConfig:
     max_height: int = 1080
     jpeg_quality: int = 85  # JPEG compression quality (1-100)
     region: Optional[tuple] = None  # (left, top, right, bottom) ROI if set
+    debug_save_captures: bool = False  # TEMPORARY: Save captured images to debug folder
+    debug_folder: str = "debug_captures"  # Folder for debug captures
     
     def validate(self) -> tuple[bool, str]:
         """Validate configuration values.
@@ -281,6 +283,22 @@ class ScreenCaptureService:
             buffer = io.BytesIO()
             img.save(buffer, format="JPEG", quality=self.config.jpeg_quality)
             image_bytes = buffer.getvalue()
+            
+            # TEMPORARY DEBUG: Save captured image to file
+            if self.config.debug_save_captures:
+                import os
+                from datetime import datetime
+                os.makedirs(self.config.debug_folder, exist_ok=True)
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"capture_{timestamp}_mon{self.config.monitor_index}_{img.width}x{img.height}.jpg"
+                filepath = os.path.join(self.config.debug_folder, filename)
+                img.save(filepath, format="JPEG", quality=self.config.jpeg_quality)
+                logger.info(f"[DEBUG CAPTURE] Saved screenshot to: {filepath}")
+                logger.info(f"[DEBUG CAPTURE] Monitor index: {self.config.monitor_index}, Dimensions: {img.width}x{img.height}, Size: {len(image_bytes)} bytes")
+                if self.config.region:
+                    logger.info(f"[DEBUG CAPTURE] Region: {self.config.region}")
+                else:
+                    logger.info(f"[DEBUG CAPTURE] Full monitor capture")
             
             logger.debug(f"capture_once: captured {img.width}x{img.height}, {len(image_bytes)} bytes")
             return image_bytes

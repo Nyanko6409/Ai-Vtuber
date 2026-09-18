@@ -25,6 +25,8 @@ class VisionConfig:
     max_height: int = 1080
     game_cache_enabled: bool = True
     inject_into_conversation: bool = True  # Whether to inject visual context into conversation
+    debug_save_captures: bool = False  # TEMPORARY: Save captured images for debugging
+    debug_folder: str = "debug_captures"  # Folder for debug captures
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'VisionConfig':
@@ -37,7 +39,9 @@ class VisionConfig:
             max_width=data.get('max_width', 1920),
             max_height=data.get('max_height', 1080),
             game_cache_enabled=data.get('game_cache_enabled', True),
-            inject_into_conversation=data.get('inject_into_conversation', True)
+            inject_into_conversation=data.get('inject_into_conversation', True),
+            debug_save_captures=data.get('debug_save_captures', False),
+            debug_folder=data.get('debug_folder', 'debug_captures')
         )
 
 
@@ -142,7 +146,9 @@ class VisionManager:
                     max_width=self.config.max_width,
                     max_height=self.config.max_height,
                     jpeg_quality=85,
-                    enabled=False  # Disabled by default, only used on-demand
+                    enabled=False,  # Disabled by default, only used on-demand
+                    debug_save_captures=self.config.debug_save_captures,
+                    debug_folder=self.config.debug_folder
                 )
                 self._capture_service = ScreenCaptureService(capture_config)
                 
