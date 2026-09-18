@@ -294,7 +294,11 @@ class FrameProcessor:
             self._frames_since_analysis = 0
     
     def is_busy(self) -> bool:
-        """Check if currently analyzing a frame."""
+        """Check if currently analyzing a frame.
+        
+        Note: This is a method (not a @property) for consistency with
+        the FrameProcessor API pattern. Returns True if analyzing, False otherwise.
+        """
         return self._is_analyzing
     
     def set_analyzing(self, value: bool) -> None:
