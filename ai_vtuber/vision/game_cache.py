@@ -71,6 +71,7 @@ class ScreenState:
         self.in_dialogue = False
         self.loading = False
         self.player_health_low = False
+        self.last_update = 0.0
         self.last_significant_event = None
 
 

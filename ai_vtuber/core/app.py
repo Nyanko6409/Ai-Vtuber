@@ -525,13 +525,28 @@ class App:
             # TRIGGER on-demand screen analysis BEFORE generating response
             # This allows Airi to "look at the screen" when the user asks something
             # Only trigger if vision is enabled and in on-demand mode
+            vision_context_ready = False
             if self._vision_manager and self._vision_manager.is_running:
                 # Request screen capture for context (on-demand mode)
                 if self._vision_manager.config.on_demand_only:
                     logger.debug("Requesting on-demand screen analysis before response")
-                    self._vision_manager.request_screen_analysis()
-                    # Give it a moment to capture (but don't block waiting for analysis)
-                    # The analysis will complete asynchronously and update the state
+                    if self._vision_manager.request_screen_analysis():
+                        # Wait briefly for analysis to complete (max 2 seconds)
+                        # This ensures visual context is available when calling LLM
+                        wait_time = 0.0
+                        max_wait = 2.0
+                        while wait_time < max_wait:
+                            if not self._vision_manager.is_analyzing:
+                                # Analysis completed (or wasn't needed)
+                                vision_context_ready = True
+                                break
+                            time.sleep(0.1)
+                            wait_time += 0.1
+                        
+                        if vision_context_ready:
+                            logger.debug("Vision analysis completed before LLM call")
+                        else:
+                            logger.debug("Vision analysis still pending, proceeding without full context")
 
             # Generate response with dynamic timeout
             self.state_machine.force_state(State.THINKING)
@@ -621,12 +636,18 @@ class App:
             # so any new facts/memories are reflected in the next request
             self.conversation.set_soul_prompt(self.memory_manager.get_full_context())
             
-            # Get visual context from vision system ONLY if on-demand mode is disabled
-            # or if there's a significant event to report
+            # Get visual context from vision system - ALWAYS inject in on-demand mode after analysis
             visual_context = None
             if self._vision_manager and self._vision_manager.is_running:
-                # Check if vision manager has a significant event to share
-                if self._vision_manager.should_inject_context():
+                # In on-demand mode, always try to inject context after recent analysis
+                if self._vision_manager.config.on_demand_only and vision_context_ready:
+                    # Just completed an analysis, inject the context
+                    context_summary = self._vision_manager.get_context_summary()
+                    if context_summary:
+                        visual_context = context_summary
+                        logger.debug(f"Adding visual context to LLM (on-demand): {context_summary[:100]}...")
+                elif self._vision_manager.should_inject_context():
+                    # Continuous mode or significant event
                     context_summary = self._vision_manager.get_context_summary()
                     if context_summary:
                         visual_context = context_summary
@@ -699,12 +720,18 @@ class App:
             # Refresh soul prompt before generating
             self.conversation.set_soul_prompt(self.memory_manager.get_full_context())
             
-            # Get visual context from vision system ONLY if on-demand mode is disabled
-            # or if there's a significant event to report
+            # Get visual context from vision system - ALWAYS inject in on-demand mode after analysis
             visual_context = None
             if self._vision_manager and self._vision_manager.is_running:
-                # Check if vision manager has a significant event to share
-                if self._vision_manager.should_inject_context():
+                # In on-demand mode, always try to inject context after recent analysis
+                if self._vision_manager.config.on_demand_only and vision_context_ready:
+                    # Just completed an analysis, inject the context
+                    context_summary = self._vision_manager.get_context_summary()
+                    if context_summary:
+                        visual_context = context_summary
+                        logger.debug(f"Adding visual context to streaming LLM (on-demand): {context_summary[:100]}...")
+                elif self._vision_manager.should_inject_context():
+                    # Continuous mode or significant event
                     context_summary = self._vision_manager.get_context_summary()
                     if context_summary:
                         visual_context = context_summary
