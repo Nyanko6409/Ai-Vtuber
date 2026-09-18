@@ -556,14 +556,20 @@ class App:
                 logger.debug("Vision analysis request failed or already pending")
                 return False
             
-            # Wait for analysis to complete (max 10 seconds for slower models)
+            # Wait for analysis to complete (max 30 seconds for slower models like Gemma)
             wait_time = 0.0
-            max_wait = 10.0
+            max_wait = 30.0  # Increased timeout for vision models
             while wait_time < max_wait:
                 if not self._vision_manager.is_analyzing:
-                    self._vision_context_ready = True
-                    logger.debug("Vision analysis completed successfully")
-                    return True
+                    # Analysis completed, check if we got a result
+                    result = self._vision_manager.get_latest_result()
+                    if result:
+                        self._vision_context_ready = True
+                        logger.debug(f"Vision analysis completed successfully with result: {result.description[:80] if result.description else 'no description'}...")
+                        return True
+                    else:
+                        logger.warning("Vision analysis completed but no result was returned")
+                        return False
                 time.sleep(0.1)
                 wait_time += 0.1
             

@@ -109,6 +109,10 @@ class VisionManager:
         self._last_context_injection_time: float = 0.0
         self._last_observation_id: Optional[str] = None  # Deduplication
         
+        # Store latest analysis result for retrieval
+        self._latest_result: Optional[VisionAnalysisResult] = None
+        self._latest_result_lock = threading.Lock()
+        
         # Worker thread management
         self._worker_thread: Optional[threading.Thread] = None
         self._shutdown_event = threading.Event()
@@ -233,6 +237,10 @@ class VisionManager:
         
         logger.info("[VISION DEBUG] On-demand screen capture requested")
         
+        # Clear any previous result before starting new analysis
+        with self._latest_result_lock:
+            self._latest_result = None
+        
         # Set pending flag synchronously BEFORE starting thread
         self._analysis_pending = True
         
@@ -245,6 +253,19 @@ class VisionManager:
         thread.start()
         
         return True
+    
+    def get_latest_result(self) -> Optional[VisionAnalysisResult]:
+        """
+        Get the most recent vision analysis result.
+        
+        Thread-safe access to the latest VisionAnalysisResult.
+        Returns None if no analysis has been completed yet.
+        
+        Returns:
+            Latest VisionAnalysisResult or None
+        """
+        with self._latest_result_lock:
+            return self._latest_result
     
     def _on_demand_capture_and_analyze(self) -> None:
         """Capture screen and analyze immediately (on-demand mode) using ScreenCaptureService."""
@@ -284,6 +305,10 @@ class VisionManager:
             logger.debug(f"[VISION {request_id}] LLM analysis completed: {result is not None}")
             
             if result:
+                # Store the latest result for retrieval (thread-safe)
+                with self._latest_result_lock:
+                    self._latest_result = result
+                
                 # Check for duplicate observations before updating state
                 obs_hash = self._compute_observation_hash(result)
                 if obs_hash == self._last_observation_id:
