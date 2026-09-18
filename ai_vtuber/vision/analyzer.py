@@ -227,7 +227,8 @@ class VisionAnalyzer:
             
         except Exception as e:
             self._error_count += 1
-            logger.error(f"Vision analysis failed: {e}")
+            logger.error(f"Vision analysis failed: {type(e).__name__}: {e}")
+            # Return None but error is now logged with full details
             return None
             
         finally:
@@ -343,8 +344,10 @@ Rules:
             
             logger.debug("[VISION_CALL] Sending multimodal request with image_url content block...")
             
-            # Use chat.completions.create with multimodal content
-            # The OpenAI Python client handles encoding images properly
+            # Use the underlying OpenAI client directly since the LMStudioClient
+            # wrapper doesn't expose a vision-specific method. This bypasses any
+            # error-handling/retry logic in LMStudioClient.chat(), but vision
+            # calls have their own exception handling in analyze().
             response = self.client._client.chat.completions.create(
                 model=self.model,
                 messages=messages,
@@ -355,7 +358,6 @@ Rules:
             
             # Log response structure for debugging
             logger.debug(f"[VISION_CALL] Response status: HTTP 200 OK")
-            logger.debug(f"[VISION_CALL] Response object keys: {dir(response)}")
             logger.debug(f"[VISION_CALL] Choices count: {len(response.choices) if hasattr(response, 'choices') else 0}")
             
             if not hasattr(response, 'choices') or len(response.choices) == 0:
@@ -363,15 +365,12 @@ Rules:
                 return None
             
             choice = response.choices[0]
-            logger.debug(f"[VISION_CALL] Choice object keys: {dir(choice)}")
             
             if not hasattr(choice, 'message'):
                 logger.error("[VISION_CALL] Choice has no message attribute")
                 return None
             
             message = choice.message
-            logger.debug(f"[VISION_CALL] Message object keys: {dir(message)}")
-            
             content = getattr(message, 'content', None)
             
             # Log raw response for debugging (truncated)
@@ -389,8 +388,10 @@ Rules:
             return content if content else ""
             
         except Exception as e:
+            self._error_count += 1
             logger.error(f"[VISION_CALL] Vision call failed with exception: {type(e).__name__}: {e}")
-            return None
+            # Re-raise to let caller handle the error appropriately
+            raise
     
     def _parse_response(
         self,

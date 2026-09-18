@@ -462,9 +462,20 @@ class VisionManager:
     
     @property
     def is_analyzing(self) -> bool:
-        """Check if currently analyzing a frame."""
-        # Use internal _analysis_pending flag instead of analyzer's busy state
-        # This provides more reliable synchronization
+        """Check if currently analyzing a frame.
+        
+        This property correctly reflects the analysis state from the moment
+        request_screen_analysis() sets _analysis_pending=True until the 
+        background thread completes and resets it to False.
+        
+        This covers the entire capture+analyze pipeline, including:
+        - Screen capture via mss
+        - Image resize and JPEG encoding  
+        - LLM API call
+        - Response parsing
+        
+        Returns True if any analysis is in progress, False otherwise.
+        """
         return self._analysis_pending
     
     def get_current_state(self) -> Dict[str, Any]:
