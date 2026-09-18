@@ -74,7 +74,7 @@ class VisionSettingsTab(QWidget):
         advanced_layout = QVBoxLayout(advanced_group)
         advanced_layout.setSpacing(10)
         
-        # Resolution limits
+        # Resolution limits - set to 1920x1080 for Full HD screenshots
         resolution_layout = QGridLayout()
         resolution_layout.setSpacing(10)
         
@@ -85,7 +85,8 @@ class VisionSettingsTab(QWidget):
         self.vision_max_width_spin.setMinimum(320)
         self.vision_max_width_spin.setMaximum(1920)
         self.vision_max_width_spin.setSingleStep(64)
-        self.vision_max_width_spin.setValue(1280)
+        self.vision_max_width_spin.setValue(1920)
+        self.vision_max_width_spin.setToolTip("Screenshot width (default: 1920 for Full HD)")
         resolution_layout.addWidget(self.vision_max_width_spin, 0, 1)
         
         max_height_label = QLabel("Max Height:")
@@ -95,10 +96,18 @@ class VisionSettingsTab(QWidget):
         self.vision_max_height_spin.setMinimum(240)
         self.vision_max_height_spin.setMaximum(1080)
         self.vision_max_height_spin.setSingleStep(64)
-        self.vision_max_height_spin.setValue(720)
+        self.vision_max_height_spin.setValue(1080)
+        self.vision_max_height_spin.setToolTip("Screenshot height (default: 1080 for Full HD)")
         resolution_layout.addWidget(self.vision_max_height_spin, 1, 1)
         
+        debug_info = QLabel(
+            "Debug logs will show when screenshots are captured and sent to LLM.\n"
+            "Check your console for [VISION DEBUG] messages."
+        )
+        debug_info.setWordWrap(True)
+        debug_info.setStyleSheet("color: #0a8; font-size: 11px; padding: 5px; margin-top: 10px;")
         advanced_layout.addLayout(resolution_layout)
+        advanced_layout.addWidget(debug_info)
         
         layout.addWidget(advanced_group)
         layout.addStretch()
@@ -109,8 +118,8 @@ class VisionSettingsTab(QWidget):
         
         self.vision_enabled_check.setChecked(vision_config.get("enabled", False))
         self.vision_monitor_spin.setValue(vision_config.get("monitor_index", 0))
-        self.vision_max_width_spin.setValue(vision_config.get("max_width", 1280))
-        self.vision_max_height_spin.setValue(vision_config.get("max_height", 720))
+        self.vision_max_width_spin.setValue(vision_config.get("max_width", 1920))
+        self.vision_max_height_spin.setValue(vision_config.get("max_height", 1080))
     
     def get_config(self) -> dict:
         """Get current configuration from UI widgets."""
