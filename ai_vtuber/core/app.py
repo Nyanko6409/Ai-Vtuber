@@ -556,9 +556,9 @@ class App:
                 logger.debug("Vision analysis request failed or already pending")
                 return False
             
-            # Wait for analysis to complete (max 2 seconds)
+            # Wait for analysis to complete (max 10 seconds for slower models)
             wait_time = 0.0
-            max_wait = 2.0
+            max_wait = 10.0
             while wait_time < max_wait:
                 if not self._vision_manager.is_analyzing:
                     self._vision_context_ready = True

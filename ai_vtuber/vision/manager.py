@@ -20,16 +20,10 @@ class VisionConfig:
     enabled: bool = False
     source: str = "screen"  # 'screen' or 'window'
     monitor_index: int = 0
-    capture_interval: float = 2.0  # Seconds between captures (increased default)
-    analysis_interval: float = 10.0  # Minimum seconds between analyses (increased default)
-    change_detection: bool = True
-    change_threshold: float = 0.20  # Higher threshold = fewer triggers
-    ocr_enabled: bool = False  # Reserved for future OCR integration
-    game_cache_enabled: bool = True
-    inject_into_conversation: bool = False  # Don't auto-inject into chat
+    on_demand_only: bool = True  # Only capture when explicitly requested (SIMPLIFIED)
     max_width: int = 1280
     max_height: int = 720
-    on_demand_only: bool = True  # Only capture when explicitly requested
+    game_cache_enabled: bool = True
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'VisionConfig':
@@ -38,16 +32,10 @@ class VisionConfig:
             enabled=data.get('enabled', False),
             source=data.get('source', 'screen'),
             monitor_index=data.get('monitor_index', 0),
-            capture_interval=data.get('capture_interval', 2.0),
-            analysis_interval=data.get('analysis_interval', 10.0),
-            change_detection=data.get('change_detection', True),
-            change_threshold=data.get('change_threshold', 0.20),
-            ocr_enabled=data.get('ocr_enabled', False),
-            game_cache_enabled=data.get('game_cache_enabled', True),
-            inject_into_conversation=data.get('inject_into_conversation', False),
+            on_demand_only=data.get('on_demand_only', True),
             max_width=data.get('max_width', 1280),
             max_height=data.get('max_height', 720),
-            on_demand_only=data.get('on_demand_only', True)
+            game_cache_enabled=data.get('game_cache_enabled', True)
         )
 
 
@@ -89,34 +77,12 @@ class VisionManager:
         self._on_demand_mode = config.on_demand_only
         self._capture_requested = threading.Event()
         
-        # Initialize components only if not in on-demand mode or if enabled
-        if not self._on_demand_mode and config.enabled:
-            self._capture_config = ScreenCaptureConfig(
-                monitor_index=config.monitor_index,
-                capture_interval=config.capture_interval,
-                enabled=config.enabled,
-                max_width=config.max_width,
-                max_height=config.max_height
-            )
-            
-            self._processor_config = FrameProcessingConfig(
-                analysis_interval=config.analysis_interval,
-                change_threshold=config.change_threshold,
-                enable_change_detection=config.change_detection
-            )
-            
-            self._capture_service = ScreenCaptureService(self._capture_config)
-            self._frame_processor = FrameProcessor(self._processor_config)
-            
-            # Set up callbacks
-            self._capture_service.set_frame_callback(self._on_frame_captured)
-            self._frame_processor.set_analysis_callback(self._on_frame_ready)
-        else:
-            # Lazy initialization for on-demand mode
-            self._capture_config = None
-            self._processor_config = None
-            self._capture_service = None
-            self._frame_processor = None
+        # SIMPLIFIED: Only on-demand mode is supported now
+        # No continuous background capture - only capture when user asks something
+        self._capture_config = None
+        self._processor_config = None
+        self._capture_service = None
+        self._frame_processor = None
         
         self._game_cache: Optional[GameCache] = None
         if config.game_cache_enabled:
@@ -159,18 +125,8 @@ class VisionManager:
             else:
                 logger.warning("LLM client not available, vision analysis disabled")
             
-            # In on-demand mode, we don't start continuous capture
-            if not self._on_demand_mode:
-                # Start frame processor
-                self._frame_processor.start()
-                
-                # Start screen capture
-                if not self._capture_service.start():
-                    logger.error("Failed to start screen capture")
-                    self.stop()
-                    return False
-            else:
-                logger.info("Vision system started in ON-DEMAND mode (only captures when asked)")
+            # SIMPLIFIED: Always in on-demand mode - no continuous capture
+            logger.info("Vision system started in ON-DEMAND mode (only captures when asked)")
             
             self._running = True
             logger.info("Vision system started successfully")
@@ -185,12 +141,7 @@ class VisionManager:
         """Stop all vision services."""
         logger.info("Stopping vision system...")
         self._running = False
-        
-        if self._capture_service:
-            self._capture_service.stop()
-        if self._frame_processor:
-            self._frame_processor.stop()
-        
+        # No capture_service or frame_processor to stop anymore
         logger.info("Vision system stopped")
     
     def request_screen_analysis(self) -> bool:
@@ -452,71 +403,7 @@ class VisionManager:
         
         return False
     
-    def _on_frame_captured(self, frame: CapturedFrame) -> None:
-        """Handle newly captured frame."""
-        if not self._running:
-            return
-        
-        try:
-            self._frame_processor.process_frame(frame.image_bytes, frame.timestamp)
-            
-        except Exception as e:
-            self._errors += 1
-            logger.error(f"Frame processing error: {e}")
-    
-    def _on_frame_ready(self, processed: ProcessedFrame) -> None:
-        """Handle frame ready for analysis."""
-        if not self._running or self._analysis_pending:
-            return
-        
-        if not self._analyzer or not self._analyzer.is_available:
-            return
-        
-        if self._analyzer.is_busy:
-            logger.debug("Analyzer busy, skipping frame")
-            return
-        
-        self._analysis_pending = True
-        self._frames_processed += 1
-        
-        # Submit for analysis in background thread
-        thread = threading.Thread(
-            target=self._analyze_frame,
-            args=(processed,),
-            daemon=True,
-            name="VisionAnalysis"
-        )
-        thread.start()
-    
-    def _analyze_frame(self, processed: ProcessedFrame) -> None:
-        """Perform vision analysis on a frame."""
-        try:
-            # Get cached state for context
-            cached_state = None
-            if self._game_cache:
-                cached_state = self._game_cache.get_current_state().to_dict()
-            
-            # Analyze with LLM
-            result = self._analyzer.analyze(
-                processed.image_bytes,
-                cached_state=cached_state
-            )
-            
-            if result:
-                self._update_state_from_result(result)
-                self._analyses_completed += 1
-                
-                # Update game cache
-                if self._game_cache:
-                    self._update_cache_from_result(result)
-            
-        except Exception as e:
-            self._errors += 1
-            logger.error(f"Vision analysis error: {e}")
-            
-        finally:
-            self._frame_processor.mark_analysis_complete()
-            self._analysis_pending = False
+    # Removed: _on_frame_captured, _on_frame_ready, _analyze_frame - no longer needed for simplified on-demand mode
     
     def _update_state_from_result(self, result: VisionAnalysisResult) -> None:
         """Update current state from analysis result."""
