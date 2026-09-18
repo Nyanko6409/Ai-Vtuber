@@ -323,6 +323,8 @@ Rules:
             image.save(buffer, format="JPEG", quality=85)
             image_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
             
+            logger.debug(f"[VISION_CALL] Model: {self.model}, Image size: {len(image_base64)} bytes (base64)")
+            
             # Build messages for OpenAI-compatible API
             # This format works with LM Studio and other OpenAI-compatible APIs
             # that support vision/multimodal input
@@ -339,6 +341,8 @@ Rules:
                 ]
             }]
             
+            logger.debug("[VISION_CALL] Sending multimodal request with image_url content block...")
+            
             # Use chat.completions.create with multimodal content
             # The OpenAI Python client handles encoding images properly
             response = self.client._client.chat.completions.create(
@@ -349,11 +353,43 @@ Rules:
                 timeout=self.timeout
             )
             
-            content = response.choices[0].message.content
+            # Log response structure for debugging
+            logger.debug(f"[VISION_CALL] Response status: HTTP 200 OK")
+            logger.debug(f"[VISION_CALL] Response object keys: {dir(response)}")
+            logger.debug(f"[VISION_CALL] Choices count: {len(response.choices) if hasattr(response, 'choices') else 0}")
+            
+            if not hasattr(response, 'choices') or len(response.choices) == 0:
+                logger.error("[VISION_CALL] Response has no choices - model may not support vision")
+                return None
+            
+            choice = response.choices[0]
+            logger.debug(f"[VISION_CALL] Choice object keys: {dir(choice)}")
+            
+            if not hasattr(choice, 'message'):
+                logger.error("[VISION_CALL] Choice has no message attribute")
+                return None
+            
+            message = choice.message
+            logger.debug(f"[VISION_CALL] Message object keys: {dir(message)}")
+            
+            content = getattr(message, 'content', None)
+            
+            # Log raw response for debugging (truncated)
+            if content:
+                preview = content[:200] + "..." if len(content) > 200 else content
+                logger.debug(f"[VISION_CALL] Raw response (truncated): {preview}")
+            else:
+                logger.warning("[VISION_CALL] Response content is None or empty")
+                # Check if there's a refusal or error in other fields
+                if hasattr(message, 'refusal'):
+                    logger.warning(f"[VISION_CALL] Model refusal: {message.refusal}")
+                if hasattr(choice, 'finish_reason'):
+                    logger.warning(f"[VISION_CALL] Finish reason: {choice.finish_reason}")
+            
             return content if content else ""
             
         except Exception as e:
-            logger.error(f"Vision call failed: {e}")
+            logger.error(f"[VISION_CALL] Vision call failed with exception: {type(e).__name__}: {e}")
             return None
     
     def _parse_response(
