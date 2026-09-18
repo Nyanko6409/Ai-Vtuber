@@ -62,6 +62,7 @@ class App:
         self._microphone: Optional[Microphone] = None
         self._vad: Optional[VoiceActivityDetector] = None
         self._player: Optional[AudioPlayer] = None
+        self._vision_manager: Optional[Any] = None  # VisionManager (lazy import)
         
         # Filler audio data loaded at startup
         self._fillers: list[tuple[np.ndarray, int]] = []  # (audio_array, duration_ms)
@@ -132,6 +133,62 @@ class App:
             self._player = AudioPlayer(self.config["tts"])
         return self._player
 
+    def _init_vision(self) -> None:
+        """Initialize vision system if enabled in config."""
+        vision_config = self.config.get("vision", {})
+        
+        if not vision_config.get("enabled", False):
+            logger.info("Vision system disabled in config (set vision.enabled: true to enable)")
+            return
+        
+        try:
+            # Lazy import to avoid dependency issues when vision is disabled
+            from ..vision.manager import VisionManager, VisionConfig
+            
+            # Get Ollama client for vision analysis
+            ollama_client = None
+            try:
+                # Try to get Ollama client (may be fallback or primary)
+                if isinstance(self._llm, OllamaClient):
+                    ollama_client = self._llm
+                else:
+                    # Create separate Ollama client for vision if using LM Studio
+                    ollama_config = self.config.get("ollama", {})
+                    if ollama_config:
+                        ollama_client = OllamaClient(ollama_config)
+            except Exception as e:
+                logger.warning(f"Cannot create Ollama client for vision: {e}")
+            
+            # Build vision config
+            vision_cfg = VisionConfig.from_dict(vision_config)
+            
+            # Get vision model name
+            vision_model = self.config.get("ollama", {}).get(
+                "vision_model", "gemma4:e4b"
+            )
+            
+            # Initialize and start vision manager
+            self._vision_manager = VisionManager(
+                vision_cfg,
+                ollama_client=ollama_client,
+                vision_model=vision_model
+            )
+            
+            if self._vision_manager.start():
+                logger.info("Vision system initialized successfully")
+            else:
+                logger.warning("Vision system failed to start")
+                
+        except ImportError as e:
+            logger.error(f"Failed to import vision module: {e}")
+        except Exception as e:
+            logger.error(f"Failed to initialize vision system: {e}")
+    
+    @property
+    def vision_manager(self):
+        """Get vision manager instance (for external access)."""
+        return self._vision_manager
+
     def start(self) -> None:
         """Start the VTuber application."""
         logger.info("Starting AI VTuber...")
@@ -178,6 +235,9 @@ class App:
 
         # FIX: Load fillers at startup so latency masking is available by default
         self._load_fillers()
+
+        # Initialize vision system (if enabled in config)
+        self._init_vision()
 
         self.state_machine.force_state(State.IDLE)
         logger.info("AI VTuber started successfully")
@@ -358,6 +418,8 @@ class App:
             self._tts.unload()
         if self._avatar:
             self._avatar.dispose()
+        if self._vision_manager:
+            self._vision_manager.stop()
 
         logger.info("AI VTuber stopped")
 
