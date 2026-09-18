@@ -20,8 +20,8 @@ class ScreenCaptureConfig:
     monitor_index: int = 0  # -1 for all monitors, 0+ for specific monitor
     capture_interval: float = 0.5  # Seconds between captures
     enabled: bool = False
-    max_width: int = 1280  # Resize larger screens to reduce processing
-    max_height: int = 720
+    max_width: int = 1920  # Full HD resolution for better analysis
+    max_height: int = 1080
     jpeg_quality: int = 85  # JPEG compression quality (1-100)
 
 
