@@ -69,7 +69,7 @@ class LLMSettingsTab(QWidget):
     def load_config(self):
         """Load configuration into UI widgets."""
         llm_config = self.config.get("llm", {})
-        self.llm_model_edit.setText(llm_config.get("model", ""))
+        self.llm_model_edit.setText(llm_config.get("base_url", ""))
         llm_temp = llm_config.get("temperature", 0.7)
         self.llm_temp_slider.setValue(int(llm_temp * 10))
         self.llm_temp_value_label.setText(f"{llm_temp:.1f}")
@@ -79,7 +79,7 @@ class LLMSettingsTab(QWidget):
         """Get current configuration from UI widgets."""
         return {
             "llm": {
-                "model": self.llm_model_edit.text(),
+                "base_url": self.llm_model_edit.text(),
                 "temperature": self.llm_temp_slider.value() / 10.0,
                 "stream_enabled": self.llm_stream_check.isChecked(),
             }
