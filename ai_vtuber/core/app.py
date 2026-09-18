@@ -145,33 +145,53 @@ class App:
             # Lazy import to avoid dependency issues when vision is disabled
             from ..vision.manager import VisionManager, VisionConfig
             
-            # Get Ollama client for vision analysis
-            ollama_client = None
-            try:
-                # Try to get Ollama client (may be fallback or primary)
-                if isinstance(self._llm, OllamaClient):
-                    ollama_client = self._llm
-                else:
-                    # Create separate Ollama client for vision if using LM Studio
+            # Get LLM client for vision analysis (use LM Studio or Ollama)
+            llm_client = None
+            vision_model_name = None
+            
+            # Check if we should use LM Studio (primary) or Ollama (fallback)
+            # Vision model name comes from config
+            vision_model_name = self.config.get("llm", {}).get(
+                "vision_model", 
+                self.config.get("ollama", {}).get("vision_model", "google/gemma-4-e2b")
+            )
+            
+            # Try to get an LLM client that supports vision
+            # LM Studio is preferred provider per user requirements
+            if self._llm and isinstance(self._llm, LMStudioClient):
+                llm_client = self._llm
+                logger.info(f"Using LM Studio for vision analysis with model: {vision_model_name}")
+            elif self._llm and isinstance(self._llm, OllamaClient):
+                llm_client = self._llm
+                logger.info(f"Using Ollama for vision analysis with model: {vision_model_name}")
+            else:
+                # Try to create a separate client for vision
+                llm_config = self.config.get("llm", {})
+                if llm_config:
+                    try:
+                        llm_client = LMStudioClient(llm_config)
+                        logger.info(f"Created separate LM Studio client for vision: {vision_model_name}")
+                    except Exception as e:
+                        logger.warning(f"Cannot create LM Studio client for vision: {e}")
+                
+                # Fallback to Ollama if LM Studio unavailable
+                if not llm_client:
                     ollama_config = self.config.get("ollama", {})
                     if ollama_config:
-                        ollama_client = OllamaClient(ollama_config)
-            except Exception as e:
-                logger.warning(f"Cannot create Ollama client for vision: {e}")
+                        try:
+                            llm_client = OllamaClient(ollama_config)
+                            logger.info(f"Using Ollama fallback for vision: {vision_model_name}")
+                        except Exception as e:
+                            logger.warning(f"Cannot create Ollama client for vision: {e}")
             
             # Build vision config
             vision_cfg = VisionConfig.from_dict(vision_config)
             
-            # Get vision model name
-            vision_model = self.config.get("ollama", {}).get(
-                "vision_model", "gemma4:e4b"
-            )
-            
             # Initialize and start vision manager
             self._vision_manager = VisionManager(
                 vision_cfg,
-                ollama_client=ollama_client,
-                vision_model=vision_model
+                llm_client=llm_client,
+                vision_model=vision_model_name
             )
             
             if self._vision_manager.start():
