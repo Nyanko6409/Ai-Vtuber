@@ -40,7 +40,7 @@ class VisionAnalyzer:
         llm_client,
         model: str,
         max_tokens: int = 300,
-        timeout: int = 30
+        timeout: int = 60  # Increased timeout for vision analysis
     ):
         """
         Initialize the vision analyzer.
