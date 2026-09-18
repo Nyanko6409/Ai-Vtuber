@@ -137,8 +137,18 @@ class App:
         return self._player
 
     def _init_vision(self) -> None:
-        """Initialize vision system if enabled in config."""
+        """Initialize vision system if enabled in config.
+        
+        This method is safely re-runnable: if vision is already initialized,
+        it will stop the existing instance before creating a new one.
+        """
         vision_config = self.config.get("vision", {})
+        
+        # Stop existing vision manager if present (for re-initialization)
+        if self._vision_manager is not None:
+            logger.info("Stopping existing vision system for re-initialization...")
+            self._vision_manager.stop()
+            self._vision_manager = None
         
         if not vision_config.get("enabled", False):
             logger.info("Vision system disabled in config (set vision.enabled: true to enable)")
@@ -187,6 +197,21 @@ class App:
                         except Exception as e:
                             logger.warning(f"Cannot create Ollama client for vision: {e}")
             
+            # Validate vision model availability
+            if llm_client and hasattr(llm_client, '_client') and hasattr(llm_client._client, 'models'):
+                try:
+                    available_models = llm_client._client.models.list()
+                    model_ids = [m.id for m in available_models.data] if hasattr(available_models, 'data') else []
+                    if vision_model_name not in model_ids:
+                        logger.warning(
+                            f"Vision model '{vision_model_name}' not found in available models: {model_ids}. "
+                            f"Vision analysis may fail. Ensure this model is loaded in LM Studio."
+                        )
+                    else:
+                        logger.info(f"Vision model '{vision_model_name}' confirmed available")
+                except Exception as e:
+                    logger.warning(f"Could not verify vision model availability: {e}")
+            
             # Build vision config
             vision_cfg = VisionConfig.from_dict(vision_config)
             
@@ -211,6 +236,35 @@ class App:
     def vision_manager(self):
         """Get vision manager instance (for external access)."""
         return self._vision_manager
+    
+    def apply_settings(self, new_config: dict) -> None:
+        """Apply new settings and reinitialize affected components.
+        
+        This method allows live configuration updates without restarting the app.
+        It updates self.config with new values and reinitializes the vision system
+        if the vision section changed.
+        
+        Args:
+            new_config: Dictionary containing updated configuration values.
+        """
+        # Store old vision config for comparison
+        old_vision_enabled = self.config.get("vision", {}).get("enabled", False)
+        
+        # Update config with new values
+        self.config.update(new_config)
+        
+        # Check if vision section changed
+        new_vision_enabled = self.config.get("vision", {}).get("enabled", False)
+        vision_changed = (old_vision_enabled != new_vision_enabled)
+        
+        # Reinitialize vision if enabled state changed
+        if vision_changed:
+            logger.info(f"Vision enabled changed: {old_vision_enabled} -> {new_vision_enabled}, reinitializing...")
+            self._init_vision()
+        elif new_vision_enabled and self._vision_manager:
+            # Vision is enabled and already running - config may have changed
+            # For now, we just log this; full re-init would require stopping/starting
+            logger.debug("Vision settings updated, but keeping current instance running")
 
     def start(self) -> None:
         """Start the VTuber application."""

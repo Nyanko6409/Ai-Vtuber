@@ -302,6 +302,11 @@ class QtMainWindow(QMainWindow):
         """Handle settings save event."""
         # Update config with new values
         self.config.update(new_config)
+        
+        # CRITICAL: Apply settings to running app instance for live updates
+        if self.app_instance and hasattr(self.app_instance, 'apply_settings'):
+            self.app_instance.apply_settings(new_config)
+        
         # Apply UI settings including transparency
         ui_config = new_config.get("ui", {})
         avatar_config = new_config.get("avatar", {})

@@ -1,1 +1,26 @@
-Nothing should be ignored based on the provided file changes. The only modified file is a Python source file (`ai_vtuber/vision/manager.py`), which should not be ignored. There are no build artifacts, dependencies, or temporary files in the changes that require ignoring.
+```
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Dependencies
+.venv/
+venv/
+env/
+ENV/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Logs
+*.log
+
+# Environment files
+.env
+.env.local
+.env.*
+```

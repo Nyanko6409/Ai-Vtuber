@@ -211,11 +211,13 @@ class VisionManager:
             logger.warning("Vision analyzer not available")
             return False
         
+        # CRITICAL FIX: Set _analysis_pending BEFORE starting thread (race condition fix)
         if self._analysis_pending:
             logger.debug("Analysis already pending, skipping request")
             return False
         
-        if self._analyzer.is_busy:
+        # Check if analyzer is busy using our internal flag instead of analyzer's state
+        if self.is_analyzing:
             logger.debug("Analyzer busy, skipping request")
             return False
         
@@ -227,6 +229,9 @@ class VisionManager:
             return False
         
         logger.info("On-demand screen capture requested")
+        
+        # Set pending flag synchronously BEFORE starting thread
+        self._analysis_pending = True
         
         # Capture and analyze in background thread
         thread = threading.Thread(
@@ -308,7 +313,9 @@ class VisionManager:
     @property
     def is_analyzing(self) -> bool:
         """Check if currently analyzing a frame."""
-        return self._analyzer.is_busy if self._analyzer else False
+        # Use internal _analysis_pending flag instead of analyzer's busy state
+        # This provides more reliable synchronization
+        return self._analysis_pending
     
     def get_current_state(self) -> Dict[str, Any]:
         """
