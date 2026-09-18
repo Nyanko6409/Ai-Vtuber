@@ -155,40 +155,34 @@ class VisionAnalyzer:
         cached_state: Optional[Dict],
         context_hint: Optional[str]
     ) -> str:
-        """Build concise prompt for Gemma."""
+        """Build concise prompt for Gemma - focuses on ANY screen content."""
         
-        base_prompt = """Analyze this screen and describe only meaningful changes or important events. Focus on:
-- Game state (combat, menu, dialogue, loading, exploration)
-- Visible actions or events happening
-- UI elements showing important information (health, objectives, notifications)
-- Location or scene changes
-- Text that indicates story progression or player choices
+        base_prompt = """Analyze this screen and describe what you see. Focus on:
+- What application or window is active (browser, game, video player, code editor, document, social media, etc.)
+- Visible content: websites, videos, images, documents, code, chat messages, etc.
+- Important text: titles, headings, visible paragraphs, captions, subtitles
+- Visual elements: colors, layouts, thumbnails, UI components
+- General activity: browsing, watching, coding, reading, chatting, gaming, etc.
 
-Do NOT:
-- Guess character identities unless clearly labeled
-- Describe static background details
-- Repeat information already known
+Be specific and descriptive. If you see text, quote some of it. If you see an image or video, describe its content.
+Don't assume it's a game - describe whatever is actually visible.
 
-Be concise and specific. Format: 2-3 sentences maximum."""
+Be concise but informative. Format: 2-4 sentences."""
 
         # Add context hints
         parts = [base_prompt]
         
         if context_hint:
-            parts.append(f"\n\nContext: {context_hint}")
+            parts.append(f"\n\nContext hint: {context_hint}")
         
         if cached_state:
-            parts.append("\n\nPreviously known:")
+            parts.append("\n\nPreviously seen context:")
             if cached_state.get('game_name'):
-                parts.append(f" Game: {cached_state['game_name']}")
+                parts.append(f" Game/Application: {cached_state['game_name']}")
             if cached_state.get('location'):
-                parts.append(f" Location: {cached_state['location']}")
-            if cached_state.get('in_combat'):
-                parts.append(" Currently in combat")
-            if cached_state.get('in_menu'):
-                parts.append(" Currently in menu")
+                parts.append(f" Location/Area: {cached_state['location']}")
             
-            parts.append("\n\nDescribe what has CHANGED or what is HAPPENING now.")
+            parts.append("\n\nDescribe what you see NOW and any changes from before.")
         
         return "\n".join(parts)
     
@@ -256,91 +250,62 @@ Be concise and specific. Format: 2-3 sentences maximum."""
         response_text: str,
         cached_state: Optional[Dict]
     ) -> VisionAnalysisResult:
-        """Parse LLM response into structured result."""
+        """Parse LLM response into structured result - generic for any screen content."""
         
-        # Extract game state indicators from text
+        # Extract general state indicators from text
         game_state = {}
         significant_changes = []
         
         text_lower = response_text.lower()
         
-        # Detect state keywords
-        if any(w in text_lower for w in ['combat', 'fighting', 'battle', 'attacking']):
-            game_state['in_combat'] = True
-            significant_changes.append("Combat detected")
-        elif cached_state and cached_state.get('in_combat'):
-            game_state['in_combat'] = False
-            significant_changes.append("Combat ended")
+        # Detect application types
+        app_indicators = {
+            'browser': ['browser', 'chrome', 'firefox', 'website', 'webpage', 'url'],
+            'video': ['video', 'youtube', 'netflix', 'playing', 'watching'],
+            'code': ['code', 'editor', 'vs code', 'programming', 'IDE'],
+            'document': ['document', 'word', 'text', 'paragraph'],
+            'game': ['game', 'gaming', 'playing'],
+            'social': ['discord', 'twitter', 'reddit', 'social media', 'chat'],
+            'image': ['image', 'photo', 'picture', 'thumbnail']
+        }
         
-        if any(w in text_lower for w in ['menu', 'inventory', 'pause', 'settings']):
-            game_state['in_menu'] = True
-        else:
-            game_state['in_menu'] = False
+        for app_type, keywords in app_indicators.items():
+            if any(kw in text_lower for kw in keywords):
+                game_state[f'is_{app_type}'] = True
         
-        if any(w in text_lower for w in ['dialogue', 'conversation', 'talking', 'textbox']):
-            game_state['in_dialogue'] = True
-        else:
-            game_state['in_dialogue'] = False
-        
-        if any(w in text_lower for w in ['loading', 'load screen']):
-            game_state['loading'] = True
-        else:
-            game_state['loading'] = False
-        
-        if any(w in text_lower for w in ['low health', 'dying', 'critical', 'hp low']):
-            game_state['player_health_low'] = True
-            significant_changes.append("Low health warning")
-        
-        # Extract game name - look for patterns like "playing X", "game is X"
-        game_name = None
+        # Try to extract application/window name
+        app_name = None
         import re
         
-        # Try multiple patterns to extract game name more accurately
-        # Pattern 1: "You are playing [Game]" or "Playing [Game]"
-        play_match = re.search(r'(?:you\'?re\s+)?playing\s+([A-Z][A-Za-z0-9\s\'\-:]+?)(?:\s+in\s+|\s+at\s+|\.|,|$)', response_text)
-        if not play_match:
-            # Pattern 2: "The game is [Game]" or "game is [Game]"
-            play_match = re.search(r'(?:the\s+)?game\s+is\s+([A-Z][A-Za-z0-9\s\'\-:]+?)(?:\.|,|$)', response_text)
+        # Look for patterns like "You are viewing [X]", "Showing [X]", "[X] is open"
+        view_patterns = [
+            r'(?:you\'?re\s+)?(?:viewing|seeing|looking\s+at)\s+([A-Z][A-Za-z0-9\s\'\-:]+?)(?:\.|,|$)',
+            r'(?:the\s+)?(?:website|page|application|app|window)\s+(?:is|shows?)\s+([A-Z][A-Za-z0-9\s\'\-:]+?)(?:\.|,|$)',
+            r'([A-Z][A-Za-z0-9\s\'\-:]+?)\s+(?:is\s+)?(?:open|displayed|visible)',
+        ]
         
-        if play_match:
-            game_name = play_match.group(1).strip()
-            # Clean up common artifacts
-            if game_name.lower().startswith('the '):
-                game_name = game_name[4:]
-            # Remove trailing location markers
-            for marker in [' in ', ' at ']:
-                if marker in game_name:
-                    game_name = game_name.split(marker)[0].strip()
-            if game_name:
-                game_state['game_name'] = game_name
+        for pattern in view_patterns:
+            match = re.search(pattern, response_text)
+            if match:
+                app_name = match.group(1).strip()
+                # Clean up common artifacts
+                if app_name.lower().startswith('the '):
+                    app_name = app_name[4:]
+                break
         
-        # Extract location - look for patterns like "in [Location]", "at [Location]", "Location: [Location]"
-        location = None
-        # Pattern 1: "Location: X" or "location: X"
-        loc_match = re.search(r'location:\s*([A-Z][A-Za-z0-9\s\'\-:]+?)(?:\.|,|$)', response_text, re.IGNORECASE)
-        if not loc_match:
-            # Pattern 2: "in [Location]" (but not "in combat", "in menu", etc.)
-            loc_match = re.search(r'\s+in\s+([A-Z][A-Za-z0-9\s\'\-:]+?)(?:\.|,|$)', response_text)
-            if loc_match:
-                potential_loc = loc_match.group(1).strip().lower()
-                # Filter out non-location matches
-                if potential_loc in ['combat', 'menu', 'dialogue', 'a', 'an', 'the']:
-                    loc_match = None
-        if not loc_match:
-            # Pattern 3: "at [Location]"
-            loc_match = re.search(r'\s+at\s+([A-Z][A-Za-z0-9\s\'\-:]+?)(?:\.|,|$)', response_text)
+        if app_name and len(app_name) > 2:
+            game_state['app_name'] = app_name
         
-        if loc_match:
-            location = loc_match.group(1).strip()
-            # Avoid false positives
-            if location.lower() not in ['the', 'a', 'an', 'this', 'that', 'combat', 'menu', 'dialogue']:
-                game_state['location'] = location
+        # Extract visible text snippets (look for quoted text)
+        quoted_text = re.findall(r'"([^"]{10,100})"', response_text)
+        if quoted_text:
+            game_state['visible_text'] = quoted_text[0][:100]  # First snippet
         
         # Estimate confidence based on response clarity
         confidence = 0.7  # Base confidence
         if len(response_text) < 20:
             confidence = 0.5  # Very short response
-        elif 'unclear' in text_lower or 'cannot' in text_lower:
+        elif 'unclear' in text_lower or 'cannot' in text_lower or 'blurry' in text_lower:
             confidence = 0.4
         elif len(response_text) > 100:
             confidence = 0.85  # Detailed response
