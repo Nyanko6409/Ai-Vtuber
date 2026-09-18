@@ -353,6 +353,7 @@ class VisionManager:
         
         parts = []
         
+        # Game-specific fields (if playing a game)
         if state.get('game_name'):
             parts.append(f"Playing {state['game_name']}")
         
@@ -370,6 +371,31 @@ class VisionManager:
         
         if state.get('player_health_low'):
             parts.append("- LOW HEALTH WARNING")
+        
+        # Generic screen content fields (for any application)
+        if state.get('app_name'):
+            parts.append(f"Viewing: {state['app_name']}")
+        
+        if state.get('is_browser'):
+            parts.append("- Browser window active")
+        
+        if state.get('is_video'):
+            parts.append("- Video playing")
+        
+        if state.get('is_code'):
+            parts.append("- Code editor open")
+        
+        if state.get('is_document'):
+            parts.append("- Document visible")
+        
+        if state.get('is_social'):
+            parts.append("- Social media/chat app")
+        
+        if state.get('is_image'):
+            parts.append("- Image/photo displayed")
+        
+        if state.get('visible_text'):
+            parts.append(f"Text: \"{state['visible_text'][:80]}...\"")
         
         if state.get('last_significant_event'):
             parts.append(f"- Event: {state['last_significant_event']}")
@@ -490,6 +516,7 @@ class VisionManager:
         with self._lock:
             gs = result.game_state
             
+            # Game-specific fields
             if gs.get('in_combat') is not None:
                 self._current_state.in_combat = gs['in_combat']
             if gs.get('in_menu') is not None:
@@ -506,6 +533,24 @@ class VisionManager:
                 self._current_state.game_name = gs['game_name']
             if gs.get('location'):
                 self._current_state.location = gs['location']
+            
+            # Generic application/screen fields (for any screen content)
+            if gs.get('app_name'):
+                self._current_state.app_name = gs['app_name']
+            if gs.get('is_browser') is not None:
+                self._current_state.is_browser = gs['is_browser']
+            if gs.get('is_video') is not None:
+                self._current_state.is_video = gs['is_video']
+            if gs.get('is_code') is not None:
+                self._current_state.is_code = gs['is_code']
+            if gs.get('is_document') is not None:
+                self._current_state.is_document = gs['is_document']
+            if gs.get('is_social') is not None:
+                self._current_state.is_social = gs['is_social']
+            if gs.get('is_image') is not None:
+                self._current_state.is_image = gs['is_image']
+            if gs.get('visible_text'):
+                self._current_state.visible_text = gs['visible_text']
             
             # Track significant events
             if result.significant_changes:
