@@ -541,6 +541,10 @@ class App:
         Trigger on-demand vision analysis if enabled and wait for completion.
         Returns True if vision context is ready, False otherwise.
         Used by both voice and chat message processing.
+        
+        This method now uses the synchronous analyze_screen_now() API to get
+        the actual VisionAnalysisResult directly, ensuring the result is available
+        before generating Airi's response.
         """
         with self._vision_trigger_lock:
             self._vision_context_ready = False
@@ -551,30 +555,17 @@ class App:
             if not self._vision_manager.config.on_demand_only:
                 return False
             
-            # Request screen analysis
-            if not self._vision_manager.request_screen_analysis():
-                logger.debug("Vision analysis request failed or already pending")
+            # Use synchronous API to get actual result directly
+            logger.info("Starting synchronous screen analysis for visual question...")
+            result = self._vision_manager.analyze_screen_now()
+            
+            if result:
+                self._vision_context_ready = True
+                logger.debug(f"Vision analysis completed successfully with result: {result.description[:80] if result.description else 'no description'}...")
+                return True
+            else:
+                logger.warning("Vision analysis failed or returned no result")
                 return False
-            
-            # Wait for analysis to complete (max 30 seconds for slower models like Gemma)
-            wait_time = 0.0
-            max_wait = 30.0  # Increased timeout for vision models
-            while wait_time < max_wait:
-                if not self._vision_manager.is_analyzing:
-                    # Analysis completed, check if we got a result
-                    result = self._vision_manager.get_latest_result()
-                    if result:
-                        self._vision_context_ready = True
-                        logger.debug(f"Vision analysis completed successfully with result: {result.description[:80] if result.description else 'no description'}...")
-                        return True
-                    else:
-                        logger.warning("Vision analysis completed but no result was returned")
-                        return False
-                time.sleep(0.1)
-                wait_time += 0.1
-            
-            logger.warning("Vision analysis timed out after %.1f seconds", wait_time)
-            return False
 
     def _listen_and_process(self) -> None:
         """Full listen -> transcribe -> think -> speak pipeline."""

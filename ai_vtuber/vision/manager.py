@@ -200,6 +200,106 @@ class VisionManager:
         
         logger.info("Vision system stopped")
     
+    def analyze_screen_now(self) -> Optional[VisionAnalysisResult]:
+        """
+        Synchronous screen capture and analysis.
+        
+        This method captures the screen immediately, analyzes it with the vision model,
+        updates internal state and cache, and returns the actual VisionAnalysisResult.
+        
+        Use this for direct visual questions like "What do you see?" where you need
+        the actual result synchronously rather than triggering background analysis.
+        
+        Returns:
+            VisionAnalysisResult if successful, None if failed or unavailable
+            
+        Thread Safety:
+            - Uses lock to prevent concurrent analysis
+            - Safe to call from any thread
+        """
+        if not self._running:
+            logger.warning("Vision system not running, cannot analyze screen")
+            return None
+        
+        if not self._analyzer or not self._analyzer.is_available:
+            logger.warning("Vision analyzer not available")
+            return None
+        
+        # Check if already analyzing (prevent reentrant calls)
+        if self._analysis_pending:
+            logger.debug("Analysis already pending, skipping synchronous request")
+            return None
+        
+        request_id = f"sync_{int(time.time() * 1000)}"
+        observation_id = f"obs_{int(time.time() * 1000)}"
+        
+        logger.info(f"[VISION {request_id}] Starting synchronous screen analysis...")
+        
+        try:
+            # Set pending flag
+            self._analysis_pending = True
+            
+            # Capture screen using ScreenCaptureService
+            if not self._capture_service:
+                logger.error(f"[VISION {request_id}] Capture service not initialized")
+                return None
+            
+            image_bytes = self._capture_service.capture_once()
+            
+            if not image_bytes:
+                logger.error(f"[VISION {request_id}] Capture failed: no image data")
+                return None
+            
+            logger.debug(f"[VISION {request_id}] Captured {len(image_bytes)} bytes")
+            
+            # Get cached state for context (defensive copy)
+            cached_state = None
+            if self._game_cache:
+                cached_state = self._game_cache.get_current_state().to_dict()
+            
+            # Analyze with LLM (synchronous, blocking call)
+            result = self._analyzer.analyze(
+                image_bytes,
+                cached_state=cached_state
+            )
+            
+            if not result:
+                logger.error(f"[VISION {request_id}] Analysis returned no result")
+                return None
+            
+            logger.info(f"[VISION {request_id}] Analysis completed successfully")
+            
+            # Store the result for later retrieval (thread-safe)
+            with self._latest_result_lock:
+                self._latest_result = result
+            
+            # Check for duplicate observations before updating state
+            obs_hash = self._compute_observation_hash(result)
+            if obs_hash != self._last_observation_id:
+                self._last_observation_id = obs_hash
+                self._update_state_from_result(result, request_id=request_id, observation_id=observation_id)
+                self._analyses_completed += 1
+                
+                # Update game cache
+                if self._game_cache:
+                    self._update_cache_from_result(result)
+            else:
+                logger.debug(f"[VISION {request_id}] Duplicate observation detected")
+            
+            self._frames_processed += 1
+            self._last_capture_time = time.time()
+            
+            return result
+            
+        except Exception as e:
+            self._errors += 1
+            logger.error(f"[VISION {request_id}] Synchronous analysis error: {e}")
+            return None
+            
+        finally:
+            with self._lock:
+                self._analysis_pending = False
+    
     def request_screen_analysis(self) -> bool:
         """
         Request an immediate screen capture and analysis.
