@@ -21,6 +21,10 @@ wheels/
 .installed.cfg
 *.egg
 
+# IDE
+.vscode/
+.idea/
+
 # Environment
 .env
 .env.local
@@ -29,16 +33,10 @@ wheels/
 venv/
 ENV/
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*.tmp
-
 # Logs
 *.log
 
-# Configuration
-config.yaml
+# OS
+.DS_Store
+Thumbs.db
 ```
