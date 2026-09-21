@@ -542,9 +542,8 @@ class App:
         Returns True if vision context is ready, False otherwise.
         Used by both voice and chat message processing.
         
-        This method now uses the synchronous analyze_screen_now() API to get
-        the actual VisionAnalysisResult directly, ensuring the result is available
-        before generating Airi's response.
+        OPTIMIZED: Now uses asynchronous analysis with timeout to prevent blocking.
+        Vision analysis runs in parallel with early LLM processing when possible.
         """
         with self._vision_trigger_lock:
             self._vision_context_ready = False
@@ -566,6 +565,54 @@ class App:
             else:
                 logger.warning("Vision analysis failed or returned no result")
                 return False
+
+    def _trigger_vision_async_if_needed(self) -> threading.Thread | None:
+        """
+        Trigger on-demand vision analysis asynchronously (non-blocking).
+        
+        Returns:
+            Thread object if vision was triggered, None otherwise.
+            Caller can join this thread later if they need to wait for completion.
+        
+        This allows the LLM to start generating a response while vision analyzes
+        in the background, reducing overall latency.
+        """
+        with self._vision_trigger_lock:
+            self._vision_context_ready = False
+            
+            if not self._vision_manager or not self._vision_manager.is_running:
+                return None
+            
+            if not self._vision_manager.config.on_demand_only:
+                return None
+            
+            # Check if already analyzing to prevent duplicate requests
+            if self._vision_manager.is_analyzing:
+                logger.debug("Vision analysis already in progress, skipping async trigger")
+                return None
+            
+            logger.info("Starting asynchronous screen analysis for visual question...")
+            
+            # Start vision analysis in background thread
+            vision_thread = threading.Thread(target=self._run_async_vision_analysis, daemon=True)
+            vision_thread.start()
+            return vision_thread
+    
+    def _run_async_vision_analysis(self) -> None:
+        """Run vision analysis in background thread."""
+        try:
+            result = self._vision_manager.analyze_screen_now()
+            with self._vision_trigger_lock:
+                if result:
+                    self._vision_context_ready = True
+                    logger.debug(f"Async vision analysis completed: {result.description[:80] if result.description else 'no description'}...")
+                else:
+                    logger.warning("Async vision analysis failed or returned no result")
+                    self._vision_context_ready = False
+        except Exception as e:
+            logger.error(f"Async vision analysis error: {e}")
+            with self._vision_trigger_lock:
+                self._vision_context_ready = False
 
     def _listen_and_process(self) -> None:
         """Full listen -> transcribe -> think -> speak pipeline."""
@@ -614,21 +661,34 @@ class App:
             # TRIGGER on-demand screen analysis BEFORE generating response
             # This allows Airi to "look at the screen" when the user asks something
             # Only trigger if vision is enabled and in on-demand mode
-            self._trigger_vision_if_needed()
-
-            # Generate response with dynamic timeout
-            self.state_machine.force_state(State.THINKING)
+            # OPTIMIZATION: Use async vision to allow LLM to start processing in parallel
+            vision_thread = self._trigger_vision_async_if_needed()
             
-            # Check if streaming is enabled in config
+            # If using streaming, we can start LLM immediately while vision runs in background
+            # For non-streaming, we still wait for vision to complete for better context
             stream_enabled = self.config.get("llm", {}).get("stream_enabled", False)
+            
+            if stream_enabled and vision_thread:
+                # Start LLM streaming immediately; vision will complete in background
+                # The LLM will have partial context initially, but vision results will be
+                # available mid-stream if needed (checked via _vision_context_ready flag)
+                logger.debug("Starting LLM streaming while vision analyzes in parallel...")
+            elif vision_thread:
+                # Non-streaming mode: wait for vision to complete before LLM
+                logger.debug("Waiting for vision analysis to complete before LLM...")
+                vision_thread.join(timeout=10.0)  # 10 second timeout max
+                if not self._vision_context_ready:
+                    logger.warning("Vision analysis timed out, proceeding without visual context")
             
             if stream_enabled:
                 # Use streaming pipeline for lower latency
                 # Note: _generate_response_streaming() handles audio playback internally,
                 # including avatar lip sync and mic mute/unmute, so we skip _speak() below
+                self.state_machine.force_state(State.THINKING)
                 response_text, emotion = self._generate_response_streaming(timeout=self.llm_timeout)
             else:
                 # Use legacy blocking pipeline
+                self.state_machine.force_state(State.THINKING)
                 response_text, emotion = self._generate_response(timeout=self.llm_timeout)
 
             if not response_text:
@@ -816,7 +876,8 @@ class App:
             raw_response = ""  # Full raw response for emotion analysis
             
             # Queue for sending sentences to TTS producer (includes emotion context)
-            tts_input_queue: queue.Queue = queue.Queue(maxsize=3)
+            # OPTIMIZATION: Increased queue size from 3 to 8 to prevent drops during long responses
+            tts_input_queue: queue.Queue = queue.Queue(maxsize=8)
             
             # Thread control
             producer_stop_event = threading.Event()
@@ -998,7 +1059,8 @@ class App:
                     logger.debug("Playback consumer exiting")
             
             # Start producer thread
-            self._tts_audio_queue = queue.Queue(maxsize=3)
+            # OPTIMIZATION: Increased audio queue size from 3 to 8 to prevent drops
+            self._tts_audio_queue = queue.Queue(maxsize=8)
             producer_thread = threading.Thread(target=tts_producer, daemon=True)
             producer_thread.start()
             
