@@ -334,13 +334,30 @@ class QtMainWindow(QMainWindow):
 
     def _recreate_window(self):
         """Recreate the main window with new transparency setting."""
+        # Get the old window's callbacks before it gets garbage collected
+        old_on_chat_message = self.on_chat_message
+        old_on_settings_save = self.on_settings_save
+        
+        # Store reference to app_instance to avoid issues during recreation
+        app_instance = self.app_instance
+        
         # Create a new instance with updated config
         new_window = QtMainWindow(self.config, self.app_instance)
         new_window.show()
+        
+        # CRITICAL: Restore callbacks that were set in main.py
+        if old_on_chat_message:
+            new_window.on_chat_message = old_on_chat_message
+        if old_on_settings_save:
+            new_window.on_settings_save = old_on_settings_save
+        
         # Store reference to prevent garbage collection
-        self.app_instance.main_window = new_window
+        app_instance.main_window = new_window
+        
         # CRITICAL: Setup callbacks for the new window (render callback, etc.)
         new_window._setup_callbacks()
+        
+        logger.info("Window recreated successfully with new transparency setting")
 
     def _handle_chat_message(self, text: str):
         """Handle chat message from overlay."""
