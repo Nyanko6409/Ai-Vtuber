@@ -164,9 +164,10 @@ def _resolve_model_path(raw_path: str) -> Optional[Path]:
     p = p.resolve()
 
     if not p.exists():
-        logger.error(f"Live2D model path does not exist: {p}")
+        logger.error("Live2D model not found:")
+        logger.error(f"{p}")
         logger.error(
-            "Please update config.yaml 'avatar.model_path' to point to your Live2D model file.\n"
+            "Please update config.yaml 'avatar.model_path' (or 'avatar.models') to point to your Live2D model file.\n"
             "You can use:\n"
             "  - Absolute path: C:/Users/Name/Models/model.model3.json\n"
             "  - Relative path: assets/avatars/my_model/model.model3.json (from project root)\n"
@@ -185,6 +186,42 @@ def _resolve_model_path(raw_path: str) -> Optional[Path]:
     return p
 
 
+def _resolve_active_model(config: dict) -> tuple[str, Optional[str]]:
+    """Resolve which model path to use from the avatar config block.
+
+    Priority:
+      1. avatar.active_model  -> name lookup in avatar.models registry
+      2. first entry of avatar.models (if active_model empty/unknown)
+      3. avatar.model_path    -> legacy single-path option
+
+    Returns (path_string, selected_name). Path may be "" if nothing configured.
+    """
+    models = config.get("models") or {}
+    active = str(config.get("active_model", "") or "").strip()
+
+    if isinstance(models, dict) and models:
+        names = list(models.keys())
+        if active and active in models:
+            chosen = active
+        else:
+            if active:
+                logger.warning(
+                    f"avatar.active_model '{active}' not found in avatar.models "
+                    f"(available: {', '.join(names)}). Falling back to first entry."
+                )
+            chosen = names[0]
+        entry = models[chosen] or {}
+        path = entry.get("path", "") if isinstance(entry, dict) else str(entry)
+        desc = entry.get("description", "") if isinstance(entry, dict) else ""
+        logger.info(f"Live2D model selected by name: '{chosen}'"
+                    + (f" ({desc})" if desc else "")
+                    + f" -> {path}")
+        return str(path), chosen
+
+    # Legacy: single model_path
+    return str(config.get("model_path", "") or ""), None
+
+
 class Live2DAvatar:
     """Live2D avatar using live2d-py library.
     
@@ -193,7 +230,18 @@ class Live2DAvatar:
     """
 
     def __init__(self, config: dict) -> None:
-        self.model_path_raw: str = config.get("model_path", "")
+        # ---- Model selection (config-driven, no code changes needed) -----
+        # Preferred: pick a model by NAME from the 'models' registry:
+        #   avatar:
+        #     active_model: "majo"
+        #     models:
+        #       majo:  {path: ".../魔女.model3.json", description: "..."}
+        #       ganyu: {path: ".../ganyu.model3.json"}
+        # Fallback (legacy): avatar.model_path pointing directly at a .model3.json.
+        resolved_path, selected_name = _resolve_active_model(config)
+        self.active_model_name: Optional[str] = selected_name
+        self.model_registry: dict = config.get("models", {}) or {}
+        self.model_path_raw: str = resolved_path
         # Optional override for where *.exp3.json files are scanned;
         # defaults to the model's own directory (auto-discovery).
         self.expression_directory_raw: str = config.get("expression_directory", "")
@@ -264,6 +312,17 @@ class Live2DAvatar:
 
         # CRITICAL: Check compatibility BEFORE importing
         self._safe_import_live2d()
+
+        # Pure-file model/expression discovery does NOT require the GPU
+        # runtime, so run it here as well. This keeps the semantic
+        # expression layer (trigger_expression / list_expressions) and the
+        # startup diagnostic functional even on machines where live2d-py
+        # is unavailable; _initialize() will refresh against the loaded
+        # runtime when rendering is actually possible.
+        # (Discovery runs regardless of whether the GPU runtime imported OK.)
+        self._model_path = _resolve_model_path(self.model_path_raw)
+        if self._model_path is not None:
+            self._discover_model()
 
     def _safe_import_live2d(self) -> None:
         """Safely import live2d module with compatibility check.
