@@ -1,3 +1,10 @@
+<!--
+  THIS IS AN EXAMPLE TEMPLATE ONLY - it is NOT loaded by the app.
+  The single canonical personality file the app actually reads at startup is:
+      personality/soul.md   (project root)
+  Edit THAT file. Do not create extra copies of soul.md anywhere else.
+-->
+
 # AI VTuber Personality
 
 ## Core Identity

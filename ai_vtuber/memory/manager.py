@@ -21,23 +21,38 @@ class MemoryManager:
     New entries are appended to both the cache and the file.
     """
     
-    def __init__(self, project_root: Optional[Path] = None):
+    def __init__(self, project_root: Optional[Path] = None, config: Optional[dict] = None):
         """
         Initialize the memory manager.
-        
+
         Args:
             project_root: Root directory of the project. If None, auto-detects.
+            config: Optional loaded config.yaml dict. The 'memory' section may
+                override the default file locations (paths relative to the
+                project root). There is exactly ONE canonical copy of each
+                file at the project root: personality/soul.md, data/user.md,
+                data/memory.md. Never create duplicates inside ai_vtuber/.
         """
         if project_root is None:
-            # Auto-detect project root (parent of ai_vtuber directory)
-            self.project_root = Path(__file__).parent.parent
+            # Auto-detect project root (parent of the ai_vtuber package)
+            self.project_root = Path(__file__).resolve().parent.parent.parent
         else:
             self.project_root = Path(project_root)
-        
-        # Define paths relative to project root
-        self.soul_path = self.project_root / "personality" / "soul.md"
-        self.user_facts_path = self.project_root / "data" / "user.md"
-        self.bot_memories_path = self.project_root / "data" / "memory.md"
+
+        # Defaults; overridable via the config.yaml "memory" section
+        mem_cfg = (config or {}).get("memory", {}) or {}
+        soul_rel = mem_cfg.get("soul_file", "personality/soul.md")
+        user_rel = mem_cfg.get("user_file", "data/user.md")
+        memory_rel = mem_cfg.get("memory_file", "data/memory.md")
+
+        def _resolve(rel: str) -> Path:
+            path = Path(rel)
+            return path if path.is_absolute() else self.project_root / path
+
+        # Single canonical files, resolved against the real project root
+        self.soul_path = _resolve(soul_rel)
+        self.user_facts_path = _resolve(user_rel)
+        self.bot_memories_path = _resolve(memory_rel)
         
         # Cached contents
         self._soul_content: Optional[str] = None

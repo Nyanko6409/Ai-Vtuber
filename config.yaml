@@ -40,9 +40,12 @@ llm:
     That sounds really fun! I'd love to hear more about what happened.
     Did anything surprising occur during that experience?
   
-  # Note: Bot personality and character traits are defined in soul.md at project root.
-  # The system prompt above contains only technical/formatting instructions.
-  # soul.md is loaded automatically at startup and combined with this system prompt.
+  # Note: Bot personality and character traits are defined in the SINGLE
+  # canonical file personality/soul.md at the PROJECT ROOT (see "memory"
+  # section below). The system prompt above contains only technical/
+  # formatting instructions. soul.md is loaded automatically at startup and
+  # combined with this system prompt. There must never be a second copy
+  # (e.g. inside ai_vtuber/) - edit only personality/soul.md.
 
 # Ollama Settings (fallback LLM provider if LM Studio unavailable)
 ollama:
@@ -178,6 +181,15 @@ audio:
   dtype: "int16"
   # Prevent feedback: mute mic during TTS playback
   mute_during_playback: true
+
+# Memory / personality files (SINGLE canonical copies at the project root).
+# Do NOT create duplicates of these files elsewhere (e.g. inside ai_vtuber/).
+# If the app ever answers as a generic model instead of your character,
+# verify it is loading the file listed here: personality/soul.md
+memory:
+  soul_file: "personality/soul.md"   # Character definition (the bot's "soul")
+  user_file: "data/user.md"          # Persistent facts about the user
+  memory_file: "data/memory.md"      # Bot's own long-term memories
 
 # Filler-word latency masking system
 fillers:
