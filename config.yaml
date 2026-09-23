@@ -107,13 +107,26 @@ tts:
 #   - Paths with spaces: /home/user/My Models/model.model3.json
 #   - Relative paths: assets/avatars/ganyu/ganyu.model3.json (resolved from project root)
 avatar:
-  # Example paths (replace with your actual model location):
-  # Windows: "C:/Users/YourName/VTubeStudio/Models/ganyu/ganyu.model3.json"
-  # Windows Steam: "E:/SteamLibrary/steamapps/common/VTube Studio/VTube Studio_Data/StreamingAssets/Live2DModels/ganyu/ganyu.model3.json"
-  # WSL: "/mnt/e/SteamLibrary/steamapps/common/VTube Studio/VTube Studio_Data/StreamingAssets/Live2DModels/ganyu/ganyu.model3.json"
-  # Linux: "/home/user/models/ganyu/ganyu.model3.json"
-  # Relative (project root): "assets/avatars/ganyu/ganyu.model3.json"
-  model_path: "assets/avatars/default/model3.json"
+  # ---- Model selection -------------------------------------------------
+  # Pick the active model by NAME from the "models" registry below.
+  # Change this single line to switch models; no code changes needed.
+  # If active_model is empty / unknown, the first entry in "models" is used.
+  active_model: "majo"
+
+  # Registry of available Live2D models (all loaded EXTERNALLY from their
+  # configured path - nothing is copied into this repository).
+  # Each entry needs a "path" (.model3.json); "description" is optional.
+  models:
+    majo:
+      description: "魔女 - VTube Studio install (12 expressions)"
+      path: "E:/SteamLibrary/steamapps/common/VTube Studio/VTube Studio_Data/StreamingAssets/Live2DModels/魔女/魔女.model3.json"
+    ganyu:
+      description: "ganyu - previous default model"
+      path: "E:/SteamLibrary/steamapps/common/VTube Studio/VTube Studio_Data/StreamingAssets/Live2DModels/ganyu/ganyu.model3.json"
+
+  # Legacy single-path option, kept for backward compatibility.
+  # It is OVERRIDDEN by active_model/models above. You may delete it.
+  model_path: "E:/SteamLibrary/steamapps/common/VTube Studio/VTube Studio_Data/StreamingAssets/Live2DModels/ganyu/ganyu.model3.json"
   window_width: 800
   window_height: 600
   fps: 30
