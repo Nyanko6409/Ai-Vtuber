@@ -172,3 +172,82 @@ def test_missing_moc3_reports_error(tmp_path):
     }), encoding="utf-8")
     dm = discover_model(mp)
     assert any("moc3" in e.lower() for e in dm.errors)
+
+
+# ---------------------------------------------------------------------------
+# Expression EMULATION (live2d-py 0.7.x has no LoadExpression API)
+# ---------------------------------------------------------------------------
+
+class FakeModel:
+    """Minimal stand-in for live2d-py's LAppModel (0.7.x surface).
+
+    Deliberately does NOT define LoadExpression / SetExpressionWeight —
+    reproduces the AttributeError from the user's log; the avatar must
+    apply expressions via SetParameterValue instead.
+    """
+
+    def __init__(self):
+        self.params = {}
+        self.reset_calls = []
+
+    def GetParameterCount(self):
+        return 0
+
+    def SetParameterValue(self, pid, value):
+        self.params[pid] = float(value)
+
+    def ResetParameterValue(self, pid):
+        self.reset_calls.append(pid)
+        self.params.pop(pid, None)
+
+
+def _avatar_with_fake_model(external_model_dir):
+    av = Live2DAvatar({"model_path": str(external_model_dir / "魔女.model3.json")})
+    av._discover_model()
+    av._model = FakeModel()
+    av._initialized = True
+    return av
+
+
+def test_expression_applies_parameters_without_loadexpression(external_model_dir):
+    av = _avatar_with_fake_model(external_model_dir)
+    assert av.trigger_expression("angry") is True
+    # ku.exp3.json parameters applied directly:
+    assert av._model.params["Param53"] == 1.0
+    assert av._model.params["ParamBrowLForm"] == -1.0
+    assert av._model.params["ParamMouthForm"] == -0.5
+
+
+def test_mood_map_expression_applies_parameters(external_model_dir):
+    av = _avatar_with_fake_model(external_model_dir)
+    # happy -> star_eyes (sq.exp3.json) via mood map
+    av.set_expression("happy")
+    assert av._model.params.get("PartStarEye") == 1.0 or \
+           av._model.params.get("ParamEyeLSmile") == 1.0
+    assert "sq" in av._expression_owned
+
+
+def test_expression_switch_releases_previous_params(external_model_dir):
+    av = _avatar_with_fake_model(external_model_dir)
+    av.trigger_expression("angry")          # sets Param53 etc.
+    av.trigger_expression("heart_eyes")     # should release angry's params
+    assert "Param53" not in av._model.params
+    assert av._model.reset_calls            # ResetParameterValue was used
+    assert av._model.params.get("PartHeartEye") == 1.0
+
+
+def test_reset_expressions_releases_all(external_model_dir):
+    av = _avatar_with_fake_model(external_model_dir)
+    av.trigger_expression("magic_wand")
+    assert av._model.params.get("PartWand") == 1.0
+    assert av.reset_expressions() is True
+    assert av._model.params.get("PartWand") is None
+    assert av._expression_owned == {}
+
+
+def test_broken_expression_file_handled(external_model_dir):
+    av = _avatar_with_fake_model(external_model_dir)
+    # broken.exp3.json is malformed JSON -> must fail gracefully, not raise
+    ok = av._load_expression_file(str(external_model_dir / "broken.exp3.json"),
+                                  label="broken")
+    assert ok is False
