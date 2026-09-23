@@ -6,6 +6,7 @@ CRITICAL: Checks Python/native compatibility BEFORE importing to prevent SIGSEGV
 
 import logging
 import math
+import os
 import re
 import sys
 import threading
@@ -133,6 +134,80 @@ def _check_native_compatibility(package_path: Path) -> tuple[bool, str]:
     return True, ""  # Assume compatible if we can't determine
 
 
+def _fix_mojibake(text: str) -> str:
+    """Repair text that was decoded as cp1252/latin-1 but is really UTF-8.
+
+    On Windows, ``open()`` without an explicit encoding uses the system code
+    page (cp1252 / cp936 / ...).  A config.yaml saved as UTF-8 containing
+    non-ASCII paths (e.g. 魔女) then loads as garbled text like 'é­"å¥³'.
+    Re-encoding through the original code page recovers the real string.
+    Returns the input unchanged if it is not double-decoded UTF-8.
+    """
+    if not text or text.isascii():
+        return text
+    for enc in ("cp1252", "latin-1"):
+        try:
+            fixed = text.encode(enc).decode("utf-8")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            continue
+        # Only accept when the repair actually changed something and the
+        # result contains no replacement chars / control junk.
+        if fixed != text and "\ufffd" not in fixed:
+            return fixed
+    return text
+
+
+def _repair_path_on_fs(p: Path) -> Optional[Path]:
+    """Last-resort recovery: walk the path components and match each one
+    case-insensitively against its parent directory listing.
+
+    This fixes paths whose characters got mangled by a wrong text decoding
+    (or wrong case on Windows): a directory literally named 'é­"å¥³'
+    does not exist but '魔女' does — scanning the parent finds it.
+    Returns a Path that exists on disk, or None.
+    """
+    try:
+        resolved = Path(os.path.abspath(str(p)))
+    except (OSError, ValueError):
+        return None
+
+    # Collect the chain of components down to the deepest existing ancestor.
+    missing: list[str] = []
+    cur = resolved
+    while not cur.exists():
+        parent = cur.parent
+        if parent == cur:  # reached filesystem root
+            return None
+        missing.insert(0, cur.name)
+        cur = parent
+
+    for name in missing:
+        try:
+            entries = list(cur.iterdir())
+        except OSError:
+            return None
+        match = next((e for e in entries if e.name == name), None)
+        if match is None:
+            match = next(
+                (e for e in entries if e.name.casefold() == name.casefold()),
+                None,
+            )
+        if match is None:
+            fixed = _fix_mojibake(name)
+            if fixed != name:
+                match = next((e for e in entries if e.name == fixed), None)
+                if match is None:
+                    match = next(
+                        (e for e in entries
+                         if e.name.casefold() == fixed.casefold()),
+                        None,
+                    )
+        if match is None:
+            return None
+        cur = match
+    return cur if cur.exists() else None
+
+
 def _resolve_model_path(raw_path: str) -> Optional[Path]:
     """Resolve and validate a Live2D model path.
     
@@ -151,7 +226,22 @@ def _resolve_model_path(raw_path: str) -> Optional[Path]:
     if not raw_path or not raw_path.strip():
         return None
 
+    # Repair double-decoded UTF-8 before touching the filesystem.
+    raw_path = _fix_mojibake(raw_path)
+
     p = Path(raw_path).expanduser()
+
+    # Some code pages (e.g. cp936/GBK on Chinese Windows) mangle the whole
+    # string differently than per-component; try a component-wise repair too.
+    if not p.exists():
+        parts = p.parts
+        candidate = Path(*[_fix_mojibake(part) for part in parts])
+        if candidate != p and candidate.exists():
+            logger.info(
+                f"Live2D model path repaired component-wise:\n"
+                f"  {p}\n  -> {candidate}"
+            )
+            p = candidate
     
     # If path is relative, resolve it relative to the project root
     # Project root is 2 levels up from ai_vtuber/avatar/live2d.py
@@ -163,6 +253,15 @@ def _resolve_model_path(raw_path: str) -> Optional[Path]:
             logger.warning(f"Could not determine project root for relative path: {e}")
     
     p = p.resolve()
+
+    if not p.exists():
+        recovered = _repair_path_on_fs(p)
+        if recovered is not None:
+            logger.warning(
+                f"Live2D model path did not match exactly; recovered via "
+                f"directory scan:\n  {p}\n  -> {recovered}"
+            )
+            p = recovered
 
     if not p.exists():
         logger.error("Live2D model not found:")

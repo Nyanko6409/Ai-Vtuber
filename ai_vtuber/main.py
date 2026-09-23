@@ -184,15 +184,39 @@ def load_config(config_path: str) -> dict:
         logger.error(f"Config file not found: {config_path}")
         sys.exit(1)
 
-    with open(config_path, 'r') as f:
+    # IMPORTANT: read as UTF-8 explicitly. On Windows the default locale
+    # encoding (cp1252/cp936/...) would garble non-ASCII paths such as 魔女.
+    with open(config_path, 'r', encoding='utf-8-sig') as f:
         config = yaml.safe_load(f)
 
     logger.info(f"Configuration loaded from: {config_path}")
     return config
 
 
+def _setup_console_encoding() -> None:
+    """Force UTF-8 output on Windows consoles (PowerShell/cmd).
+
+    Without this, logging a path containing non-ASCII characters (e.g. 魔女)
+    can raise UnicodeEncodeError under cp1252/cp936 consoles, or display as
+    mojibake.  errors='replace' guarantees we never crash on output.
+    """
+    if sys.platform == 'win32':
+        for stream_name in ('stdout', 'stderr'):
+            stream = getattr(sys, stream_name, None)
+            if stream is None:
+                continue
+            try:
+                if getattr(stream, 'encoding', '') and \
+                        stream.encoding.lower().replace('-', '') != 'utf8':
+                    stream.reconfigure(encoding='utf-8', errors='replace')
+            except (AttributeError, ValueError, OSError):
+                pass
+
+
 def main() -> None:
     """Main entry point."""
+    _setup_console_encoding()
+
     parser = argparse.ArgumentParser(description="AI VTuber - Local AI Virtual YouTuber")
     parser.add_argument(
         "--config", "-c",
