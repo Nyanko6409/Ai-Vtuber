@@ -145,27 +145,29 @@ avatar:
   #   Arrow keys / WASD: Move avatar
   # Expression mapping: mood -> semantic expression id
   # Semantic ids are resolved to the model's external .exp3.json files by
-  # auto-discovery (never filenames here). Valid ids for the 魔女 model:
+  # auto-discovery (never filenames here). Values may also be raw file
+  # stems ("ku") or Chinese display names ("生气"). Valid ids for the
+  # 魔女 model:
   #   little_ghost 👻 black_face 😠 bow_toggle 🎀 crying 😭 angry 😡
   #   heart_eyes 🥰 star_eyes 🤩 glasses_toggle 👓 gaming_gesture 🎮
   #   microphone_gesture 🎤 magic_wand 🪄 hat_toggle 🎩
   # The LLM picks a mood via its leading [tag]; this map translates it.
   # Override any entry below to re-brand moods without touching code.
   expressions:
-    neutral: "glasses_toggle"        # 👓 calm default look
-    happy: "star_eyes"               # 🤩
-    excited: "star_eyes"             # 🤩
-    sad: "crying"                    # 😭
-    angry: "angry"                   # 😡
-    surprised: "black_face"          # 😠
-    embarrassed: "heart_eyes"        # 🥰
-    loving: "heart_eyes"             # 🥰
-    thinking: "magic_wand"           # 🪄
-    sleepy: "little_ghost"           # 👻
-    gaming: "gaming_gesture"         # 🎮
-    singing: "microphone_gesture"    # 🎤
-    smug: "bow_toggle"               # 🎀
-    performing: "hat_toggle"         # 🎩
+    neutral: "glasses_toggle"        # 👓 calm default look (x.exp3.json)
+    happy: "star_eyes"               # 🤩 sq.exp3.json
+    excited: "star_eyes"             # 🤩 sq.exp3.json
+    sad: "crying"                    # 😭 hdj.exp3.json
+    angry: "angry"                   # 😡 ku.exp3.json
+    surprised: "black_face"          # 😠 fz.exp3.json
+    embarrassed: "heart_eyes"        # 🥰 mz.exp3.json
+    loving: "heart_eyes"             # 🥰 mz.exp3.json
+    thinking: "magic_wand"           # 🪄 zs1.exp3.json
+    sleepy: "little_ghost"           # 👻 cw.exp3.json
+    gaming: "gaming_gesture"         # 🎮 xx.exp3.json
+    singing: "microphone_gesture"    # 🎤 yj.exp3.json
+    smug: "bow_toggle"               # 🎀 h.exp3.json
+    performing: "hat_toggle"         # 🎩 zs2.exp3.json
 
 # Audio Settings
 audio:

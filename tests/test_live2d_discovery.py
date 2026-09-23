@@ -14,7 +14,12 @@ from pathlib import Path
 import pytest
 
 from ai_vtuber.avatar.model_discovery import discover_model, format_diagnostic
-from ai_vtuber.avatar.live2d import Live2DAvatar, _resolve_model_path
+from ai_vtuber.avatar.live2d import (
+    DEFAULT_EXPRESSIONS,
+    Live2DAvatar,
+    _resolve_model_path,
+    build_mood_expression_map,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -175,23 +180,27 @@ def test_missing_moc3_reports_error(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Expression EMULATION (live2d-py 0.7.x has no LoadExpression API)
+# Expression triggering tests (no GPU runtime required).
+#
+# live2d-py 0.7.0.4 (the version installed on the user's Windows machine)
+# has NO LoadExpression / SetExpression methods — calling them raised
+# AttributeError at runtime. The avatar now emulates expressions via
+# SetParameterValue when those methods are missing, and uses the native
+# path only when they exist. Both paths are tested below with two fake
+# model classes.
 # ---------------------------------------------------------------------------
 
-class FakeModel:
-    """Minimal stand-in for live2d-py's LAppModel (0.7.x surface).
+class FakeModelNoExprApi:
+    """Stand-in for live2d-py 0.7.0.4's LAppModel surface.
 
-    Deliberately does NOT define LoadExpression / SetExpressionWeight —
-    reproduces the AttributeError from the user's log; the avatar must
-    apply expressions via SetParameterValue instead.
+    Deliberately does NOT define LoadExpression / SetExpression —
+    reproduces the exact AttributeError from the user's log; the avatar
+    must apply expressions via SetParameterValue instead.
     """
 
     def __init__(self):
-        self.params = {}
-        self.reset_calls = []
-
-    def GetParameterCount(self):
-        return 0
+        self.params: dict[str, float] = {}
+        self.reset_calls: list[str] = []
 
     def SetParameterValue(self, pid, value):
         self.params[pid] = float(value)
@@ -201,53 +210,175 @@ class FakeModel:
         self.params.pop(pid, None)
 
 
-def _avatar_with_fake_model(external_model_dir):
+class FakeModelWithExprApi:
+    """Stand-in for newer live2d-py builds that DO have the expression API."""
+
+    def __init__(self):
+        self.loaded: list[str] = []
+        self.set_expr: list[tuple] = []
+        self.deleted: list[str] = []
+        self.params: dict[str, float] = {}
+
+    def LoadExpression(self, path):
+        self.loaded.append(str(path))
+
+    def SetExpression(self, name, weight):
+        self.set_expr.append((name, weight))
+
+    def DeleteExpression(self, name):
+        self.deleted.append(name)
+
+    def SetParameterValue(self, pid, v):
+        self.params[pid] = v
+
+    def GetParameterValue(self, pid):
+        return self.params.get(pid, 0.0)
+
+
+def _avatar_with_model(external_model_dir, model):
     av = Live2DAvatar({"model_path": str(external_model_dir / "魔女.model3.json")})
     av._discover_model()
-    av._model = FakeModel()
+    av._model = model
     av._initialized = True
     return av
 
 
-def test_expression_applies_parameters_without_loadexpression(external_model_dir):
-    av = _avatar_with_fake_model(external_model_dir)
-    assert av.trigger_expression("angry") is True
+@pytest.fixture()
+def loaded_avatar(external_model_dir):
+    """Avatar backed by a fake model WITHOUT the expression API
+    (matches the user's installed live2d-py 0.7.0.4)."""
+    return _avatar_with_model(external_model_dir, FakeModelNoExprApi())
+
+
+@pytest.fixture()
+def native_avatar(external_model_dir):
+    """Avatar backed by a fake model WITH the expression API."""
+    return _avatar_with_model(external_model_dir, FakeModelWithExprApi())
+
+
+# --- mood map sanity -------------------------------------------------------
+
+def test_mood_map_built_from_config_defaults():
+    # Every analyzer emotion must have a semantic target in the default map.
+    from ai_vtuber.emotion.analyzer import SUPPORTED_EMOTIONS
+    for emo in SUPPORTED_EMOTIONS:
+        assert emo in DEFAULT_EXPRESSIONS, f"emotion '{emo}' unmapped"
+
+
+def test_all_12_semantic_ids_reachable_via_moods():
+    targets = set(DEFAULT_EXPRESSIONS.values())
+    assert targets == set(EXPECTED_MAP.keys()), \
+        f"mood map must cover all 12 expressions; missing {set(EXPECTED_MAP) - targets}"
+
+
+def test_mood_expression_map_resolves_on_model(loaded_avatar):
+    mood_map = build_mood_expression_map(loaded_avatar, loaded_avatar.expressions_map)
+    assert mood_map["happy"] == "star_eyes"
+    assert mood_map["sad"] == "crying"
+    assert mood_map["angry"] == "angry"
+    assert mood_map["surprised"] == "black_face"
+    assert mood_map["embarrassed"] == "heart_eyes"
+    assert mood_map["neutral"] == "glasses_toggle"
+
+
+# --- emulated path (live2d-py 0.7.0.4 — no LoadExpression) -----------------
+
+def test_expression_applies_parameters_without_loadexpression(loaded_avatar):
+    assert loaded_avatar.trigger_expression("angry") is True
     # ku.exp3.json parameters applied directly:
-    assert av._model.params["Param53"] == 1.0
-    assert av._model.params["ParamBrowLForm"] == -1.0
-    assert av._model.params["ParamMouthForm"] == -0.5
+    assert loaded_avatar._model.params["Param53"] == 1.0
+    assert loaded_avatar._model.params["ParamBrowLForm"] == -1.0
+    assert loaded_avatar._model.params["ParamMouthForm"] == -0.5
 
 
-def test_mood_map_expression_applies_parameters(external_model_dir):
-    av = _avatar_with_fake_model(external_model_dir)
+def test_mood_map_expression_applies_parameters(loaded_avatar):
     # happy -> star_eyes (sq.exp3.json) via mood map
-    av.set_expression("happy")
-    assert av._model.params.get("PartStarEye") == 1.0 or \
-           av._model.params.get("ParamEyeLSmile") == 1.0
-    assert "sq" in av._expression_owned
+    loaded_avatar.set_expression("happy")
+    assert loaded_avatar._model.params.get("PartStarEye") == 1.0 or \
+           loaded_avatar._model.params.get("ParamEyeLSmile") == 1.0
+    assert "sq" in loaded_avatar._expression_owned
 
 
-def test_expression_switch_releases_previous_params(external_model_dir):
-    av = _avatar_with_fake_model(external_model_dir)
-    av.trigger_expression("angry")          # sets Param53 etc.
-    av.trigger_expression("heart_eyes")     # should release angry's params
-    assert "Param53" not in av._model.params
-    assert av._model.reset_calls            # ResetParameterValue was used
-    assert av._model.params.get("PartHeartEye") == 1.0
+def test_expression_switch_releases_previous_params(loaded_avatar):
+    loaded_avatar.trigger_expression("angry")       # sets Param53 etc.
+    loaded_avatar.trigger_expression("heart_eyes")  # should release angry's params
+    assert "Param53" not in loaded_avatar._model.params
+    assert loaded_avatar._model.reset_calls          # ResetParameterValue was used
+    assert loaded_avatar._model.params.get("PartHeartEye") == 1.0
 
 
-def test_reset_expressions_releases_all(external_model_dir):
-    av = _avatar_with_fake_model(external_model_dir)
-    av.trigger_expression("magic_wand")
-    assert av._model.params.get("PartWand") == 1.0
-    assert av.reset_expressions() is True
-    assert av._model.params.get("PartWand") is None
-    assert av._expression_owned == {}
+def test_reset_expressions_releases_all(loaded_avatar):
+    loaded_avatar.trigger_expression("magic_wand")
+    assert loaded_avatar._model.params.get("PartWand") == 1.0
+    assert loaded_avatar.reset_expressions() is True
+    assert loaded_avatar._model.params.get("PartWand") is None
+    assert loaded_avatar._expression_owned == {}
 
 
-def test_broken_expression_file_handled(external_model_dir):
-    av = _avatar_with_fake_model(external_model_dir)
+def test_trigger_unknown_expression_returns_false(loaded_avatar):
+    assert loaded_avatar.trigger_expression("not_a_real_expression") is False
+
+
+def test_broken_expression_file_handled(loaded_avatar, external_model_dir):
     # broken.exp3.json is malformed JSON -> must fail gracefully, not raise
-    ok = av._load_expression_file(str(external_model_dir / "broken.exp3.json"),
-                                  label="broken")
+    ok = loaded_avatar._load_expression_file(
+        str(external_model_dir / "broken.exp3.json"), label="broken")
     assert ok is False
+
+
+def test_missing_expression_file_handled(loaded_avatar, tmp_path):
+    ok = loaded_avatar._load_expression_file(str(tmp_path / "nope.exp3.json"),
+                                             label="nope")
+    assert ok is False
+
+
+# --- native path (newer live2d-py builds with LoadExpression) ---------------
+
+def test_native_expression_load_and_activate(native_avatar):
+    native_avatar.set_expression("happy")
+    assert native_avatar._model.loaded == [str(Path(
+        native_avatar._expression_catalog["star_eyes"].path))]
+    # Activation via SetExpression(<filename>, 1.0) — LoadExpression alone
+    # does NOT show anything.
+    assert ("sq.exp3.json", 1.0) in native_avatar._model.set_expr
+    assert native_avatar._active_expression_name == "sq.exp3.json"
+
+
+def test_native_mood_switch_deactivates_previous(native_avatar):
+    native_avatar.set_expression("angry")   # ku.exp3.json
+    native_avatar.set_expression("sad")     # hdj.exp3.json
+    assert "ku.exp3.json" in native_avatar._model.deleted
+    assert ("hdj.exp3.json", 1.0) in native_avatar._model.set_expr
+    assert native_avatar._active_expression_name == "hdj.exp3.json"
+
+
+def test_native_reset_expressions_clears_active(native_avatar):
+    native_avatar.set_expression("angry")
+    assert native_avatar.reset_expressions() is True
+    assert native_avatar._active_expression_name == ""
+    assert "ku.exp3.json" in native_avatar._model.deleted
+
+
+# --- config override + fallback ---------------------------------------------
+
+def test_config_override_changes_mood_target(external_model_dir):
+    cfg = {
+        "model_path": str(external_model_dir / "魔女.model3.json"),
+        "expressions": {"happy": "hat_toggle"},  # override star_eyes
+    }
+    av = Live2DAvatar(cfg)
+    av._discover_model()
+    av._model = FakeModelNoExprApi()
+    av._initialized = True
+    av.set_expression("happy")
+    # hat_toggle -> zs2.exp3.json -> PartHat param applied through emulation
+    assert av._model.params.get("PartHat") == 0.0
+    assert "zs2" in av._expression_owned
+
+
+def test_unknown_mood_falls_back_to_parameters(loaded_avatar):
+    # A totally unknown mood with no expression mapping: parameter fallback.
+    loaded_avatar.expressions_map = {}
+    loaded_avatar.set_expression("some_unknown_mood")
+    # parameter fallback applied instead (eyes/mouth params present)
+    assert "ParamEyeLOpen" in loaded_avatar._model.params
