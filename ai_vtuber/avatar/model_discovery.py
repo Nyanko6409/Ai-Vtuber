@@ -1,0 +1,496 @@
+"""AI VTuber - Live2D Model File & Metadata Discovery
+
+Pure-Python (no live2d-py / OpenGL required) discovery layer for Cubism 3
+(.model3.json) models. Used by:
+
+- ``ai_vtuber.avatar.live2d.Live2DAvatar`` at model-load time (to validate
+  files, build the semantic expression catalog, and print startup diagnostics)
+- ``scripts/live2d_standalone_test.py`` / ``tests/test_live2d_integration.py``
+  (headless verification without a GPU)
+
+Responsibilities:
+- Resolve every referenced file of a model from its .model3.json
+  (moc3 / physics / cdi3 / pose / expressions list), instead of assuming
+  filenames. Replacing the model later requires no code changes.
+- Parse the CDI3 (.cdi3.json) metadata: parameter ids, groups, parts.
+- Scan the model directory for *.exp3.json expression files and parse each
+  one's actual parameter ids/values (never trusting UI-reported counts).
+- Classify parameters into tracking / expression / internal buckets so the
+  AI behaviour layer is never exposed to hundreds of generated ArtMesh
+  rotation deformers.
+- Provide a deterministic semantic-id -> expression-file mapping
+  (e.g. "angry" -> "ku.exp3.json"), with built-in defaults for known VTube
+  Studio naming conventions plus config-driven overrides.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Parameter classification
+# ---------------------------------------------------------------------------
+
+# Generated/hard-coded ArtMesh rotation deformers etc. — needed by the
+# Live2D runtime but must NOT be exposed to the LLM/avatar behaviour layer.
+_INTERNAL_PATTERNS = [
+    re.compile(r"^Param_Angle_Rotation", re.IGNORECASE),
+    re.compile(r"_ArtMesh\d+", re.IGNORECASE),
+    re.compile(r"^ParamPartOpacity", re.IGNORECASE),
+]
+
+# Head/body/eye/breath tracking parameters (driven by tracking or by our
+# own animation code — lip sync, blinking, mouse look).
+_TRACKING_KEYWORDS = [
+    "anglex", "angley", "anglez", "bodyangle", "eyeball",
+    "breath", "centerx", "centery",
+]
+
+# Facial/behaviour parameters the AI layer may legitimately touch.
+_EXPRESSION_KEYWORDS = [
+    "eye", "brow", "mouth", "cheek", "nose", "jaw", "smile",
+    "face", "facepinch", "hair", "sweat", "tear", "blush",
+]
+
+
+def classify_parameter(param_id: str) -> str:
+    """Classify a Live2D parameter id into 'internal', 'tracking' or 'expression'.
+
+    Returns:
+        One of: "internal" | "tracking" | "expression".
+    """
+    for pattern in _INTERNAL_PATTERNS:
+        if pattern.search(param_id):
+            return "internal"
+
+    normalized = re.sub(r"[^a-z0-9]", "", param_id.lower())
+    if any(k in normalized for k in _TRACKING_KEYWORDS):
+        return "tracking"
+    if any(k in normalized for k in _EXPRESSION_KEYWORDS):
+        return "expression"
+    # Unknown short params (e.g. Param21, Param48 custom mouth shapes) are
+    # treated as expression-capable; they stay settable via the clean API.
+    return "expression"
+
+
+# ---------------------------------------------------------------------------
+# Built-in semantic expression-name dictionary
+# ---------------------------------------------------------------------------
+# Maps an ASCII "semantic hint" (usually the pinyin abbreviation used in the
+# .exp3.json filename) to (semantic_id, english_description, emoji).
+# Config `avatar.expression_semantics` can override/add entries per model.
+DEFAULT_SEMANTIC_NAMES: dict[str, tuple[str, str, str]] = {
+    "cw":  ("little_ghost",       "Little Ghost Toggle",   "👻"),
+    "fz":  ("black_face",         "Black Face / Dark Face", "😠"),
+    "h":   ("bow_toggle",         "Bow Toggle",            "🎀"),
+    "hdj": ("crying",             "Crying",                "😭"),
+    "ku":  ("angry",              "Angry",                 "😡"),
+    "mz":  ("heart_eyes",         "Heart Eyes",            "🥰"),
+    "sq":  ("star_eyes",          "Star Eyes / Sparkly Eyes", "🤩"),
+    "x":   ("glasses_toggle",     "Glasses Toggle",        "👓"),
+    "xx":  ("gaming_gesture",     "Gaming Gesture",        "🎮"),
+    "yj":  ("microphone_gesture", "Microphone Gesture",    "🎤"),
+    "zs1": ("magic_wand",         "Magic Wand Summon",     "🪄"),
+    "zs2": ("hat_toggle",         "Hat Toggle",            "🎩"),
+}
+
+# Fallback semantic ids derived from Chinese display names (CDI ExpName or
+# the "Name" field inside the exp3.json), when no better match exists.
+CHINESE_NAME_FALLBACK: dict[str, tuple[str, str, str]] = {
+    "小幽灵切换": ("little_ghost", "Little Ghost Toggle", "👻"),
+    "黑脸": ("black_face", "Black Face / Dark Face", "😠"),
+    "蝴蝶结切换": ("bow_toggle", "Bow Toggle", "🎀"),
+    "哭哭": ("crying", "Crying", "😭"),
+    "生气": ("angry", "Angry", "😡"),
+    "爱心眼": ("heart_eyes", "Heart Eyes", "🥰"),
+    "星星眼": ("star_eyes", "Star Eyes / Sparkly Eyes", "🤩"),
+    "眼镜切换": ("glasses_toggle", "Glasses Toggle", "👓"),
+    "打游戏手势": ("gaming_gesture", "Gaming Gesture", "🎮"),
+    "话筒手势": ("microphone_gesture", "Microphone Gesture", "🎤"),
+    "法杖召唤": ("magic_wand", "Magic Wand Summon", "🪄"),
+    "帽子切换": ("hat_toggle", "Hat Toggle", "🎩"),
+    # VTube Studio UI action "归零" (reset-to-zero) is NOT an expression
+    # file on this model — it is VTube Studio's HotkeyReset action. If a
+    # future model ships a real reset exp3.json, it maps here:
+    "归零": ("reset", "Reset / Return To Zero", "🔄"),
+}
+
+
+@dataclass
+class ExpressionInfo:
+    """Metadata for one discovered .exp3.json expression."""
+    id: str                     # semantic id used by the AI layer ("angry")
+    name: str                   # display name (Chinese, from the exp3 file)
+    description: str            # English description
+    emoji: str                  # icon for diagnostics/UI
+    file: str                   # e.g. "ku.exp3.json"
+    path: str                   # absolute path
+    hotkey: str = ""            # optional (config-provided; not in exp3 files)
+    parameters: dict[str, float] = field(default_factory=dict)
+
+    @property
+    def parameter_count(self) -> int:
+        return len(self.parameters)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "emoji": self.emoji,
+            "file": self.file,
+            "path": self.path,
+            "hotkey": self.hotkey,
+            "parameter_count": self.parameter_count,
+            "parameters": dict(self.parameters),
+        }
+
+
+@dataclass
+class DiscoveredModel:
+    """Everything we can learn about a Live2D model from its files alone."""
+    root: Path
+    model3_path: Path
+    model_name: str
+    moc3_path: Optional[Path] = None
+    physics_path: Optional[Path] = None
+    cdi3_path: Optional[Path] = None
+    pose_path: Optional[Path] = None
+    texture_paths: list[Path] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)      # fatal-ish problems
+    warnings: list[str] = field(default_factory=list)    # non-fatal problems
+    parameter_ids: list[str] = field(default_factory=list)
+    parameter_groups: list[dict] = field(default_factory=list)
+    parts: list[str] = field(default_factory=list)
+    combined_parameters: list[str] = field(default_factory=list)
+    expressions: list[ExpressionInfo] = field(default_factory=list)
+
+    # -- convenience ------------------------------------------------------
+    @property
+    def parameter_count(self) -> int:
+        return len(self.parameter_ids)
+
+    def param_set(self) -> set[str]:
+        return set(self.parameter_ids)
+
+    def classified_parameters(self) -> dict[str, list[str]]:
+        buckets: dict[str, list[str]] = {"tracking": [], "expression": [], "internal": []}
+        for pid in self.parameter_ids:
+            buckets[classify_parameter(pid)].append(pid)
+        return buckets
+
+    def expression_by_id(self, semantic_id: str) -> Optional[ExpressionInfo]:
+        for exp in self.expressions:
+            if exp.id == semantic_id:
+                return exp
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Discovery
+# ---------------------------------------------------------------------------
+
+def discover_model(model3_json: Path | str,
+                   expression_directory: Path | str | None = None,
+                   semantic_overrides: dict[str, dict] | None = None,
+                   hotkeys: dict[str, str] | None = None) -> DiscoveredModel:
+    """Discover all files/metadata of a Cubism 3 model from its .model3.json.
+
+    Args:
+        model3_json: Path to the .model3.json file.
+        expression_directory: Optional override for where *.exp3.json files
+            are scanned (defaults to the model directory + expressions/ subdir).
+        semantic_overrides: Per-model semantic id overrides, keyed by the
+            expression filename stem, e.g.::
+
+                {"ku": {"id": "angry", "name": "生气", "description": "Angry",
+                        "emoji": "😡"}}
+
+        hotkeys: Optional map of filename-stem -> hotkey char (metadata only;
+            hotkeys live in VTube Studio, not in exp3.json files).
+
+    Returns:
+        DiscoveredModel (possibly with errors/warnings populated).
+
+    Raises:
+        FileNotFoundError: if the .model3.json itself does not exist.
+        ValueError: if the .model3.json cannot be parsed / has no FileReferences.
+    """
+    model3_path = Path(model3_json).expanduser().resolve()
+    if not model3_path.is_file():
+        raise FileNotFoundError(f"Model file not found: {model3_path}")
+
+    try:
+        with open(model3_path, "r", encoding="utf-8-sig") as f:
+            model_data = json.load(f)
+    except Exception as e:
+        raise ValueError(f"Failed to parse {model3_path.name}: {e}") from e
+
+    refs = model_data.get("FileReferences")
+    if not isinstance(refs, dict):
+        raise ValueError(f"{model3_path.name} is missing a valid 'FileReferences' section")
+
+    root = model3_path.parent
+    dm = DiscoveredModel(
+        root=root,
+        model3_path=model3_path,
+        model_name=model3_path.stem.replace(".model3", ""),
+    )
+
+    def resolve(rel: Any) -> Optional[Path]:
+        if not rel or not isinstance(rel, str):
+            return None
+        p = (root / rel).resolve()
+        return p if p.is_file() else None
+
+    # --- referenced files -------------------------------------------------
+    dm.moc3_path = resolve(refs.get("Moc"))
+    if dm.moc3_path is None:
+        # Fallback auto-discovery: scan the model dir for *.moc3
+        candidates = sorted(root.glob("*.moc3"))
+        if candidates:
+            dm.moc3_path = candidates[0]
+            dm.warnings.append(
+                f"Moc reference '{refs.get('Moc')}' missing/unreadable; "
+                f"auto-discovered {candidates[0].name} instead")
+        else:
+            dm.errors.append(
+                f"No .moc3 file found (referenced: {refs.get('Moc')!r}, "
+                f"searched {root})")
+
+    dm.physics_path = resolve(refs.get("Physics"))
+    if refs.get("Physics") and dm.physics_path is None:
+        dm.warnings.append(f"Physics file missing (optional): {refs['Physics']}")
+
+    dm.pose_path = resolve(refs.get("Pose"))
+
+    for tex in refs.get("Textures", []) or []:
+        tp = resolve(tex)
+        if tp:
+            dm.texture_paths.append(tp)
+        else:
+            dm.errors.append(f"Texture file missing: {tex}")
+
+    # Expressions declared inside the model3.json (may be empty even though
+    # exp3.json files exist on disk — common for VTube Studio models).
+    declared_exp_files: set[str] = set()
+    for exp in model_data.get("expressions", []) or []:
+        if isinstance(exp, dict) and exp.get("File"):
+            declared_exp_files.add(Path(str(exp["File"])).name)
+
+    # --- CDI3 -------------------------------------------------------------
+    cdi_rel = refs.get("DisplayInfos") or refs.get("Cdi")  # some exporters vary
+    dm.cdi3_path = resolve(cdi_rel) if isinstance(cdi_rel, str) else None
+    if dm.cdi3_path is None:
+        stem = model3_path.name[: -len(".model3.json")] if model3_path.name.endswith(".model3.json") else model3_path.stem
+        candidate = root / f"{stem}.cdi3.json"
+        if candidate.is_file():
+            dm.cdi3_path = candidate
+        else:
+            candidates = sorted(root.glob("*.cdi3.json"))
+            if candidates:
+                dm.cdi3_path = candidates[0]
+    if dm.cdi3_path:
+        _load_cdi(dm.cdi3_path, dm)
+    else:
+        dm.warnings.append(
+            "No .cdi3.json found — parameter/group/part metadata unavailable; "
+            "runtime parameter access will rely on the loaded model only.")
+
+    # --- expressions ------------------------------------------------------
+    exp_dirs: list[Path] = []
+    if expression_directory:
+        exp_dirs.append(Path(expression_directory).expanduser())
+    exp_dirs.append(root)
+    exp_dirs.append(root / "expressions")
+    exp_dirs.append(root / "Exp")
+
+    seen_files: set[str] = set()
+    for d in exp_dirs:
+        if not d.is_dir():
+            continue
+        for exp_file in sorted(d.glob("*.exp3.json")):
+            if exp_file.name in seen_files:
+                continue
+            seen_files.add(exp_file.name)
+            info = _parse_expression(exp_file, declared_exp_files,
+                                     semantic_overrides or {}, hotkeys or {})
+            if info is not None:
+                dm.expressions.append(info)
+
+    # Duplicate semantic id detection (keep first occurrence, rename dupes)
+    _dedupe_expression_ids(dm)
+
+    return dm
+
+
+def _load_cdi(cdi_path: Path, dm: DiscoveredModel) -> None:
+    """Parse CDI3 metadata into the DiscoveredModel (non-fatal on errors)."""
+    try:
+        with open(cdi_path, "r", encoding="utf-8-sig") as f:
+            cdi = json.load(f)
+    except Exception as e:
+        dm.warnings.append(f"Failed to parse CDI file {cdi_path.name}: {e}")
+        return
+
+    groups = cdi.get("Groups") or {}
+    for grp in groups.get("ParameterGroups", []) or []:
+        dm.parameter_groups.append({
+            "id": grp.get("GroupId", ""),
+            "name": grp.get("GroupName", ""),
+            "params": [p.get("Id") for p in (grp.get("Parameters") or []) if p.get("Id")],
+        })
+        for p in grp.get("Parameters", []) or []:
+            pid = p.get("Id")
+            if pid and pid not in dm.parameter_ids:
+                dm.parameter_ids.append(pid)
+
+    for part in (groups.get("Parts", []) or []):
+        pid = part.get("Id")
+        if pid:
+            dm.parts.append(pid)
+
+    # Alternate CDI layout: PartGroups with PartIds lists
+    for pg in (groups.get("PartGroups", []) or []):
+        for pid in (pg.get("PartIds", []) or []):
+            if pid and pid not in dm.parts:
+                dm.parts.append(pid)
+
+    for cp in cdi.get("CombinedParameters", []) or []:
+        if isinstance(cp, list):
+            for item in cp:
+                if isinstance(item, dict) and item.get("Id"):
+                    dm.combined_parameters.append(item["Id"])
+
+    # Some CDIs list parameters outside groups too:
+    for p in (cdi.get("Parameters") or []):
+        pid = p.get("Id") if isinstance(p, dict) else None
+        if pid and pid not in dm.parameter_ids:
+            dm.parameter_ids.append(pid)
+
+
+_EXP_ID_SANITIZE = re.compile(r"[^a-z0-9_]+")
+
+
+def _slug(name: str) -> str:
+    s = _EXP_ID_SANITIZE.sub("_", name.strip().lower()).strip("_")
+    return s or "expression"
+
+
+def _parse_expression(exp_file: Path,
+                      declared_files: set[str],
+                      semantic_overrides: dict[str, dict],
+                      hotkeys: dict[str, str]) -> Optional[ExpressionInfo]:
+    """Parse one .exp3.json into ExpressionInfo. Broken files are skipped."""
+    stem = exp_file.name[: -len(".exp3.json")] if exp_file.name.endswith(".exp3.json") else exp_file.stem
+
+    try:
+        with open(exp_file, "r", encoding="utf-8-sig") as f:
+            data = json.load(f)
+    except Exception as e:
+        logger.error("Malformed expression file %s: %s (skipping)", exp_file.name, e)
+        return None
+
+    params: dict[str, float] = {}
+    for entry in data.get("Parameters", []) or []:
+        if isinstance(entry, dict) and entry.get("Id"):
+            try:
+                params[str(entry["Id"])] = float(entry.get("Value", 0.0))
+            except (TypeError, ValueError):
+                logger.warning("Expression %s has invalid value for %r (ignored)",
+                               exp_file.name, entry.get("Id"))
+
+    override = semantic_overrides.get(stem, {})
+    display_name = str(override.get("name") or data.get("Name") or stem)
+
+    sem: Optional[tuple[str, str, str]] = None
+    if "id" in override:
+        sem = (str(override["id"]),
+               str(override.get("description", DEFAULT_SEMANTIC_NAMES.get(stem, ("", "", ""))[1])),
+               str(override.get("emoji", DEFAULT_SEMANTIC_NAMES.get(stem, ("", "", "🙂"))[2])) or "🙂")
+    elif stem in DEFAULT_SEMANTIC_NAMES:
+        sem = DEFAULT_SEMANTIC_NAMES[stem]
+    elif display_name in CHINESE_NAME_FALLBACK:
+        sem = CHINESE_NAME_FALLBACK[display_name]
+    else:
+        sem = (_slug(stem), display_name, "🙂")
+
+    info = ExpressionInfo(
+        id=sem[0],
+        name=display_name,
+        description=sem[1] or display_name,
+        emoji=sem[2],
+        file=exp_file.name,
+        path=str(exp_file.resolve()),
+        hotkey=str(hotkeys.get(stem, "")),
+        parameters=params,
+    )
+    if exp_file.name not in declared_files:
+        logger.debug("Expression %s not declared in .model3.json (VTube Studio "
+                     "models often omit them); discovered from disk.", exp_file.name)
+    return info
+
+
+def _dedupe_expression_ids(dm: DiscoveredModel) -> None:
+    seen: dict[str, int] = {}
+    for exp in dm.expressions:
+        if exp.id in seen:
+            seen[exp.id] += 1
+            new_id = f"{exp.id}_{seen[exp.id]}"
+            logger.warning("Duplicate expression id '%s' (from %s); renamed to '%s'",
+                           exp.id, exp.file, new_id)
+            exp.id = new_id
+        else:
+            seen[exp.id] = 0
+
+
+# ---------------------------------------------------------------------------
+# Startup diagnostic
+# ---------------------------------------------------------------------------
+
+def format_diagnostic(dm: DiscoveredModel) -> str:
+    """Build the human-readable startup diagnostic block."""
+    lines = [
+        "Live2D Model",
+        "------------",
+        f"Name: {dm.model_name}",
+        f"Model: {dm.model3_path.name}",
+        f"MOC3: {dm.moc3_path.name if dm.moc3_path else 'MISSING'}",
+        f"CDI: {dm.cdi3_path.name if dm.cdi3_path else 'not found (optional)'}",
+        f"Physics: {dm.physics_path.name if dm.physics_path else 'not found (optional)'}",
+        "",
+        f"Parameters: {dm.parameter_count}",
+        f"Parameter Groups: {len(dm.parameter_groups)}",
+        f"Parts: {len(dm.parts)}",
+        f"Combined Parameters: {len(dm.combined_parameters)}",
+        f"Expressions: {len(dm.expressions)}",
+        "",
+        "Expressions:",
+    ]
+    if dm.expressions:
+        width = max(len(e.id) for e in dm.expressions)
+        for e in dm.expressions:
+            lines.append(f"  {e.emoji} {e.id:<{width}} -> {e.file}  "
+                         f"({e.name}, {e.parameter_count} param(s))")
+    else:
+        lines.append("  (none discovered)")
+
+    buckets = dm.classified_parameters()
+    lines += [
+        "",
+        f"Parameter classes: tracking={len(buckets['tracking'])}, "
+        f"expression={len(buckets['expression'])}, internal={len(buckets['internal'])}",
+    ]
+    for w in dm.warnings:
+        lines.append(f"  WARNING: {w}")
+    for err in dm.errors:
+        lines.append(f"  ERROR: {err}")
+    return "\n".join(lines)

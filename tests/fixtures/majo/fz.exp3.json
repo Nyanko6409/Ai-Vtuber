@@ -1,0 +1,9 @@
+{
+  "Name": "黑脸",
+  "Parameters": [
+    {
+      "Id": "ParamFaceDark",
+      "Value": 1.0
+    }
+  ]
+}

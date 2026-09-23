@@ -15,9 +15,19 @@ from typing import Optional, Any
 
 import numpy as np
 
+from .model_discovery import (
+    DiscoveredModel,
+    ExpressionInfo,
+    classify_parameter,
+    discover_model,
+    format_diagnostic,
+)
+
 logger = logging.getLogger(__name__)
 
-# Emotion → expression file name mapping
+# Emotion → semantic expression id mapping (semantic ids are in turn mapped
+# to concrete .exp3.json files by the discovery layer / config overrides).
+# These match the emotions produced by ai_vtuber.emotion.analyzer.
 DEFAULT_EXPRESSIONS: dict[str, str] = {
     "neutral": "neutral",
     "happy": "happy",
@@ -27,6 +37,7 @@ DEFAULT_EXPRESSIONS: dict[str, str] = {
     "sad": "sad",
     "angry": "angry",
     "sleepy": "sleepy",
+    "embarrassed": "embarrassed",
 }
 
 # Emotion → parameter overrides
@@ -183,15 +194,31 @@ class Live2DAvatar:
 
     def __init__(self, config: dict) -> None:
         self.model_path_raw: str = config.get("model_path", "")
+        # Optional override for where *.exp3.json files are scanned;
+        # defaults to the model's own directory (auto-discovery).
+        self.expression_directory_raw: str = config.get("expression_directory", "")
         self.scale: float = config.get("scale", 2.0)
         self.expressions_map: dict[str, str] = {
             **DEFAULT_EXPRESSIONS,
             **config.get("expressions", {}),
         }
+        # Per-model semantic expression overrides, keyed by exp3 filename stem:
+        #   avatar:
+        #     expression_semantics:
+        #       ku: {id: angry, name: 生气, description: Angry, emoji: "😡"}
+        self._semantic_overrides: dict[str, dict] = config.get("expression_semantics", {}) or {}
+        self._expression_hotkeys: dict[str, str] = config.get("expression_hotkeys", {}) or {}
 
         self._live2d: Any = None
         self._live2d_version: int = 0
         self._model: Any = None
+
+        # Discovered model metadata (files, CDI params, expression catalog).
+        self._discovered: Optional[DiscoveredModel] = None
+        # semantic id -> ExpressionInfo (built after discovery)
+        self._expression_catalog: dict[str, ExpressionInfo] = {}
+        # Valid parameter ids from the loaded runtime model (or CDI fallback)
+        self._valid_param_ids: set[str] = set()
 
         self._is_talking: bool = False
         self._current_expression: str = "neutral"
@@ -324,6 +351,11 @@ class Live2DAvatar:
             self._initialized = False
             return False
 
+        # Auto-discover all model files/metadata from the .model3.json
+        # (moc3/physics/cdi3 + every *.exp3.json expression). This runs
+        # BEFORE validation so we can report precise missing-file errors.
+        self._discover_model()
+
         # Validate model files before loading
         if not self._validate_model_files():
             return False
@@ -346,6 +378,7 @@ class Live2DAvatar:
             logger.info(f"  Model directory: {self._model_path.parent}")
 
             self._resolve_parameter_ids()
+            self._log_startup_diagnostic()
 
         except Exception as e:
             error_msg = f"Failed to load Live2D model: {type(e).__name__}: {e}"
@@ -535,6 +568,229 @@ class Live2DAvatar:
             f"eyeBallX: '{self._param_eye_ball_x}', eyeBallY: '{self._param_eye_ball_y}'"
         )
 
+    # ------------------------------------------------------------------
+    # Discovery / semantic expression layer
+    # ------------------------------------------------------------------
+
+    def _discover_model(self) -> None:
+        """Run pure-file auto-discovery for the configured model.
+
+        Populates self._discovered, self._expression_catalog and (as a
+        fallback when the runtime is unavailable) self._valid_param_ids.
+        Never raises: discovery failures are logged and leave the avatar
+        in degraded-but-functional mode.
+        """
+        exp_dir = None
+        if self.expression_directory_raw:
+            candidate = Path(self.expression_directory_raw).expanduser()
+            if not candidate.is_absolute():
+                candidate = Path(__file__).resolve().parents[2] / candidate
+            if candidate.is_dir():
+                exp_dir = candidate
+            else:
+                logger.warning(
+                    "avatar.expression_directory does not exist: %s "
+                    "(falling back to model directory)", candidate)
+
+        try:
+            self._discovered = discover_model(
+                self._model_path,
+                expression_directory=exp_dir,
+                semantic_overrides=self._semantic_overrides,
+                hotkeys=self._expression_hotkeys,
+            )
+        except Exception as e:
+            logger.error("Live2D model discovery failed: %s", e)
+            self._discovered = None
+
+        if self._discovered is None:
+            return
+
+        for err in self._discovered.errors:
+            logger.error("Model discovery: %s", err)
+        for warn in self._discovered.warnings:
+            logger.warning("Model discovery: %s", warn)
+
+        self._expression_catalog = {e.id: e for e in self._discovered.expressions}
+        if self._discovered.parameter_ids:
+            self._valid_param_ids = set(self._discovered.parameter_ids)
+
+        logger.info(
+            "Discovered model '%s': %d parameters, %d expressions",
+            self._discovered.model_name,
+            self._discovered.parameter_count,
+            len(self._discovered.expressions),
+        )
+
+    def _log_startup_diagnostic(self) -> None:
+        """Log the startup diagnostic block (files, counts, expression map)."""
+        if self._discovered is None:
+            return
+        # Refresh valid param ids from the live runtime now that it's loaded
+        try:
+            runtime_ids = set(self._model.GetParamIds())
+            if runtime_ids:
+                self._valid_param_ids = runtime_ids
+        except Exception as e:
+            logger.debug(f"Could not query runtime param ids (using CDI): {e}")
+        logger.info("\n%s", format_diagnostic(self._discovered))
+
+    def list_expressions(self) -> list[dict]:
+        """All discovered expressions with metadata (for UI/LLM prompts)."""
+        return [e.to_dict() for e in self._expression_catalog.values()]
+
+    def available_expression_ids(self) -> list[str]:
+        """Semantic expression ids the AI layer may trigger."""
+        return sorted(self._expression_catalog.keys())
+
+    def list_parameters(self, category: Optional[str] = None) -> list[str]:
+        """Parameter ids known to exist on this model.
+
+        Args:
+            category: optional filter — "tracking" | "expression" | "internal".
+                      Pass None to get everything (the Live2D runtime still
+                      operates on the complete model either way).
+        """
+        if category is None:
+            return sorted(self._valid_param_ids)
+        return sorted(p for p in self._valid_param_ids
+                      if classify_parameter(p) == category)
+
+    def _resolve_semantic_expression(self, name: str) -> tuple[Optional[ExpressionInfo], str]:
+        """Resolve any accepted expression reference to (ExpressionInfo, path).
+
+        Accepts, in order of precedence:
+        1. semantic id ("angry")          -> ku.exp3.json via catalog
+        2. emotion name ("angry")         -> config expressions map
+        3. display name ("生气")           -> catalog lookup by name
+        4. file stem ("ku") or filename ("ku.exp3.json") -> direct file
+        """
+        key = (name or "").strip()
+        if not key:
+            return None, ""
+
+        exp = self._expression_catalog.get(key)
+        if exp:
+            return exp, exp.path
+
+        # Emotion -> semantic id (configurable via avatar.expressions)
+        mapped = self.expressions_map.get(key)
+        if mapped and mapped != key:
+            exp = self._expression_catalog.get(mapped)
+            if exp:
+                return exp, exp.path
+            key_file = mapped
+
+        # Display-name lookup (Chinese names)
+        for e in self._expression_catalog.values():
+            if e.name == key:
+                return e, e.path
+
+        # Direct file stem / filename lookup
+        fname = key if key.endswith(".exp3.json") else f"{key}.exp3.json"
+        if self._model_path:
+            model_dir = self._model_path.parent
+            for search_dir in (model_dir, model_dir / "expressions", model_dir / "Exp"):
+                candidate = search_dir / fname
+                if candidate.exists():
+                    return None, str(candidate)
+
+        logger.warning("Unknown expression '%s' (no semantic id, emotion, "
+                       "display name, or file match)", name)
+        return None, ""
+
+    def trigger_expression(self, expression_id: str) -> bool:
+        """Trigger an expression by SEMANTIC id (e.g. "angry", "heart_eyes").
+
+        This is the deterministic API for the AI/LLM behaviour layer:
+        semantic ids are translated to concrete .exp3.json files here —
+        the LLM never needs to know filenames.
+
+        Returns True if the expression was applied.
+        """
+        if not self._initialized or not self._model:
+            logger.debug("trigger_expression('%s') ignored: model not initialized",
+                         expression_id)
+            return False
+
+        exp, path = self._resolve_semantic_expression(expression_id)
+        if not path:
+            return False
+        return self._load_expression_file(path, label=(exp.id if exp else expression_id))
+
+    def _load_expression_file(self, path: str, label: str = "") -> bool:
+        """Load+apply one .exp3.json on the runtime model. Never raises."""
+        try:
+            self._model.LoadExpression(path)
+            # Some live2d-py versions need SetExpressionWeight after LoadExpression
+            try:
+                self._model.SetExpressionWeight(1.0)
+            except Exception:
+                pass
+            with self._lock:
+                self._current_expression = label or self._current_expression
+            logger.debug("Expression applied: %s (%s)", label or "?", path)
+            return True
+        except Exception as e:
+            logger.error("Failed to apply expression '%s' from %s: %s",
+                         label or "?", path, e)
+            return False
+
+    def reset_expressions(self) -> bool:
+        """Clear all expression weights (our equivalent of VTube Studio '归零').
+
+        Note: 归零 (Reset/Return to Zero) in VTube Studio is a built-in app
+        action (HotkeyReset), NOT one of this model's .exp3.json files. We
+        reproduce its effect here instead of inventing an expression file.
+        """
+        if not self._initialized or not self._model:
+            return False
+        try:
+            for exp in self._expression_catalog.values():
+                try:
+                    self._model.DeleteExpression(exp.file)
+                except Exception:
+                    pass
+            with self._lock:
+                self._current_expression = "neutral"
+            return True
+        except Exception as e:
+            logger.error(f"reset_expressions failed: {e}")
+            return False
+
+    def set_parameter(self, param_id: str, value: float) -> bool:
+        """Set one Live2D parameter by ID with validation.
+
+        Clean API for the behaviour layer; the full 279-parameter model is
+        still driven normally by the runtime — this just exposes controlled
+        access. Invalid IDs/values are rejected (logged), never crash.
+        """
+        if not self._initialized or not self._model:
+            return False
+        if not isinstance(param_id, str) or not param_id:
+            logger.warning("set_parameter: invalid parameter id %r", param_id)
+            return False
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            logger.warning("set_parameter('%s', %r): value is not numeric",
+                           param_id, value)
+            return False
+        if math.isnan(v) or math.isinf(v):
+            logger.warning("set_parameter('%s', %r): non-finite value rejected",
+                           param_id, value)
+            return False
+        if self._valid_param_ids and param_id not in self._valid_param_ids:
+            logger.warning("set_parameter: unknown parameter id '%s' "
+                           "(not present on this model)", param_id)
+            return False
+        try:
+            self._model.SetParameterValue(param_id, max(-100.0, min(100.0, v)))
+            return True
+        except Exception as e:
+            logger.error("set_parameter('%s', %s) failed: %s", param_id, v, e)
+            return False
+
     def resize(self, width: int, height: int) -> None:
         """Resize the model viewport."""
         if self._model:
@@ -576,29 +832,44 @@ class Live2DAvatar:
                 logger.debug(f"Live2D fallback draw failed: {e}")
 
     def set_expression(self, emotion: str) -> None:
-        """Set avatar expression based on emotion."""
+        """Set avatar expression based on emotion.
+
+        Resolution order (all deterministic, no LLM-side filenames needed):
+        1. semantic id / display name / file stem via the discovered catalog
+           (e.g. "angry" -> ku.exp3.json, "heart_eyes" -> mz.exp3.json)
+        2. legacy raw filename search ({name}.exp3.json in model dir)
+        3. parameter-based fallback (EMOTION_PARAMS) so the face still works
+           even with zero expression files present.
+        """
         if not self._initialized or not self._model:
             return
 
         # FIX: Protect shared state with lock
         with self._lock:
             self._current_expression = emotion
-            expression_name = self.expressions_map.get(emotion, "neutral")
 
-        # Try loading expression file (outside lock - no shared state modified)
+        # 1) Semantic catalog + mapped emotion names (config `avatar.expressions`)
+        exp, path = self._resolve_semantic_expression(emotion)
+        if path and self._load_expression_file(path, label=(exp.id if exp else emotion)):
+            return
+
+        # 2) Legacy: try the raw mapped/legacy filename too
+        #    (e.g. expressions: {happy: "happy"} -> happy.exp3.json)
         if self._model_path:
+            candidates = [emotion]
+            mapped = self.expressions_map.get(emotion)
+            if mapped and mapped != emotion:
+                candidates.append(mapped)
             model_dir = self._model_path.parent
-            for search_dir in [model_dir, model_dir / "expressions", model_dir / "Exp"]:
-                exp_file = search_dir / f"{expression_name}.exp3.json"
-                if exp_file.exists():
-                    try:
-                        self._model.LoadExpression(str(exp_file))
-                        logger.debug(f"Expression loaded: {exp_file}")
-                        return
-                    except Exception as e:
-                        logger.debug(f"Failed to load expression {exp_file}: {e}")
+            for name in candidates:
+                for search_dir in [model_dir, model_dir / "expressions", model_dir / "Exp"]:
+                    exp_file = search_dir / f"{name}.exp3.json"
+                    if exp_file.exists():
+                        if self._load_expression_file(str(exp_file), label=name):
+                            return
 
-        # Fallback: set parameters directly
+        # 3) Fallback: set parameters directly
+        logger.debug("No expression file for '%s'; using parameter fallback", emotion)
         self._set_expression_params(emotion)
 
     def _set_expression_params(self, emotion: str) -> None:
