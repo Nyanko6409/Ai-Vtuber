@@ -84,22 +84,34 @@ def classify_parameter(param_id: str) -> str:
 # ---------------------------------------------------------------------------
 # Built-in semantic expression-name dictionary
 # ---------------------------------------------------------------------------
+# Kind of a discovered expression file:
+#   "expression" — a facial/mood look (crying, angry, star eyes...). Exactly
+#                  ONE of these is active at a time; switching moods replaces it.
+#   "item"       — a toggleable accessory / prop (glasses, hat, bow, ghost,
+#                  wand, mic, controller...). Items are INDEPENDENT of each
+#                  other and of the active expression: they stack/co-exist and
+#                  are toggled on/off explicitly. Never mapped from moods.
+KIND_EXPRESSION = "expression"
+KIND_ITEM = "item"
+
 # Maps an ASCII "semantic hint" (usually the pinyin abbreviation used in the
-# .exp3.json filename) to (semantic_id, english_description, emoji).
+# .exp3.json filename) to (semantic_id, english_description, emoji, kind).
 # Config `avatar.expression_semantics` can override/add entries per model.
-DEFAULT_SEMANTIC_NAMES: dict[str, tuple[str, str, str]] = {
-    "cw":  ("little_ghost",       "Little Ghost Toggle",   "👻"),
-    "fz":  ("black_face",         "Black Face / Dark Face", "😠"),
-    "h":   ("bow_toggle",         "Bow Toggle",            "🎀"),
-    "hdj": ("crying",             "Crying",                "😭"),
-    "ku":  ("angry",              "Angry",                 "😡"),
-    "mz":  ("heart_eyes",         "Heart Eyes",            "🥰"),
-    "sq":  ("star_eyes",          "Star Eyes / Sparkly Eyes", "🤩"),
-    "x":   ("glasses_toggle",     "Glasses Toggle",        "👓"),
-    "xx":  ("gaming_gesture",     "Gaming Gesture",        "🎮"),
-    "yj":  ("microphone_gesture", "Microphone Gesture",    "🎤"),
-    "zs1": ("magic_wand",         "Magic Wand Summon",     "🪄"),
-    "zs2": ("hat_toggle",         "Hat Toggle",            "🎩"),
+DEFAULT_SEMANTIC_NAMES: dict[str, tuple[str, str, str, str]] = {
+    # --- facial expressions (5) — mood-driven, mutually exclusive ---
+    "fz":  ("black_face",         "Black Face / Dark Face", "😠", KIND_EXPRESSION),
+    "hdj": ("crying",             "Crying",                "😭", KIND_EXPRESSION),
+    "ku":  ("angry",              "Angry",                 "😡", KIND_EXPRESSION),
+    "mz":  ("heart_eyes",         "Heart Eyes",            "🥰", KIND_EXPRESSION),
+    "sq":  ("star_eyes",          "Star Eyes / Sparkly Eyes", "🤩", KIND_EXPRESSION),
+    # --- item / accessory toggles (7) — stack with each other + expressions ---
+    "cw":  ("little_ghost",       "Little Ghost Toggle",   "👻", KIND_ITEM),
+    "h":   ("bow_toggle",         "Bow Toggle",            "🎀", KIND_ITEM),
+    "x":   ("glasses_toggle",     "Glasses Toggle",        "👓", KIND_ITEM),
+    "xx":  ("gaming_gesture",     "Gaming Gesture",        "🎮", KIND_ITEM),
+    "yj":  ("microphone_gesture", "Microphone Gesture",    "🎤", KIND_ITEM),
+    "zs1": ("magic_wand",         "Magic Wand Summon",     "🪄", KIND_ITEM),
+    "zs2": ("hat_toggle",         "Hat Toggle",            "🎩", KIND_ITEM),
 }
 
 # VTube Studio per-model hotkey file (<model_name>.vtube.json) layout:
@@ -150,23 +162,23 @@ def load_vtube_hotkeys(model3_path: Path | str) -> dict[str, dict]:
 
 # Fallback semantic ids derived from Chinese display names (CDI ExpName or
 # the "Name" field inside the exp3.json), when no better match exists.
-CHINESE_NAME_FALLBACK: dict[str, tuple[str, str, str]] = {
-    "小幽灵切换": ("little_ghost", "Little Ghost Toggle", "👻"),
-    "黑脸": ("black_face", "Black Face / Dark Face", "😠"),
-    "蝴蝶结切换": ("bow_toggle", "Bow Toggle", "🎀"),
-    "哭哭": ("crying", "Crying", "😭"),
-    "生气": ("angry", "Angry", "😡"),
-    "爱心眼": ("heart_eyes", "Heart Eyes", "🥰"),
-    "星星眼": ("star_eyes", "Star Eyes / Sparkly Eyes", "🤩"),
-    "眼镜切换": ("glasses_toggle", "Glasses Toggle", "👓"),
-    "打游戏手势": ("gaming_gesture", "Gaming Gesture", "🎮"),
-    "话筒手势": ("microphone_gesture", "Microphone Gesture", "🎤"),
-    "法杖召唤": ("magic_wand", "Magic Wand Summon", "🪄"),
-    "帽子切换": ("hat_toggle", "Hat Toggle", "🎩"),
+CHINESE_NAME_FALLBACK: dict[str, tuple[str, str, str, str]] = {
+    "小幽灵切换": ("little_ghost", "Little Ghost Toggle", "👻", KIND_ITEM),
+    "黑脸": ("black_face", "Black Face / Dark Face", "😠", KIND_EXPRESSION),
+    "蝴蝶结切换": ("bow_toggle", "Bow Toggle", "🎀", KIND_ITEM),
+    "哭哭": ("crying", "Crying", "😭", KIND_EXPRESSION),
+    "生气": ("angry", "Angry", "😡", KIND_EXPRESSION),
+    "爱心眼": ("heart_eyes", "Heart Eyes", "🥰", KIND_EXPRESSION),
+    "星星眼": ("star_eyes", "Star Eyes / Sparkly Eyes", "🤩", KIND_EXPRESSION),
+    "眼镜切换": ("glasses_toggle", "Glasses Toggle", "👓", KIND_ITEM),
+    "打游戏手势": ("gaming_gesture", "Gaming Gesture", "🎮", KIND_ITEM),
+    "话筒手势": ("microphone_gesture", "Microphone Gesture", "🎤", KIND_ITEM),
+    "法杖召唤": ("magic_wand", "Magic Wand Summon", "🪄", KIND_ITEM),
+    "帽子切换": ("hat_toggle", "Hat Toggle", "🎩", KIND_ITEM),
     # VTube Studio UI action "归零" (reset-to-zero) is NOT an expression
     # file on this model — it is VTube Studio's HotkeyReset action. If a
     # future model ships a real reset exp3.json, it maps here:
-    "归零": ("reset", "Reset / Return To Zero", "🔄"),
+    "归零": ("reset", "Reset / Return To Zero", "🔄", KIND_EXPRESSION),
 }
 
 
@@ -181,6 +193,7 @@ class ExpressionInfo:
     path: str                   # absolute path
     hotkey: str = ""            # optional (config-provided; not in exp3 files)
     parameters: dict[str, float] = field(default_factory=dict)
+    kind: str = KIND_EXPRESSION  # "expression" (mood face) | "item" (toggleable accessory)
 
     @property
     def parameter_count(self) -> int:
@@ -195,6 +208,7 @@ class ExpressionInfo:
             "file": self.file,
             "path": self.path,
             "hotkey": self.hotkey,
+            "kind": self.kind,
             "parameter_count": self.parameter_count,
             "parameters": dict(self.parameters),
         }
@@ -238,6 +252,10 @@ class DiscoveredModel:
             if exp.id == semantic_id:
                 return exp
         return None
+
+    def expressions_of_kind(self, kind: str) -> list[ExpressionInfo]:
+        """All discovered files of one kind ('expression' or 'item')."""
+        return [e for e in self.expressions if e.kind == kind]
 
 
 # ---------------------------------------------------------------------------
@@ -493,17 +511,23 @@ def _parse_expression(exp_file: Path,
     display_name = str(override.get("name") or vtube_meta.get("name")
                        or data.get("Name") or stem)
 
-    sem: Optional[tuple[str, str, str]] = None
+    sem: Optional[tuple[str, str, str, str]] = None
+    kind = KIND_EXPRESSION
     if "id" in override:
+        default_desc = DEFAULT_SEMANTIC_NAMES.get(stem, ("", "", "", ""))[1]
+        default_emoji = DEFAULT_SEMANTIC_NAMES.get(stem, ("", "", "", "🙂"))[2]
+        default_kind = DEFAULT_SEMANTIC_NAMES.get(stem, ("", "", "", KIND_EXPRESSION))[3]
         sem = (str(override["id"]),
-               str(override.get("description", DEFAULT_SEMANTIC_NAMES.get(stem, ("", "", ""))[1])),
-               str(override.get("emoji", DEFAULT_SEMANTIC_NAMES.get(stem, ("", "", "🙂"))[2])) or "🙂")
+               str(override.get("description", default_desc)),
+               str(override.get("emoji", default_emoji) or "🙂"),
+               str(override.get("kind", default_kind)))
     elif stem in DEFAULT_SEMANTIC_NAMES:
         sem = DEFAULT_SEMANTIC_NAMES[stem]
     elif display_name in CHINESE_NAME_FALLBACK:
         sem = CHINESE_NAME_FALLBACK[display_name]
     else:
-        sem = (_slug(stem), display_name, "🙂")
+        sem = (_slug(stem), display_name, "🙂", KIND_EXPRESSION)
+    kind = sem[3] if len(sem) > 3 else KIND_EXPRESSION
 
     info = ExpressionInfo(
         id=sem[0],
@@ -514,6 +538,7 @@ def _parse_expression(exp_file: Path,
         path=str(exp_file.resolve()),
         hotkey=str(hotkeys.get(stem, "") or vtube_meta.get("hotkey", "")),
         parameters=params,
+        kind=kind,
     )
     if exp_file.name not in declared_files:
         logger.debug("Expression %s not declared in .model3.json (VTube Studio "
@@ -553,13 +578,25 @@ def format_diagnostic(dm: DiscoveredModel) -> str:
         f"Parameter Groups: {len(dm.parameter_groups)}",
         f"Parts: {len(dm.parts)}",
         f"Combined Parameters: {len(dm.combined_parameters)}",
-        f"Expressions: {len(dm.expressions)}",
+        f"Expressions: {sum(1 for e in dm.expressions if e.kind == KIND_EXPRESSION)}",
+        f"Item Toggles: {sum(1 for e in dm.expressions if e.kind == KIND_ITEM)}",
         "",
-        "Expressions:",
+        "Facial expressions (mood-driven, one active at a time):",
     ]
-    if dm.expressions:
-        width = max(len(e.id) for e in dm.expressions)
-        for e in dm.expressions:
+    faces = [e for e in dm.expressions if e.kind != KIND_ITEM]
+    items = [e for e in dm.expressions if e.kind == KIND_ITEM]
+    if faces:
+        width = max(len(e.id) for e in faces)
+        for e in faces:
+            hk = f" [{e.hotkey}]" if e.hotkey else ""
+            lines.append(f"  {e.emoji} {e.id:<{width}} -> {e.file}{hk}  "
+                         f"({e.name}, {e.parameter_count} param(s))")
+    else:
+        lines.append("  (none discovered)")
+    lines += ["", "Item toggles (stack with each other and with the face):"]
+    if items:
+        width = max(len(e.id) for e in items)
+        for e in items:
             hk = f" [{e.hotkey}]" if e.hotkey else ""
             lines.append(f"  {e.emoji} {e.id:<{width}} -> {e.file}{hk}  "
                          f"({e.name}, {e.parameter_count} param(s))")
