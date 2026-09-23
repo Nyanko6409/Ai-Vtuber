@@ -1,9 +1,0 @@
-{
-  "Name": "蝴蝶结切换",
-  "Parameters": [
-    {
-      "Id": "PartRibbonSwitch",
-      "Value": 1.0
-    }
-  ]
-}

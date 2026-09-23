@@ -16,6 +16,7 @@ from typing import Optional, Any
 import numpy as np
 
 from .model_discovery import (
+    DEFAULT_SEMANTIC_NAMES,
     DiscoveredModel,
     ExpressionInfo,
     classify_parameter,
@@ -639,6 +640,29 @@ class Live2DAvatar:
         Never raises: discovery failures are logged and leave the avatar
         in degraded-but-functional mode.
         """
+        # If config.yaml has no per-model semantic overrides yet, fall back
+        # to the built-in baked mapping so the documented expression table
+        # (little_ghost/angry/heart_eyes/...) works out of the box:
+        #   cw.exp3.json  -> little_ghost        👻
+        #   fz.exp3.json  -> black_face          😠
+        #   h.exp3.json   -> bow_toggle          🎀
+        #   hdj.exp3.json -> crying              😭
+        #   ku.exp3.json  -> angry               😡
+        #   mz.exp3.json  -> heart_eyes          🥰
+        #   sq.exp3.json  -> star_eyes           🤩
+        #   x.exp3.json   -> glasses_toggle      👓
+        #   xx.exp3.json  -> gaming_gesture      🎮
+        #   yj.exp3.json  -> microphone_gesture  🎤
+        #   zs1.exp3.json -> magic_wand          🪄
+        #   zs2.exp3.json -> hat_toggle          🎩
+        # (model_discovery.DEFAULT_SEMANTIC_NAMES is keyed by these stems;
+        #  an explicit config `expression_semantics` block always wins.)
+        if not self._semantic_overrides:
+            self._semantic_overrides = {
+                stem: {"id": sid}
+                for stem, (sid, _desc, _emoji) in DEFAULT_SEMANTIC_NAMES.items()
+            }
+
         exp_dir = None
         if self.expression_directory_raw:
             candidate = Path(self.expression_directory_raw).expanduser()
