@@ -18,6 +18,8 @@ import numpy as np
 
 from .model_discovery import (
     DEFAULT_SEMANTIC_NAMES,
+    KIND_EXPRESSION,
+    KIND_ITEM,
     DiscoveredModel,
     ExpressionInfo,
     classify_parameter,
@@ -27,24 +29,28 @@ from .model_discovery import (
 
 logger = logging.getLogger(__name__)
 
-# Emotion/mood -> SEMANTIC expression id mapping. Semantic ids are in turn
-# resolved to concrete external .exp3.json files by the discovery layer
-# (never hardcoded paths or copied assets — see model_discovery.
-# DEFAULT_SEMANTIC_NAMES). Keys cover every emotion produced by
-# ai_vtuber.emotion.analyzer PLUS extended moods the LLM can signal via its
-# leading [tag]. Values are tuned for the 魔女 model's 12 expressions:
-#   little_ghost 👻 black_face 😠 bow_toggle 🎀 crying 😭 angry 😡
-#   heart_eyes 🥰 star_eyes 🤩 glasses_toggle 👓 gaming_gesture 🎮
-#   microphone_gesture 🎤 magic_wand 🪄 hat_toggle 🎩
-# Override per-model in config.yaml under:
-#   avatar:
-#     expressions:
-#       happy: "star_eyes"
-# Unknown targets fall back gracefully (parameter fallback / no-op), so this
-# map is safe even when a model lacks some of these expressions.
+# ---------------------------------------------------------------------------
+# EXPRESSIONS vs ITEMS — two SEPARATE layers, never mixed.
+#
+#   Facial expressions (kind="expression"): mood-driven faces. Exactly ONE is
+#   active at a time; switching moods replaces the previous face. The 魔女
+#   model ships 5 real facial expressions:
+#     angry 😡 (ku)  black_face 😠 (fz)  crying 😭 (hdj)
+#     heart_eyes 🥰 (mz)  star_eyes 🤩 (sq)
+#
+#   Item toggles (kind="item"): accessories / props that SWITCH ON/OFF
+#   (glasses 👓 x, hat 🎩 zs2, bow 🎀 h, ghost 👻 cw, wand 🪄 zs1,
+#    mic 🎤 yj, controller 🎮 xx). Items are independent of each other AND of
+#   the active expression — they co-exist/stack and are only changed when
+#   explicitly asked for (toggle_item / [item_on:...] / [item_off:...] tags).
+#
+# Moods therefore ONLY ever map to facial expressions below. An item id used
+# as a mood target is rejected at load time (see _sanitize_expressions_map),
+# so items can never be clobbered by mood switches again.
+# ---------------------------------------------------------------------------
 DEFAULT_EXPRESSIONS: dict[str, str] = {
-    # --- core analyzer emotions ---
-    "neutral": "glasses_toggle",       # 👓 calm default look (x.exp3.json)
+    # --- core analyzer emotions -> the 5 facial expressions ---
+    "neutral": "",                     # plain default face, no expression file
     "happy": "star_eyes",              # 🤩 sq.exp3.json
     "sad": "crying",                   # 😭 hdj.exp3.json
     "angry": "angry",                  # 😡 ku.exp3.json
@@ -53,12 +59,12 @@ DEFAULT_EXPRESSIONS: dict[str, str] = {
     # --- extended moods (LLM tags, config-extensible) ---
     "excited": "star_eyes",            # 🤩
     "loving": "heart_eyes",            # 🥰
-    "thinking": "magic_wand",          # 🪄 zs1.exp3.json
-    "sleepy": "little_ghost",          # 👻 cw.exp3.json
-    "gaming": "gaming_gesture",        # 🎮 xx.exp3.json
-    "singing": "microphone_gesture",   # 🎤 yj.exp3.json
-    "smug": "bow_toggle",              # 🎀 h.exp3.json
-    "performing": "hat_toggle",        # 🎩 zs2.exp3.json
+    "thinking": "crying",              # placeholder until a dedicated face exists
+    "sleepy": "black_face",            # placeholder until a dedicated face exists
+    "gaming": "star_eyes",             # 🤩 locked-in focus face (controller is an ITEM)
+    "singing": "heart_eyes",           # 🥰 (mic is an ITEM)
+    "smug": "angry",                   # placeholder pout face (bow is an ITEM)
+    "performing": "star_eyes",         # 🤩 showtime face (hat is an ITEM)
 }
 
 # Mood → parameter fallback overrides (used ONLY when no matching .exp3.json
@@ -409,6 +415,11 @@ class Live2DAvatar:
         # on the runtime model — tracked so mood switches can cleanly
         # deactivate the previous one (live2d-py keeps loaded expressions).
         self._active_expression_name: str = ""
+        # --- item layer (accessories/props; independent of the face layer) ---
+        # Semantic ids of all discovered kind="item" files (glasses, hat, ...)
+        self._item_ids: set[str] = set()
+        # Currently ON items, in toggle order: semantic id -> owning exp3 stem
+        self._active_items: dict[str, str] = {}
         self._mouth_value: float = 0.0
 
         # Resolved parameter IDs — filled in after model load by _resolve_parameter_ids().
@@ -787,25 +798,15 @@ class Live2DAvatar:
         """
         # If config.yaml has no per-model semantic overrides yet, fall back
         # to the built-in baked mapping so the documented expression table
-        # (little_ghost/angry/heart_eyes/...) works out of the box:
-        #   cw.exp3.json  -> little_ghost        👻
-        #   fz.exp3.json  -> black_face          😠
-        #   h.exp3.json   -> bow_toggle          🎀
-        #   hdj.exp3.json -> crying              😭
-        #   ku.exp3.json  -> angry               😡
-        #   mz.exp3.json  -> heart_eyes          🥰
-        #   sq.exp3.json  -> star_eyes           🤩
-        #   x.exp3.json   -> glasses_toggle      👓
-        #   xx.exp3.json  -> gaming_gesture      🎮
-        #   yj.exp3.json  -> microphone_gesture  🎤
-        #   zs1.exp3.json -> magic_wand          🪄
-        #   zs2.exp3.json -> hat_toggle          🎩
-        # (model_discovery.DEFAULT_SEMANTIC_NAMES is keyed by these stems;
-        #  an explicit config `expression_semantics` block always wins.)
+        # (angry/heart_eyes/glasses_toggle/...) works out of the box.
+        # DEFAULT_SEMANTIC_NAMES carries a 4th field: the kind
+        # ("expression" facial mood face | "item" toggleable accessory).
+        # (model_discovery.DEFAULT_SEMANTIC_NAMES is keyed by exp3 filename
+        #  stems; an explicit config `expression_semantics` block always wins.)
         if not self._semantic_overrides:
             self._semantic_overrides = {
-                stem: {"id": sid}
-                for stem, (sid, _desc, _emoji) in DEFAULT_SEMANTIC_NAMES.items()
+                stem: {"id": sid, "kind": kind}
+                for stem, (sid, _desc, _emoji, kind) in DEFAULT_SEMANTIC_NAMES.items()
             }
 
         exp_dir = None
@@ -840,15 +841,53 @@ class Live2DAvatar:
             logger.warning("Model discovery: %s", warn)
 
         self._expression_catalog = {e.id: e for e in self._discovered.expressions}
+        self._item_ids = {e.id for e in self._discovered.expressions
+                          if e.kind == KIND_ITEM}
         if self._discovered.parameter_ids:
             self._valid_param_ids = set(self._discovered.parameter_ids)
 
+        # Enforce the expression/item split on the mood map (config included):
+        # moods may only target facial expressions; empty target = plain face.
+        self._sanitize_expressions_map()
+
+        n_faces = sum(1 for e in self._discovered.expressions
+                      if e.kind != KIND_ITEM)
         logger.info(
-            "Discovered model '%s': %d parameters, %d expressions",
+            "Discovered model '%s': %d parameters, %d facial expressions, "
+            "%d item toggles",
             self._discovered.model_name,
             self._discovered.parameter_count,
-            len(self._discovered.expressions),
+            n_faces,
+            len(self._item_ids),
         )
+
+    def _sanitize_expressions_map(self) -> None:
+        """Validate mood -> expression targets against the loaded catalog.
+
+        Rules (see DEFAULT_EXPRESSIONS comment block):
+        - An empty/whitespace target means "plain default face" (kept).
+        - A target that resolves to a kind="item" file is REJECTED — items
+          are toggled explicitly via toggle_item(), never driven by moods.
+        - A target that doesn't resolve at all is kept (the caller falls
+          back to parameter-driven faces) unless it names a known item stem.
+        """
+        cleaned: dict[str, str] = {}
+        for mood, target in self.expressions_map.items():
+            t = (target or "").strip()
+            if not t:
+                cleaned[mood] = ""
+                continue
+            exp, _path = self._resolve_semantic_expression(t)
+            if exp is not None and exp.kind == KIND_ITEM:
+                logger.warning(
+                    "Mood '%s' maps to '%s' which is an ITEM toggle, not a "
+                    "facial expression — ignoring this mapping (items are "
+                    "toggled with [item_on:...]/[item_off:...] instead).",
+                    mood, t)
+                cleaned[mood] = ""
+                continue
+            cleaned[mood] = t
+        self.expressions_map = cleaned
 
     def _log_startup_diagnostic(self) -> None:
         """Log the startup diagnostic block (files, counts, expression map)."""
