@@ -102,6 +102,52 @@ DEFAULT_SEMANTIC_NAMES: dict[str, tuple[str, str, str]] = {
     "zs2": ("hat_toggle",         "Hat Toggle",            "🎩"),
 }
 
+# VTube Studio per-model hotkey file (<model_name>.vtube.json) layout:
+#   Hotkeys[].Type == "HotkeyExpressionParameter" carries
+#   { "Name": <Chinese display name>, "Path": <exp3 filename>,
+#     "Hotkey": "Q", "ToggleKey": ... }
+# We read it purely for metadata (hotkey chars + authoritative display
+# names). It NEVER overrides the discovered *.exp3.json files themselves.
+_VTUBE_HOTKEY_TYPE = "HotkeyExpressionParameter"
+
+
+def load_vtube_hotkeys(model3_path: Path | str) -> dict[str, dict]:
+    """Parse ``<model_name>.vtube.json`` next to a .model3.json if present.
+
+    Returns a mapping of expression FILENAME -> {"hotkey": str, "name": str}.
+    Missing/unparseable files simply yield an empty dict (never raises).
+    """
+    result: dict[str, dict] = {}
+    try:
+        p = Path(model3_path)
+        vtube = p.parent / f"{p.name[: -len('.model3.json')]}.vtube.json"
+        if not vtube.is_file():
+            candidates = sorted(p.parent.glob("*.vtube.json"))
+            vtube = candidates[0] if candidates else None
+        if vtube is None:
+            return result
+        with open(vtube, "r", encoding="utf-8-sig") as f:
+            data = json.load(f)
+        for hk in data.get("Hotkeys", []) or []:
+            if not isinstance(hk, dict):
+                continue
+            if hk.get("Type") != _VTUBE_HOTKEY_TYPE:
+                continue
+            fname = str(hk.get("Path") or "").strip()
+            if not fname:
+                continue
+            entry = result.setdefault(fname, {})
+            key = str(hk.get("Hotkey") or "").strip()
+            if key and not entry.get("hotkey"):
+                entry["hotkey"] = key
+            name = str(hk.get("Name") or "").strip()
+            if name and not entry.get("name"):
+                entry["name"] = name
+    except Exception as e:  # robustness: never break discovery over metadata
+        logger.debug("Could not read .vtube.json hotkey metadata: %s", e)
+    return result
+
+
 # Fallback semantic ids derived from Chinese display names (CDI ExpName or
 # the "Name" field inside the exp3.json), when no better match exists.
 CHINESE_NAME_FALLBACK: dict[str, tuple[str, str, str]] = {
@@ -313,6 +359,10 @@ def discover_model(model3_json: Path | str,
     exp_dirs.append(root / "expressions")
     exp_dirs.append(root / "Exp")
 
+    # VTube Studio per-model metadata (hotkey chars + display names), read
+    # from <model>.vtube.json next to the .model3.json when it exists.
+    vtube_meta = load_vtube_hotkeys(model3_path)
+
     seen_files: set[str] = set()
     for d in exp_dirs:
         if not d.is_dir():
@@ -322,7 +372,8 @@ def discover_model(model3_json: Path | str,
                 continue
             seen_files.add(exp_file.name)
             info = _parse_expression(exp_file, declared_exp_files,
-                                     semantic_overrides or {}, hotkeys or {})
+                                     semantic_overrides or {}, hotkeys or {},
+                                     vtube_meta.get(exp_file.name, {}))
             if info is not None:
                 dm.expressions.append(info)
 
@@ -388,9 +439,11 @@ def _slug(name: str) -> str:
 def _parse_expression(exp_file: Path,
                       declared_files: set[str],
                       semantic_overrides: dict[str, dict],
-                      hotkeys: dict[str, str]) -> Optional[ExpressionInfo]:
+                      hotkeys: dict[str, str],
+                      vtube_meta: Optional[dict] = None) -> Optional[ExpressionInfo]:
     """Parse one .exp3.json into ExpressionInfo. Broken files are skipped."""
     stem = exp_file.name[: -len(".exp3.json")] if exp_file.name.endswith(".exp3.json") else exp_file.stem
+    vtube_meta = vtube_meta or {}
 
     try:
         with open(exp_file, "r", encoding="utf-8-sig") as f:
@@ -409,7 +462,11 @@ def _parse_expression(exp_file: Path,
                                exp_file.name, entry.get("Id"))
 
     override = semantic_overrides.get(stem, {})
-    display_name = str(override.get("name") or data.get("Name") or stem)
+    # Display-name precedence: explicit config override > VTube Studio
+    # .vtube.json Name (authoritative — matches the VTS UI exactly) >
+    # the exp3.json's own "Name" field > filename stem.
+    display_name = str(override.get("name") or vtube_meta.get("name")
+                       or data.get("Name") or stem)
 
     sem: Optional[tuple[str, str, str]] = None
     if "id" in override:
@@ -430,7 +487,7 @@ def _parse_expression(exp_file: Path,
         emoji=sem[2],
         file=exp_file.name,
         path=str(exp_file.resolve()),
-        hotkey=str(hotkeys.get(stem, "")),
+        hotkey=str(hotkeys.get(stem, "") or vtube_meta.get("hotkey", "")),
         parameters=params,
     )
     if exp_file.name not in declared_files:
@@ -478,7 +535,8 @@ def format_diagnostic(dm: DiscoveredModel) -> str:
     if dm.expressions:
         width = max(len(e.id) for e in dm.expressions)
         for e in dm.expressions:
-            lines.append(f"  {e.emoji} {e.id:<{width}} -> {e.file}  "
+            hk = f" [{e.hotkey}]" if e.hotkey else ""
+            lines.append(f"  {e.emoji} {e.id:<{width}} -> {e.file}{hk}  "
                          f"({e.name}, {e.parameter_count} param(s))")
     else:
         lines.append("  (none discovered)")

@@ -1,9 +1,0 @@
-{
-  "Name": "小幽灵切换",
-  "Parameters": [
-    {
-      "Id": "ParamGhostOpacity",
-      "Value": 1.0
-    }
-  ]
-}
