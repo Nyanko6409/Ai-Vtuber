@@ -27,31 +27,54 @@ from .model_discovery import (
 
 logger = logging.getLogger(__name__)
 
-# Emotion → semantic expression id mapping (semantic ids are in turn mapped
-# to concrete .exp3.json files by the discovery layer / config overrides).
-# These match the emotions produced by ai_vtuber.emotion.analyzer.
+# Emotion/mood → semantic expression id mapping. Semantic ids are in turn
+# resolved to concrete external .exp3.json files by the discovery layer
+# (never hardcoded paths — see model_discovery.DEFAULT_SEMANTIC_NAMES).
+# Covers the analyzer's six core emotions PLUS extra moods the LLM can use
+# via its leading [tag]. Every target below is one of the 魔女 model's 12
+# discovered expressions:
+#   little_ghost 👻 black_face 😠 bow_toggle 🎀 crying 😭 angry 😡
+#   heart_eyes 🥰 star_eyes 🤩 glasses_toggle 👓 gaming_gesture 🎮
+#   microphone_gesture 🎤 magic_wand 🪄 hat_toggle 🎩
 DEFAULT_EXPRESSIONS: dict[str, str] = {
-    "neutral": "neutral",
-    "happy": "happy",
-    "excited": "happy",
-    "thinking": "neutral",
-    "surprised": "surprised",
-    "sad": "sad",
-    "angry": "angry",
-    "sleepy": "sleepy",
-    "embarrassed": "embarrassed",
+    # --- core analyzer emotions ---
+    "neutral": "glasses_toggle",       # 👓 calm default look (x.exp3.json)
+    "happy": "star_eyes",              # 🤩 sq.exp3.json
+    "sad": "crying",                   # 😭 hdj.exp3.json
+    "angry": "angry",                  # 😡 ku.exp3.json
+    "surprised": "black_face",         # 😠 fz.exp3.json
+    "embarrassed": "heart_eyes",       # 🥰 mz.exp3.json
+    # --- extended moods (LLM tags) ---
+    "excited": "star_eyes",            # 🤩
+    "loving": "heart_eyes",            # 🥰
+    "thinking": "magic_wand",          # 🪄 zs1.exp3.json
+    "sleepy": "little_ghost",          # 👻 cw.exp3.json
+    "gaming": "gaming_gesture",        # 🎮 xx.exp3.json
+    "singing": "microphone_gesture",   # 🎤 yj.exp3.json
+    "smug": "bow_toggle",              # 🎀 h.exp3.json
+    "performing": "hat_toggle",        # 🎩 zs2.exp3.json
 }
 
-# Emotion → parameter overrides
+# Mood → parameter fallback overrides (used ONLY when no matching .exp3.json
+# expression can be resolved — e.g. a different model with fewer files).
+# Keys mirror DEFAULT_EXPRESSIONS moods; values use standard Cubism param
+# ids which are auto-resolved to the loaded model's actual ids.
 EMOTION_PARAMS: dict[str, dict[str, float]] = {
     "neutral": {"ParamEyeLOpen": 1.0, "ParamEyeROpen": 1.0, "ParamMouthOpenY": 0.0},
     "happy": {"ParamEyeLOpen": 1.0, "ParamEyeROpen": 0.8, "ParamMouthOpenY": 0.3, "ParamBrowLY": 0.8},
     "excited": {"ParamEyeLOpen": 1.2, "ParamEyeROpen": 1.2, "ParamMouthOpenY": 0.5, "ParamBrowLY": 1.0},
+    "loving": {"ParamEyeLOpen": 1.0, "ParamEyeROpen": 1.0, "ParamMouthOpenY": 0.2, "ParamBrowLY": 0.6},
     "thinking": {"ParamEyeLOpen": 0.7, "ParamEyeROpen": 1.0, "ParamBrowLY": -0.5},
     "surprised": {"ParamEyeLOpen": 1.3, "ParamEyeROpen": 1.3, "ParamMouthOpenY": 0.7, "ParamBrowLY": 1.0},
     "sad": {"ParamEyeLOpen": 0.6, "ParamEyeROpen": 0.6, "ParamBrowLY": -0.8, "ParamMouthOpenY": 0.0},
+    "crying": {"ParamEyeLOpen": 0.5, "ParamEyeROpen": 0.5, "ParamBrowLY": -0.9, "ParamMouthOpenY": 0.15},
     "angry": {"ParamEyeLOpen": 0.8, "ParamEyeROpen": 0.8, "ParamBrowLY": -1.0, "ParamMouthOpenY": 0.1},
+    "embarrassed": {"ParamEyeLOpen": 0.7, "ParamEyeROpen": 0.7, "ParamBrowLY": 0.4, "ParamMouthForm": 0.3},
+    "smug": {"ParamEyeLOpen": 0.8, "ParamEyeROpen": 0.8, "ParamBrowLY": 0.3, "ParamMouthForm": 0.6},
     "sleepy": {"ParamEyeLOpen": 0.3, "ParamEyeROpen": 0.3, "ParamBrowLY": -0.5},
+    "gaming": {"ParamEyeLOpen": 1.1, "ParamEyeROpen": 1.1, "ParamBrowLY": 0.5},
+    "singing": {"ParamEyeLOpen": 0.9, "ParamEyeROpen": 0.9, "ParamMouthOpenY": 0.4, "ParamBrowLY": 0.6},
+    "performing": {"ParamEyeLOpen": 1.0, "ParamEyeROpen": 1.0, "ParamMouthForm": 0.5, "ParamBrowLY": 0.7},
 }
 
 
@@ -1065,7 +1088,11 @@ class Live2DAvatar:
             "ParamEyeROpen": self._param_eye_r_open,
             "ParamMouthOpenY": self._param_mouth_open,
         }
-        params = EMOTION_PARAMS.get(emotion, EMOTION_PARAMS["neutral"])
+        # Try the raw mood name first, then the semantic id it maps to.
+        params = EMOTION_PARAMS.get(emotion)
+        if params is None:
+            mapped = self.expressions_map.get(emotion, "")
+            params = EMOTION_PARAMS.get(mapped) or EMOTION_PARAMS["neutral"]
         for param_id, value in params.items():
             resolved_id = id_overrides.get(param_id, param_id)
             try:

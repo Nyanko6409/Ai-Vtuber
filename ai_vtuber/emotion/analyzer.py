@@ -16,18 +16,34 @@ class AnalysisResult:
     cleaned_text: str
 
 
-# Supported emotions (must match Live2D expression capabilities)
+# Supported moods. The six core keyword-detectable emotions plus extended
+# moods the LLM can request explicitly via its leading [tag]. Every value
+# here must exist as a key in live2d.DEFAULT_EXPRESSIONS (mood -> semantic
+# expression id), which resolves to the model's .exp3.json files.
 SUPPORTED_EMOTIONS = {
     "neutral",
-    "happy", 
+    "happy",
     "sad",
     "angry",
     "surprised",
-    "embarrassed"
+    "embarrassed",
+    # extended mood tags (explicit-tag only; keyword detection still uses
+    # the six core categories above)
+    "excited",
+    "loving",
+    "thinking",
+    "sleepy",
+    "gaming",
+    "singing",
+    "smug",
+    "performing",
 }
 
 # Emotion tag pattern for explicit tags
-EMOTION_TAG_PATTERN = re.compile(r'^\[(neutral|happy|sad|angry|surprised|embarrassed)\]\s*', re.IGNORECASE)
+_MOOD_TAG_ALTERNATION = "|".join(sorted(SUPPORTED_EMOTIONS, key=len, reverse=True))
+EMOTION_TAG_PATTERN = re.compile(
+    rf'^\[({_MOOD_TAG_ALTERNATION})\]\s*', re.IGNORECASE
+)
 
 # Keyword-based emotion scoring
 # Each emotion has positive indicators and negative/negation patterns

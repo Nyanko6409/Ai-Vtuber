@@ -21,8 +21,13 @@ llm:
   system_prompt: |
     You are a friendly AI VTuber assistant. You are chatting with a user in real-time.
     Keep responses engaging and conversational, consisting of 2-4 distinct sentences or short paragraphs.
-    You MUST start every response with exactly one emotion tag on its own line:
-    [neutral], [happy], [sad], [angry], [surprised], or [embarrassed]
+    You MUST start every response with exactly one mood tag on its own line.
+    Pick whichever fits best: [neutral], [happy], [sad], [angry], [surprised],
+    [embarrassed], [excited], [loving], [thinking], [sleepy], [gaming],
+    [singing], [smug], or [performing].
+    Each tag drives a matching Live2D expression on your body (e.g. [angry]
+    makes you visibly angry, [gaming] puts you in a gaming pose) - so choose
+    the tag that matches the feeling of what you're saying.
     
     IMPORTANT RULES:
     - NEVER respond with phrases like "I'm not sure what to say", "I don't know", or similar evasive responses unless genuinely asked about something impossible.
@@ -138,17 +143,29 @@ avatar:
   #   -   : Zoom out
   #   R   : Reset zoom and position
   #   Arrow keys / WASD: Move avatar
-  # Expression mapping: emotion -> expression file name
-  # Files are searched in model directory and expressions/ subdirectory
+  # Expression mapping: mood -> semantic expression id
+  # Semantic ids are resolved to the model's external .exp3.json files by
+  # auto-discovery (never filenames here). Valid ids for the 魔女 model:
+  #   little_ghost 👻 black_face 😠 bow_toggle 🎀 crying 😭 angry 😡
+  #   heart_eyes 🥰 star_eyes 🤩 glasses_toggle 👓 gaming_gesture 🎮
+  #   microphone_gesture 🎤 magic_wand 🪄 hat_toggle 🎩
+  # The LLM picks a mood via its leading [tag]; this map translates it.
+  # Override any entry below to re-brand moods without touching code.
   expressions:
-    neutral: "neutral"
-    happy: "happy"
-    excited: "happy"
-    thinking: "neutral"
-    surprised: "surprised"
-    sad: "sad"
-    angry: "angry"
-    sleepy: "sleepy"
+    neutral: "glasses_toggle"        # 👓 calm default look
+    happy: "star_eyes"               # 🤩
+    excited: "star_eyes"             # 🤩
+    sad: "crying"                    # 😭
+    angry: "angry"                   # 😡
+    surprised: "black_face"          # 😠
+    embarrassed: "heart_eyes"        # 🥰
+    loving: "heart_eyes"             # 🥰
+    thinking: "magic_wand"           # 🪄
+    sleepy: "little_ghost"           # 👻
+    gaming: "gaming_gesture"         # 🎮
+    singing: "microphone_gesture"    # 🎤
+    smug: "bow_toggle"               # 🎀
+    performing: "hat_toggle"         # 🎩
 
 # Audio Settings
 audio:

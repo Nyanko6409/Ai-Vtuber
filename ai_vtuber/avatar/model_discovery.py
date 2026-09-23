@@ -393,27 +393,52 @@ def _load_cdi(cdi_path: Path, dm: DiscoveredModel) -> None:
         return
 
     groups = cdi.get("Groups") or {}
-    for grp in groups.get("ParameterGroups", []) or []:
-        dm.parameter_groups.append({
-            "id": grp.get("GroupId", ""),
-            "name": grp.get("GroupName", ""),
-            "params": [p.get("Id") for p in (grp.get("Parameters") or []) if p.get("Id")],
-        })
-        for p in grp.get("Parameters", []) or []:
-            pid = p.get("Id")
-            if pid and pid not in dm.parameter_ids:
-                dm.parameter_ids.append(pid)
+    # Per the Cubism CDI spec, "Groups" is a LIST of group objects
+    # ({Name, Ids}); some exporters emit a dict layout instead — support both.
+    if isinstance(groups, list):
+        param_groups = [g for g in groups if isinstance(g, dict)
+                        and (g.get("Name") or "").lower() == "parameters"]
+        part_groups = [g for g in groups if isinstance(g, dict)
+                       and (g.get("Name") or "").lower() == "parts"]
 
-    for part in (groups.get("Parts", []) or []):
-        pid = part.get("Id")
-        if pid:
-            dm.parts.append(pid)
+        def _ids(g: dict) -> list[str]:
+            return [i for i in (g.get("Ids") or []) if isinstance(i, str)]
 
-    # Alternate CDI layout: PartGroups with PartIds lists
-    for pg in (groups.get("PartGroups", []) or []):
-        for pid in (pg.get("PartIds", []) or []):
-            if pid and pid not in dm.parts:
+        for grp in param_groups:
+            dm.parameter_groups.append({
+                "id": grp.get("GroupId", ""),
+                "name": grp.get("GroupName", "") or grp.get("Name", ""),
+                "params": _ids(grp),
+            })
+            for pid in _ids(grp):
+                if pid not in dm.parameter_ids:
+                    dm.parameter_ids.append(pid)
+        for pg in part_groups:
+            for pid in _ids(pg):
+                if pid not in dm.parts:
+                    dm.parts.append(pid)
+    else:
+        for grp in groups.get("ParameterGroups", []) or []:
+            dm.parameter_groups.append({
+                "id": grp.get("GroupId", ""),
+                "name": grp.get("GroupName", ""),
+                "params": [p.get("Id") for p in (grp.get("Parameters") or []) if p.get("Id")],
+            })
+            for p in grp.get("Parameters", []) or []:
+                pid = p.get("Id")
+                if pid and pid not in dm.parameter_ids:
+                    dm.parameter_ids.append(pid)
+
+        for part in (groups.get("Parts", []) or []):
+            pid = part.get("Id")
+            if pid:
                 dm.parts.append(pid)
+
+        # Alternate CDI layout: PartGroups with PartIds lists
+        for pg in (groups.get("PartGroups", []) or []):
+            for pid in (pg.get("PartIds", []) or []):
+                if pid and pid not in dm.parts:
+                    dm.parts.append(pid)
 
     for cp in cdi.get("CombinedParameters", []) or []:
         if isinstance(cp, list):
