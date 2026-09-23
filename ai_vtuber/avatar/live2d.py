@@ -391,6 +391,12 @@ class Live2DAvatar:
         # Valid parameter ids from the loaded runtime model (or CDI fallback)
         self._valid_param_ids: set[str] = set()
 
+        # Expression emulation state (live2d-py 0.7.x has no LoadExpression API,
+        # so we apply .exp3.json parameter sets ourselves):
+        #   param_id -> value currently forced by the active expression(s)
+        self._expression_params: dict[str, float] = {}
+        #   exp3 filename stem -> set of param ids it owns (for clean switching)
+        self._expression_owned: dict[str, set] = {}
         self._is_talking: bool = False
         self._current_expression: str = "neutral"
         self._mouth_value: float = 0.0
@@ -560,6 +566,13 @@ class Live2DAvatar:
             logger.info(f"  Model directory: {self._model_path.parent}")
 
             self._resolve_parameter_ids()
+            # One-time capability probe: live2d-py builds differ in their
+            # expression API (0.7.x LAppModel has no LoadExpression at all).
+            # We emulate expressions via SetParameterValue, so just log it.
+            if not hasattr(self._model, "LoadExpression"):
+                logger.info("live2d-py build has no LoadExpression API — "
+                            "expressions will be applied by setting their "
+                            ".exp3.json parameters directly (emulated).")
             self._log_startup_diagnostic()
 
         except Exception as e:
@@ -924,33 +937,110 @@ class Live2DAvatar:
         return self._load_expression_file(path, label=(exp.id if exp else expression_id))
 
     def _load_expression_file(self, path: str, label: str = "") -> bool:
-        """Load+apply one .exp3.json on the runtime model. Never raises."""
+        """Apply one .exp3.json to the runtime model. Never raises.
+
+        Compatibility note: live2d-py 0.7.x (third-party wrapper) exposes a
+        Cubism4-style API surface, but its LAppModel has NO LoadExpression /
+        SetExpressionWeight methods (older builds only had AddExpression /
+        DeleteExpression). Rather than crashing, we *emulate* expressions
+        deterministically: read the .exp3.json "Parameters" list ourselves
+        (the same data model_discovery already parsed) and push each
+        Id/Value pair through SetParameterValue. Previous expression values
+        are released first so switching moods is clean (equivalent of
+        VTube Studio's 归零 before applying the next expression).
+        """
         try:
-            self._model.LoadExpression(path)
-            # Some live2d-py versions need SetExpressionWeight after LoadExpression
-            try:
-                self._model.SetExpressionWeight(1.0)
-            except Exception:
-                pass
+            stem = Path(path).name.replace(".exp3.json", "") or label or "?"
+
+            # 1) Prefer parameters already parsed during discovery (no re-read).
+            params: dict[str, float] = {}
+            for exp in self._expression_catalog.values():
+                if exp.file == f"{stem}.exp3.json" and exp.parameters:
+                    params = dict(exp.parameters)
+                    break
+
+            # 2) Fallback: parse the file directly (handles uncatalogued files).
+            if not params:
+                import json
+                raw = Path(path).read_text(encoding="utf-8-sig")
+                data = json.loads(raw)
+                for item in data.get("Parameters", []):
+                    pid = item.get("Id")
+                    val = item.get("Value")
+                    if isinstance(pid, str) and isinstance(val, (int, float)):
+                        params[pid] = float(val)
+
+            # 3) Release parameters owned by the previously active expression(s).
+            for old_stem, old_ids in list(self._expression_owned.items()):
+                if old_stem == stem:
+                    continue
+                for pid in old_ids:
+                    # Only release ids this new expression doesn't also set.
+                    if pid not in params:
+                        try:
+                            self._model.ResetParameterValue(pid)
+                        except Exception:
+                            try:
+                                # Older builds: reset by setting default-ish 0.
+                                self._model.SetParameterValue(pid, 0.0)
+                            except Exception:
+                                pass
+                self._expression_owned.pop(old_stem, None)
+
+            # 4) Apply the expression's parameter values.
+            applied = 0
+            skipped = 0
+            for pid, val in params.items():
+                try:
+                    self._model.SetParameterValue(pid, float(val))
+                    applied += 1
+                except Exception:
+                    skipped += 1
+            if applied == 0 and skipped > 0:
+                logger.warning("Expression '%s': all %d parameter(s) failed to "
+                               "apply from %s", label or stem, skipped, path)
+                return False
+
+            self._expression_params = dict(params)
+            self._expression_owned[stem] = set(params.keys())
             with self._lock:
                 self._current_expression = label or self._current_expression
-            logger.debug("Expression applied: %s (%s)", label or "?", path)
+            logger.debug("Expression applied: %s (%s, %d param(s)%s)",
+                         label or stem, path, applied,
+                         f", {skipped} skipped" if skipped else "")
             return True
+        except FileNotFoundError:
+            logger.error("Expression file not found: %s", path)
+            return False
         except Exception as e:
             logger.error("Failed to apply expression '%s' from %s: %s",
                          label or "?", path, e)
             return False
 
     def reset_expressions(self) -> bool:
-        """Clear all expression weights (our equivalent of VTube Studio '归零').
+        """Release all expression-driven parameters (our '归零' equivalent).
 
         Note: 归零 (Reset/Return to Zero) in VTube Studio is a built-in app
         action (HotkeyReset), NOT one of this model's .exp3.json files. We
-        reproduce its effect here instead of inventing an expression file.
+        reproduce its effect here instead of inventing an expression file:
+        every parameter currently owned by an applied expression is reset
+        back to the model default via ResetParameterValue.
         """
         if not self._initialized or not self._model:
             return False
         try:
+            for stem, ids in list(self._expression_owned.items()):
+                for pid in ids:
+                    try:
+                        self._model.ResetParameterValue(pid)
+                    except Exception:
+                        try:
+                            self._model.SetParameterValue(pid, 0.0)
+                        except Exception:
+                            pass
+                self._expression_owned.pop(stem, None)
+            self._expression_params = {}
+            # Legacy API cleanup (harmless on builds without these methods).
             for exp in self._expression_catalog.values():
                 try:
                     self._model.DeleteExpression(exp.file)
@@ -958,6 +1048,7 @@ class Live2DAvatar:
                     pass
             with self._lock:
                 self._current_expression = "neutral"
+            logger.debug("Expressions reset (归零 equivalent)")
             return True
         except Exception as e:
             logger.error(f"reset_expressions failed: {e}")
