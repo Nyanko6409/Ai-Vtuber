@@ -6,8 +6,8 @@ as .npy files for quick loading at runtime.
 Usage:
     python scripts/generate_fillers.py
 
-Filler phrases are loaded from ai_vtuber/personality/fillers.md
-Output: ai_vtuber/data/fillers/filler_XX_NNNms.npy
+Filler phrases are loaded from personality/fillers.md (project root)
+Output: data/fillers/filler_XX_NNNms.npy (project root)
 """
 
 import logging
@@ -48,7 +48,10 @@ def load_filler_phrases(config: dict) -> list[str]:
     """
     # Use config value with fallback to default
     phrases_file = config.get("fillers", {}).get("phrases_file", "personality/fillers.md")
-    fillers_path = Path(__file__).parent.parent / phrases_file
+    phrases_path = Path(phrases_file)
+    # Project root = parent of the ai_vtuber package; single canonical file.
+    project_root = Path(__file__).resolve().parent.parent.parent
+    fillers_path = phrases_path if phrases_path.is_absolute() else project_root / phrases_path
     
     if not fillers_path.exists():
         logger.warning(f"Fillers file not found at {fillers_path}, using defaults")
@@ -99,7 +102,7 @@ def main():
     logger.info(f"Loaded {len(phrases)} filler phrases from: {config.get('fillers', {}).get('phrases_file', 'personality/fillers.md')}")
     
     # Output directory
-    output_dir = Path(__file__).parent.parent / "data" / "fillers"
+    output_dir = Path(__file__).resolve().parent.parent.parent / "data" / "fillers"
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # Clear existing filler files

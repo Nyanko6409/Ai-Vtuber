@@ -34,8 +34,12 @@ class App:
         self.state_machine = StateMachine()
         self.running = False
 
-        # Initialize memory manager (loads soul, user facts, bot memories)
-        self.memory_manager = MemoryManager()
+        # Initialize memory manager (loads soul, user facts, bot memories).
+        # Canonical files live at the PROJECT root: personality/soul.md,
+        # data/user.md, data/memory.md (single copies - no duplicates inside
+        # ai_vtuber/). Paths can be overridden in config.yaml under "memory".
+        project_root = Path(__file__).resolve().parent.parent.parent
+        self.memory_manager = MemoryManager(project_root=project_root, config=config)
 
         # No LLM timeout - wait indefinitely for response
         self.llm_timeout: Optional[int] = None
@@ -357,7 +361,9 @@ class App:
             return
         
         try:
-            fillers_dir = Path(__file__).parent.parent / "data" / "fillers"
+            # Generated filler audio cache lives at the PROJECT root
+            # (data/fillers/) - single location, no duplicate inside ai_vtuber/.
+            fillers_dir = Path(__file__).resolve().parent.parent.parent / "data" / "fillers"
             
             # Ensure directory exists
             fillers_dir.mkdir(parents=True, exist_ok=True)
@@ -407,9 +413,15 @@ class App:
         Args:
             fillers_dir: Directory to save generated filler files.
         """
-        # Get filler phrases from config or defaults, organized by category
+        # Get filler phrases from config or defaults, organized by category.
+        # Single canonical file: personality/fillers.md at the PROJECT root
+        # (path in config.yaml is relative to the project root).
         phrases_file = self.config.get("fillers", {}).get("phrases_file", "personality/fillers.md")
-        fillers_path = Path(__file__).parent.parent / phrases_file
+        phrases_path = Path(phrases_file)
+        if phrases_path.is_absolute():
+            fillers_path = phrases_path
+        else:
+            fillers_path = Path(__file__).resolve().parent.parent.parent / phrases_path
         
         # Parse fillers.md into categories
         categories = {
