@@ -27,24 +27,30 @@ from .model_discovery import (
 
 logger = logging.getLogger(__name__)
 
-# Emotion/mood → semantic expression id mapping. Semantic ids are in turn
+# Emotion/mood -> SEMANTIC expression id mapping. Semantic ids are in turn
 # resolved to concrete external .exp3.json files by the discovery layer
-# (never hardcoded paths — see model_discovery.DEFAULT_SEMANTIC_NAMES).
-# Covers the analyzer's six core emotions PLUS extra moods the LLM can use
-# via its leading [tag]. Every target below is one of the 魔女 model's 12
-# discovered expressions:
+# (never hardcoded paths or copied assets — see model_discovery.
+# DEFAULT_SEMANTIC_NAMES). Keys cover every emotion produced by
+# ai_vtuber.emotion.analyzer PLUS extended moods the LLM can signal via its
+# leading [tag]. Values are tuned for the 魔女 model's 12 expressions:
 #   little_ghost 👻 black_face 😠 bow_toggle 🎀 crying 😭 angry 😡
 #   heart_eyes 🥰 star_eyes 🤩 glasses_toggle 👓 gaming_gesture 🎮
 #   microphone_gesture 🎤 magic_wand 🪄 hat_toggle 🎩
+# Override per-model in config.yaml under:
+#   avatar:
+#     expressions:
+#       happy: "star_eyes"
+# Unknown targets fall back gracefully (parameter fallback / no-op), so this
+# map is safe even when a model lacks some of these expressions.
 DEFAULT_EXPRESSIONS: dict[str, str] = {
     # --- core analyzer emotions ---
     "neutral": "glasses_toggle",       # 👓 calm default look (x.exp3.json)
     "happy": "star_eyes",              # 🤩 sq.exp3.json
     "sad": "crying",                   # 😭 hdj.exp3.json
     "angry": "angry",                  # 😡 ku.exp3.json
-    "surprised": "black_face",         # 😠 fz.exp3.json
+    "surprised": "black_face",         # 😠 fz.exp3.json (dark shock face)
     "embarrassed": "heart_eyes",       # 🥰 mz.exp3.json
-    # --- extended moods (LLM tags) ---
+    # --- extended moods (LLM tags, config-extensible) ---
     "excited": "star_eyes",            # 🤩
     "loving": "heart_eyes",            # 🥰
     "thinking": "magic_wand",          # 🪄 zs1.exp3.json
@@ -61,15 +67,15 @@ DEFAULT_EXPRESSIONS: dict[str, str] = {
 # ids which are auto-resolved to the loaded model's actual ids.
 EMOTION_PARAMS: dict[str, dict[str, float]] = {
     "neutral": {"ParamEyeLOpen": 1.0, "ParamEyeROpen": 1.0, "ParamMouthOpenY": 0.0},
-    "happy": {"ParamEyeLOpen": 1.0, "ParamEyeROpen": 0.8, "ParamMouthOpenY": 0.3, "ParamBrowLY": 0.8},
-    "excited": {"ParamEyeLOpen": 1.2, "ParamEyeROpen": 1.2, "ParamMouthOpenY": 0.5, "ParamBrowLY": 1.0},
+    "happy": {"ParamEyeLOpen": 1.0, "ParamEyeROpen": 0.8, "ParamMouthOpenY": 0.3, "ParamBrowLY": 0.8, "ParamEyeLSmile": 1.0, "ParamEyeRSmile": 1.0},
+    "excited": {"ParamEyeLOpen": 1.2, "ParamEyeROpen": 1.2, "ParamMouthOpenY": 0.5, "ParamBrowLY": 1.0, "ParamEyeLSmile": 1.0, "ParamEyeRSmile": 1.0},
     "loving": {"ParamEyeLOpen": 1.0, "ParamEyeROpen": 1.0, "ParamMouthOpenY": 0.2, "ParamBrowLY": 0.6},
     "thinking": {"ParamEyeLOpen": 0.7, "ParamEyeROpen": 1.0, "ParamBrowLY": -0.5},
     "surprised": {"ParamEyeLOpen": 1.3, "ParamEyeROpen": 1.3, "ParamMouthOpenY": 0.7, "ParamBrowLY": 1.0},
     "sad": {"ParamEyeLOpen": 0.6, "ParamEyeROpen": 0.6, "ParamBrowLY": -0.8, "ParamMouthOpenY": 0.0},
     "crying": {"ParamEyeLOpen": 0.5, "ParamEyeROpen": 0.5, "ParamBrowLY": -0.9, "ParamMouthOpenY": 0.15},
-    "angry": {"ParamEyeLOpen": 0.8, "ParamEyeROpen": 0.8, "ParamBrowLY": -1.0, "ParamMouthOpenY": 0.1},
-    "embarrassed": {"ParamEyeLOpen": 0.7, "ParamEyeROpen": 0.7, "ParamBrowLY": 0.4, "ParamMouthForm": 0.3},
+    "angry": {"ParamEyeLOpen": 0.8, "ParamEyeROpen": 0.8, "ParamBrowLY": -1.0, "ParamMouthOpenY": 0.1, "Param53": 1.0},
+    "embarrassed": {"ParamEyeLOpen": 0.9, "ParamEyeROpen": 0.9, "ParamBrowLY": 0.4, "ParamEyeLSmile": 0.6, "ParamEyeRSmile": 0.6},
     "smug": {"ParamEyeLOpen": 0.8, "ParamEyeROpen": 0.8, "ParamBrowLY": 0.3, "ParamMouthForm": 0.6},
     "sleepy": {"ParamEyeLOpen": 0.3, "ParamEyeROpen": 0.3, "ParamBrowLY": -0.5},
     "gaming": {"ParamEyeLOpen": 1.1, "ParamEyeROpen": 1.1, "ParamBrowLY": 0.5},
@@ -399,6 +405,10 @@ class Live2DAvatar:
         self._expression_owned: dict[str, set] = {}
         self._is_talking: bool = False
         self._current_expression: str = "neutral"
+        # Filename (e.g. "ku.exp3.json") of the expression currently active
+        # on the runtime model — tracked so mood switches can cleanly
+        # deactivate the previous one (live2d-py keeps loaded expressions).
+        self._active_expression_name: str = ""
         self._mouth_value: float = 0.0
 
         # Resolved parameter IDs — filled in after model load by _resolve_parameter_ids().
@@ -852,6 +862,12 @@ class Live2DAvatar:
         except Exception as e:
             logger.debug(f"Could not query runtime param ids (using CDI): {e}")
         logger.info("\n%s", format_diagnostic(self._discovered))
+        # Mood -> expression map actually usable on THIS model (after the
+        # config override merge). Logged so you can verify at startup which
+        # face each detected emotion will trigger.
+        mood_map = build_mood_expression_map(self, self.expressions_map)
+        lines = "\n".join(f"    {emo:<12} -> {exp}" for emo, exp in sorted(mood_map.items()))
+        logger.info("Mood -> expression mapping (active model):\n%s", lines)
 
     def list_expressions(self) -> list[dict]:
         """All discovered expressions with metadata (for UI/LLM prompts)."""
@@ -939,19 +955,42 @@ class Live2DAvatar:
     def _load_expression_file(self, path: str, label: str = "") -> bool:
         """Apply one .exp3.json to the runtime model. Never raises.
 
-        Compatibility note: live2d-py 0.7.x (third-party wrapper) exposes a
+        Compatibility note: live2d-py 0.7.0.4 (third-party wrapper) exposes a
         Cubism4-style API surface, but its LAppModel has NO LoadExpression /
-        SetExpressionWeight methods (older builds only had AddExpression /
-        DeleteExpression). Rather than crashing, we *emulate* expressions
-        deterministically: read the .exp3.json "Parameters" list ourselves
-        (the same data model_discovery already parsed) and push each
-        Id/Value pair through SetParameterValue. Previous expression values
-        are released first so switching moods is clean (equivalent of
-        VTube Studio's 归零 before applying the next expression).
-        """
-        try:
-            stem = Path(path).name.replace(".exp3.json", "") or label or "?"
+        SetExpression methods (calling them raises AttributeError — this was
+        the exact crash seen at runtime). Rather than failing, we *emulate*
+        expressions deterministically: read the .exp3.json "Parameters" list
+        (already parsed during discovery) and push each Id/Value pair through
+        SetParameterValue. Parameters owned by the previously active
+        expression are released first, so switching moods is clean
+        (equivalent of VTube Studio's 归零 before applying the next one).
 
+        If a future/other live2d-py build DOES expose LoadExpression +
+        SetExpression, we prefer the native path (proper fade support);
+        otherwise we fall back to parameter emulation transparently.
+        """
+        name = Path(path).name  # live2d-py keys expressions by filename
+        stem = name.replace(".exp3.json", "") or label or "?"
+        try:
+            # --- Native path (only when the installed build supports it) ---
+            if hasattr(self._model, "LoadExpression") and \
+                    hasattr(self._model, "SetExpression"):
+                prev = self._active_expression_name
+                if prev and prev != name:
+                    try:
+                        self._model.DeleteExpression(prev)
+                    except Exception:
+                        pass
+                self._model.LoadExpression(path)
+                self._model.SetExpression(name, 1.0)
+                with self._lock:
+                    self._active_expression_name = name
+                    self._current_expression = label or self._current_expression
+                logger.info("Expression applied (native): %s (%s)",
+                            label or stem, name)
+                return True
+
+            # --- Emulated path: apply exp3 parameters directly ---
             # 1) Prefer parameters already parsed during discovery (no re-read).
             params: dict[str, float] = {}
             for exp in self._expression_catalog.values():
@@ -1004,10 +1043,11 @@ class Live2DAvatar:
             self._expression_params = dict(params)
             self._expression_owned[stem] = set(params.keys())
             with self._lock:
+                self._active_expression_name = name
                 self._current_expression = label or self._current_expression
-            logger.debug("Expression applied: %s (%s, %d param(s)%s)",
-                         label or stem, path, applied,
-                         f", {skipped} skipped" if skipped else "")
+            logger.info("Expression applied (params): %s (%s, %d param(s)%s)",
+                        label or stem, name, applied,
+                        f", {skipped} skipped" if skipped else "")
             return True
         except FileNotFoundError:
             logger.error("Expression file not found: %s", path)
@@ -1029,6 +1069,8 @@ class Live2DAvatar:
         if not self._initialized or not self._model:
             return False
         try:
+            # 1) Release parameters owned by emulated expressions (reset to
+            #    model defaults — works on every live2d-py build).
             for stem, ids in list(self._expression_owned.items()):
                 for pid in ids:
                     try:
@@ -1040,13 +1082,20 @@ class Live2DAvatar:
                             pass
                 self._expression_owned.pop(stem, None)
             self._expression_params = {}
-            # Legacy API cleanup (harmless on builds without these methods).
-            for exp in self._expression_catalog.values():
+
+            # 2) Legacy native-expression cleanup (harmless on builds without
+            #    DeleteExpression, e.g. live2d-py 0.7.0.4).
+            names = {self._active_expression_name} | {
+                exp.file for exp in self._expression_catalog.values()}
+            for n in names:
+                if not n:
+                    continue
                 try:
-                    self._model.DeleteExpression(exp.file)
+                    self._model.DeleteExpression(n)
                 except Exception:
                     pass
             with self._lock:
+                self._active_expression_name = ""
                 self._current_expression = "neutral"
             logger.debug("Expressions reset (归零 equivalent)")
             return True
@@ -1144,12 +1193,22 @@ class Live2DAvatar:
         with self._lock:
             self._current_expression = emotion
 
-        # 1) Semantic catalog + mapped emotion names (config `avatar.expressions`)
+        # 1) Emotion -> semantic id via the (config-overridable) expression
+        #    map FIRST, so e.g. mood "happy" triggers star_eyes even if the
+        #    model happens to ship a file literally named happy.exp3.json.
+        mapped = self.expressions_map.get(emotion)
+        if mapped and mapped != emotion:
+            exp, path = self._resolve_semantic_expression(mapped)
+            if path and self._load_expression_file(
+                    path, label=(exp.id if exp else mapped)):
+                return
+
+        # 2) Semantic catalog / display name / file stem direct match
         exp, path = self._resolve_semantic_expression(emotion)
         if path and self._load_expression_file(path, label=(exp.id if exp else emotion)):
             return
 
-        # 2) Legacy: try the raw mapped/legacy filename too
+        # 3) Legacy: try the raw mapped/legacy filename too
         #    (e.g. expressions: {happy: "happy"} -> happy.exp3.json)
         if self._model_path:
             candidates = [emotion]
@@ -1164,7 +1223,7 @@ class Live2DAvatar:
                         if self._load_expression_file(str(exp_file), label=name):
                             return
 
-        # 3) Fallback: set parameters directly
+        # 4) Fallback: set parameters directly
         logger.debug("No expression file for '%s'; using parameter fallback", emotion)
         self._set_expression_params(emotion)
 
@@ -1448,3 +1507,34 @@ class Live2DAvatar:
     @property
     def error_message(self) -> Optional[str]:
         return self._error_message
+
+# ---------------------------------------------------------------------------
+# Mood -> expression triggering (semantic, deterministic; no LLM filenames)
+# ---------------------------------------------------------------------------
+
+EMOTION_EXPRESSION_MAP: dict[str, str] = {k: v for k, v in DEFAULT_EXPRESSIONS.items()}
+
+
+def build_mood_expression_map(avatar: "Live2DAvatar",
+                              emotion_map: Optional[dict[str, str]] = None,
+                              ) -> dict[str, str]:
+    """Build the runtime mood -> expression mapping for one loaded model.
+
+    Starts from the default emotion map merged with config overrides
+    (``avatar.expressions``), then keeps only entries whose target actually
+    resolves against the avatar's discovered expression catalog. Moods whose
+    target is missing on this model are dropped (the caller then falls back
+    to parameter-based faces), so switching models never breaks mood logic.
+
+    Returns: {emotion: semantic_expression_id}
+    """
+    merged = {**DEFAULT_EXPRESSIONS, **(emotion_map or {})}
+    result: dict[str, str] = {}
+    for emotion, target in merged.items():
+        exp, path = avatar._resolve_semantic_expression(target)
+        if path:
+            result[emotion] = (exp.id if exp else target)
+        else:
+            logger.debug("Mood '%s' -> expression '%s' not available on this "
+                         "model; will use parameter fallback", emotion, target)
+    return result
