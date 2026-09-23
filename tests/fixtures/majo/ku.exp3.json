@@ -1,0 +1,17 @@
+{
+  "Name": "生气",
+  "Parameters": [
+    {
+      "Id": "Param53",
+      "Value": 1.0
+    },
+    {
+      "Id": "ParamMouthForm",
+      "Value": -0.5
+    },
+    {
+      "Id": "ParamBrowLForm",
+      "Value": -1.0
+    }
+  ]
+}

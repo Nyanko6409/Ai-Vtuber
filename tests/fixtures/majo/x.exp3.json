@@ -1,0 +1,13 @@
+{
+  "Name": "眼镜切换",
+  "Parameters": [
+    {
+      "Id": "PartGlassesOpacity",
+      "Value": 1.0
+    },
+    {
+      "Id": "ParamGlassesSlide",
+      "Value": 0.0
+    }
+  ]
+}

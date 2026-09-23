@@ -1,0 +1,13 @@
+{
+  "Name": "打游戏手势",
+  "Parameters": [
+    {
+      "Id": "PartGamepad",
+      "Value": 1.0
+    },
+    {
+      "Id": "ParamArmGame",
+      "Value": 1.0
+    }
+  ]
+}

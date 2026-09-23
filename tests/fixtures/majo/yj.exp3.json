@@ -1,0 +1,9 @@
+{
+  "Name": "话筒手势",
+  "Parameters": [
+    {
+      "Id": "PartMicToggle",
+      "Value": 1.0
+    }
+  ]
+}

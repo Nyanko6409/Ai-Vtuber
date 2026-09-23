@@ -1,0 +1,14 @@
+{
+  "Version": "3.0.0",
+  "FileReferences": {
+    "Moc": "魔女.moc3",
+    "Textures": [
+      "魔女.textures/texture_00.png"
+    ],
+    "Physics": "魔女.physics3.json",
+    "DisplayInfo": "魔女.cdi3.json",
+    "Expressions": [],
+    "Motions": {}
+  },
+  "Groups": []
+}
