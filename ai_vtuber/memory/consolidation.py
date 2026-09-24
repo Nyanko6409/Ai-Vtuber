@@ -134,7 +134,7 @@ New facts to integrate (with any bullets they supersede):
 
 _SECRET_RE = re.compile(
     r"(password|passwd|secret\s*key|api[\s_-]*key|access[\s_-]*token|"
-    r"auth[\s_-]*token|private[\s_-]*key|sk-[a-z0-9]{8,}",
+    r"auth[\s_-]*token|private[\s_-]*key|sk-[a-z0-9]{8,})",
     re.IGNORECASE,
 )
 
