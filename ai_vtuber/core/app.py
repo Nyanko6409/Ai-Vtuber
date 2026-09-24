@@ -39,12 +39,17 @@ class App:
         # data/user.md, data/memory.md (single copies - no duplicates inside
         # ai_vtuber/). Paths can be overridden in config.yaml under "memory".
         project_root = Path(__file__).resolve().parent.parent.parent
-        self.memory_manager = MemoryManager(project_root=project_root, config=config)
+        self.memory_manager = MemoryManager(
+            project_root=project_root, config=config,
+            llm_getter=lambda: self._llm,
+        )
 
         # No LLM timeout - wait indefinitely for response
         self.llm_timeout: Optional[int] = None
 
-        # Initialize conversation history with system prompt and soul
+        # Initialize conversation history with system prompt and soul.
+        # The session transcript IS the short-term memory; ConversationHistory
+        # remains the in-flight window sent to the LLM each turn.
         self.conversation = ConversationHistory(
             max_messages=config["llm"]["max_history"],
             system_prompt=config["llm"]["system_prompt"],
@@ -52,6 +57,9 @@ class App:
             max_context=config["llm"]["max_context"],
             reserved_output_tokens=config["llm"]["max_tokens"]
         )
+
+        # Last user message, used to gate historical-session retrieval per turn
+        self._last_user_text: str = ""
 
         # Current state for UI
         self.current_transcription: str = ""
@@ -497,6 +505,15 @@ class App:
         logger.info("Stopping AI VTuber...")
         self.running = False
 
+        # Memory shutdown: close + consolidate the current session
+        # (summary -> durable-fact extraction -> user.md / memory.md merge).
+        # Messages were already persisted incrementally, so even if this
+        # step fails nothing but the summary is lost.
+        try:
+            self.memory_manager.shutdown()
+        except Exception as e:
+            logger.error(f"Memory shutdown failed: {e}")
+
         # Stop all components
         if self._microphone:
             self._microphone.stop()
@@ -662,13 +679,16 @@ class App:
                 self.current_transcription = text
             logger.info(f"User said: {text}")
 
-            # Add to conversation
+            # Add to conversation (in-flight LLM window) AND persist to the
+            # crash-safe session file immediately.
             self.conversation.add_message("user", text)
-            
-            # FIX: Auto-curate user facts from input
-            # Simple heuristic: save user messages longer than 30 chars as potential facts
-            if len(text) > 30:
-                self.memory_manager.add_user_fact(text)
+            self.memory_manager.add_message("user", text)
+            self._last_user_text = text
+
+            # Long-term user facts are NO LONGER dumped here verbatim.
+            # Durable facts are promoted into data/user.md during session
+            # consolidation (summary -> extraction -> dedupe merge), which
+            # keeps memory selective instead of a transcript landfill.
             
             # TRIGGER on-demand screen analysis BEFORE generating response
             # This allows Airi to "look at the screen" when the user asks something
@@ -707,6 +727,7 @@ class App:
                 # Fallback response when LLM fails - still add to conversation history
                 fallback_text = "I'm having trouble thinking clearly right now, but I'd love to hear more about what you were saying! Can you tell me more?"
                 self.conversation.add_message("assistant", fallback_text, "neutral")
+                self.memory_manager.add_message("assistant", fallback_text, "neutral")
                 with self._lock:
                     self.current_response = fallback_text
                     self.current_emotion = "neutral"
@@ -772,10 +793,16 @@ class App:
         The topic is extracted but not currently used - stored for future features.
         """
         try:
-            # FIX: Refresh soul_prompt from memory manager before each turn
-            # so any new facts/memories are reflected in the next request
+            # Refresh soul prompt from memory manager before each turn
+            # so any newly consolidated memories are reflected immediately.
             self.conversation.set_soul_prompt(self.memory_manager.get_full_context())
-            
+
+            # Layered context: retrieve historical sessions ONLY when the
+            # user's message looks like a reference to the past. Ordinary
+            # turns get no history dump.
+            mem_ctx = self.memory_manager.build_context(self._last_user_text)
+            historical_context = mem_ctx.get("historical_context", "") or None
+
             # Get visual context from vision system - ALWAYS inject in on-demand mode after analysis
             visual_context = None
             if self._vision_manager and self._vision_manager.is_running:
@@ -793,7 +820,10 @@ class App:
                         visual_context = context_summary
                         logger.debug(f"Adding visual context to LLM: {context_summary[:100]}...")
             
-            messages = self.conversation.get_messages_for_llm(visual_context=visual_context)
+            messages = self.conversation.get_messages_for_llm(
+                visual_context=visual_context,
+                historical_context=historical_context,
+            )
             raw_response = self.llm.chat(messages, timeout=timeout)
 
             if not raw_response:
@@ -821,14 +851,13 @@ class App:
             # For now, we just log it for debugging
             logger.debug(f"Detected topic: {analysis.topic}")
 
-            # Add to conversation
+            # Add to conversation window AND persist to the crash-safe session
             self.conversation.add_message("assistant", response_text, emotion)
-            
-            # FIX: Auto-curate memory after each bot response
-            # This wires up the previously-unused add_bot_memory() method
-            # Simple heuristic: save responses that are longer than 50 chars as "memorable moments"
-            if len(response_text) > 50:
-                self.memory_manager.add_bot_memory(f"[{emotion}] {response_text}")
+            self.memory_manager.add_message("assistant", response_text, emotion)
+
+            # Airi's own long-term memories are NOT dumped verbatim here;
+            # durable facts are promoted during session consolidation
+            # (summary -> extraction -> dedupe merge into data/memory.md).
 
             return (response_text, emotion)
 
@@ -859,6 +888,11 @@ class App:
         try:
             # Refresh soul prompt before generating
             self.conversation.set_soul_prompt(self.memory_manager.get_full_context())
+
+            # Layered context: retrieve historical sessions ONLY when the
+            # user's message looks like a reference to the past.
+            mem_ctx = self.memory_manager.build_context(self._last_user_text)
+            historical_context = mem_ctx.get("historical_context", "") or None
             
             # Get visual context from vision system - ALWAYS inject in on-demand mode after analysis
             visual_context = None
@@ -877,7 +911,10 @@ class App:
                         visual_context = context_summary
                         logger.debug(f"Adding visual context to streaming LLM: {context_summary[:100]}...")
             
-            messages = self.conversation.get_messages_for_llm(visual_context=visual_context)
+            messages = self.conversation.get_messages_for_llm(
+                visual_context=visual_context,
+                historical_context=historical_context,
+            )
             
             # Sentence boundary pattern - matches sentence-ending punctuation
             sentence_end_pattern = re.compile(r'([.!?]+)(?:\s+|$)')
@@ -1136,8 +1173,9 @@ class App:
             emotion = analysis.emotion
             response_text = analysis.cleaned_text
             
-            # Add to conversation history
+            # Add to conversation history AND persist to the crash-safe session
             self.conversation.add_message("assistant", response_text, emotion)
+            self.memory_manager.add_message("assistant", response_text, emotion)
             
             logger.debug(f"Detected topic: {analysis.topic}")
             
@@ -1310,8 +1348,10 @@ class App:
             with self._lock:
                 self.current_transcription = text
             
-            # Add to conversation history
+            # Add to conversation history AND persist to the crash-safe session
             self.conversation.add_message("user", text)
+            self.memory_manager.add_message("user", text)
+            self._last_user_text = text
             
             # TRIGGER on-demand screen analysis BEFORE generating response
             # Same behavior as voice pipeline - allows Airi to see screen for chat messages too
