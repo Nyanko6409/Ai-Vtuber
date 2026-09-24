@@ -144,32 +144,30 @@ DEFAULT_EXPRESSIONS: dict[str, str] = {
     "angry": "angry",
     "heart_eyes": "heart_eyes",
     "star_eyes": "star_eyes",
-    # Personality/mood words map to a canonical facial id ONLY as a legacy
-    # opt-in path (config avatar.expressions can override each entry).
-    # In the autonomous-LLM architecture these are conversational context;
-    # the primary control path is avatar_action -> trigger_expression().
+    # Personality/mood words map ONLY onto canonical FACIAL ids, and only
+    # as a LEGACY opt-in path (config avatar.expressions can override each
+    # entry). A mood may NEVER resolve to an item id — items live on their
+    # own layer (enable_item / avatar_action items_on/items_off). In the
+    # autonomous-LLM architecture moods are conversational context; the
+    # primary control path is avatar_action -> trigger_expression().
     "happy": "star_eyes",
+    "excited": "star_eyes",
     "sad": "cry",
     "surprised": "dark_face",
     "embarrassed": "heart_eyes",
-    "excited": "bow",
-    "loving": "hat",
-    "thinking": "glasses",
-    "sleepy": "mic",
-    "gaming": "gamer_controller",
-    "singing": "ghosts",
-    "smug": "wand",
-    "performing": "angry",
+    "loving": "heart_eyes",
+    "thinking": "bow",
+    "sleepy": "dark_face",
+    "gaming": "star_eyes",
+    "singing": "heart_eyes",
+    "smug": "bow",
+    "performing": "star_eyes",
 }
 
-# Every one of the 12 canonical semantic ids must appear as a target in
-# this table so per-model resolution (build_mood_expression_map) exercises
-# the whole catalog — including the six item files, whose targets get
-# rejected by sanitize_expressions_map (items are toggled explicitly,
-# never mood-driven). The item-target entries exist purely for catalog
-# coverage; set_expression() refuses to let a mood toggle an item.
-assert set(DEFAULT_EXPRESSIONS.values()) - {""} == set(EXPRESSION_FILES), \
-    "DEFAULT_EXPRESSIONS must cover all 12 canonical semantic ids"
+# Guard: the legacy mood table may only ever target the plain reset face or
+# one of the SIX canonical facial ids — never an item, never an unknown id.
+assert set(DEFAULT_EXPRESSIONS.values()) - {""} == set(FACIAL_EXPRESSIONS), \
+    "DEFAULT_EXPRESSIONS may only map moods onto canonical facial ids"
 assert set(FACIAL_EXPRESSIONS) <= set(DEFAULT_EXPRESSIONS.values()), \
     "all six canonical faces must remain mood-reachable"
 

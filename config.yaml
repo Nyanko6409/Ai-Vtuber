@@ -21,13 +21,16 @@ llm:
   system_prompt: |
     You are a friendly AI VTuber assistant. You are chatting with a user in real-time.
     Keep responses engaging and conversational, consisting of 2-4 distinct sentences or short paragraphs.
-    You MUST start every response with exactly one mood tag on its own line.
-    Pick whichever fits best: [neutral], [happy], [sad], [angry], [surprised],
-    [embarrassed], [excited], [loving], [thinking], [sleepy], [gaming],
-    [singing], [smug], or [performing].
-    Each tag drives a matching Live2D expression on your body (e.g. [angry]
-    makes you visibly angry, [gaming] puts you in a gaming pose) - so choose
-    the tag that matches the feeling of what you're saying.
+    Mood tags like [happy], [smug], [loving], [performing] are DEPRECATED
+    and must never be written - they no longer control anything. Your avatar
+    is driven ONLY by an optional structured action block (see "YOUR BODY"
+    in the soul prompt), e.g.:
+    {"avatar_action": {"expression": "heart_eyes", "items_on": [], "items_off": [], "modes_on": [], "modes_off": []}}
+    using canonical semantic ids only - faces: neutral, dark_face, bow, cry,
+    angry, heart_eyes, star_eyes; items: ghosts, wand, hat, glasses,
+    gamer_controller, mic. Sending {"avatar_action": null} (or no block)
+    means "change nothing". NEVER invent ids and NEVER put personality words
+    (happy, sad, smug, performing, ...) in the expression field.
     
     IMPORTANT RULES:
     - NEVER respond with phrases like "I'm not sure what to say", "I don't know", or similar evasive responses unless genuinely asked about something impossible.
@@ -36,9 +39,11 @@ llm:
     - Your responses should be 2-4 sentences minimum to create natural conversation flow.
     
     Example:
-    [happy]
     That sounds really fun! I'd love to hear more about what happened.
     Did anything surprising occur during that experience?
+    ```json
+    {"avatar_action": {"expression": "star_eyes", "items_on": [], "items_off": [], "modes_on": [], "modes_off": []}}
+    ```
   
   # Note: Bot personality and character traits are defined in the SINGLE
   # canonical file personality/soul.md at the PROJECT ROOT (see "memory"
@@ -146,7 +151,14 @@ avatar:
   #   -   : Zoom out
   #   R   : Reset zoom and position
   #   Arrow keys / WASD: Move avatar
-  # Expression mapping: mood -> semantic expression id (OPTIONAL opt-in).
+  # LEGACY mood -> face mapping (OPT-IN ONLY; NOT the avatar protocol).
+  # The active control path is: LLM avatar_action JSON -> AvatarController
+  # -> ExpressionManager -> model_discovery.py EXPRESSION_FILES -> .exp3.json.
+  # app.py NEVER calls set_expression(emotion) anymore; emotions remain as
+  # conversation metadata/UI/logging only. These targets default to "" so a
+  # stray mood can never move the Live2D face. A mood may map ONLY onto one
+  # of the six canonical FACES below - never onto an item id (items live on
+  # their own layer via modes/items_on/items_off).
   # The current architecture is AUTONOMOUS: the LLM chooses avatar actions
   # (facial expressions + stackable items) itself — see avatar_control.py.
   # These mood targets therefore default to "" (plain face, no .exp3.json).
@@ -199,15 +211,13 @@ avatar:
     nerd:
       items: [glasses]
     witch:
-      items: [magic_wand]
+      items: [wand]
     evil:
-      items: [little_ghost]
+      items: [ghosts]
     gamer:
-      items: [gaming_gesture]
+      items: [gamer_controller]
     singer:
-      items: [microphone_gesture]
-    cute:
-      items: [bow]
+      items: [mic]
     fancy:
       items: [hat]
 
