@@ -1,0 +1,399 @@
+"""AI VTuber - Live2D facial expression state & resolution.
+
+Owns the FACIAL-expression half of the avatar's semantic layer:
+
+* mood -> expression defaults (``DEFAULT_EXPRESSIONS``) and the parameter
+  fallback table (``EMOTION_PARAMS``),
+* resolving any accepted reference (semantic id / emotion / display name /
+  file stem) to a discovered ``ExpressionInfo`` + path,
+* triggering an expression by semantic id (items are rejected here — they
+  belong to :mod:`ai_vtuber.avatar.item_manager`),
+* the neutral reset (a logical state with NO .exp3.json file that clears
+  the face only; active items are preserved),
+* building the runtime mood -> expression map for startup diagnostics.
+
+The low-level "apply one exp3 file to the runtime model" logic lives in
+:mod:`ai_vtuber.avatar.expression_apply` to keep the dependency flow clean:
+
+    expression_manager  ->  expression_apply  ->  (avatar duck-typed state)
+
+Functions receive the avatar instance (duck-typed) and mutate its
+expression state attributes (``_current_expression``,
+``_active_expression_name``, ``_expression_owned``, ...).
+"""
+
+import logging
+from pathlib import Path
+from typing import Any, Optional
+
+from .model_discovery import (
+    DEFAULT_SEMANTIC_NAMES,
+    ITEM_ID_ALIASES,
+    KIND_EXPRESSION,
+    KIND_ITEM,
+    ExpressionInfo,
+)
+from .expression_apply import load_expression_file, reset_expressions
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# AIRI LIVE2D AVATAR SHEET — expressions vs items, two SEPARATE systems.
+#
+# This is the single authoritative avatar definition for behaviour code.
+# The actual .exp3.json assets live OUTSIDE this repository (external VTube
+# Studio install, configured via avatar.model_path); nothing here copies or
+# modifies model asset files.
+#
+#   FACIAL EXPRESSIONS (kind="expression") — exactly ONE active at a time;
+#   changing the expression REPLACES the previous one but NEVER removes
+#   items. Airi's LLM decides autonomously which expression fits (there is
+#   NO hardcoded mood -> expression mapping anymore — see
+#   ai_vtuber/avatar/avatar_control.py):
+#
+#     neutral      — no expression file; default state; use when no strong
+#                    visual emotion is appropriate
+#     black_face   — fz.exp3.json  😶  dark/awkward/deadpan comedic reaction
+#                    (awkward silence, disbelief, uncomfortable comedy).
+#                    Never interpret the name literally as a racial expression.
+#     crying       — hdj.exp3.json 😭  genuine sadness, emotional moments,
+#                    sympathy, dramatic crying
+#     angry        — ku.exp3.json  😠  genuine irritation/frustration, being
+#                    provoked, appropriate mock anger
+#     heart_eyes   — mz.exp3.json  🥰  strong affection / deeply charmed
+#                    (not for every compliment)
+#     star_eyes    — sq.exp3.json  🤩  excitement / amazement / fascination
+#
+#   ITEMS / ACCESSORIES (kind="item") — MULTIPLE may be active at the same
+#   time; they stack with each other and with the active expression. Adding
+#   or removing an item NEVER changes the expression. Items persist until
+#   Airi decides to remove them (see ai_vtuber/avatar/item_manager.py):
+#
+#     little_ghost        — cw.exp3.json  👻  ghost/spooky/supernatural jokes
+#     bow                 — h.exp3.json   🎀  cute/feminine moments, styling
+#     glasses             — x.exp3.json   👓  studying, coding, reading, nerdy
+#     gaming_gesture      — xx.exp3.json  🎮  gaming talk / roleplay
+#     microphone_gesture  — yj.exp3.json  🎤  singing, streaming, performing
+#     magic_wand          — zs1.exp3.json 🪄  magic / fantasy roleplay
+#     hat                 — zs2.exp3.json 🎩  dressing up, character RP
+#
+# Avatar state rules (enforced by AvatarController + validated here):
+#   * Expression: max ONE active; change replaces; does NOT remove items.
+#   * Items: many active; toggle does NOT change the expression.
+#   * The USER never commands the avatar directly; the LLM decides via
+#     structured {"avatar_action": ...} JSON (or chooses no action at all).
+# ---------------------------------------------------------------------------
+
+# Semantic ids of the 5 (+neutral) facial expressions on Airi's sheet.
+FACIAL_EXPRESSION_IDS: tuple[str, ...] = (
+    "neutral", "black_face", "crying", "angry", "heart_eyes", "star_eyes",
+)
+
+
+# ---------------------------------------------------------------------------
+# DEFAULT_EXPRESSIONS — mood -> expression defaults. The default is NONE:
+# every supported mood maps to "" (plain default face, no .exp3.json).
+# Mood/emotion may still exist as internal conversational context
+# (see ai_vtuber/emotion/analyzer.py) but it must NEVER automatically drive
+# the Live2D expression. The LLM's autonomous avatar decision has priority.
+# To opt back in to mood-driven faces, override per-mood targets via config:
+#   avatar:
+#     expressions:
+#       happy: "star_eyes"
+# ---------------------------------------------------------------------------
+DEFAULT_EXPRESSIONS: dict[str, str] = {
+    "neutral": "",      # plain default face (no exp3 file)
+    "happy": "",
+    "sad": "",
+    "angry": "",
+    "surprised": "",
+    "embarrassed": "",
+    # extended mood tags (explicit-tag only; keyword detection still uses
+    # the six core categories above)
+    "excited": "",
+    "loving": "",
+    "thinking": "",
+    "sleepy": "",
+    "gaming": "",
+    "singing": "",
+    "smug": "",
+    "performing": "",
+}
+
+# Parameter fallback overrides keyed by SEMANTIC expression id (NOT mood).
+# Used ONLY when no matching .exp3.json file can be resolved — e.g. a
+# different model with fewer files. Values use standard Cubism param ids
+# which are auto-resolved to the loaded model's actual ids.
+EMOTION_PARAMS: dict[str, dict[str, float]] = {
+    "neutral": {"ParamEyeLOpen": 1.0, "ParamEyeROpen": 1.0, "ParamMouthOpenY": 0.0},
+    "black_face": {"ParamEyeLOpen": 0.9, "ParamEyeROpen": 0.9, "ParamBrowLY": -0.3, "ParamFaceDark": 1.0},
+    "crying": {"ParamEyeLOpen": 0.5, "ParamEyeROpen": 0.5, "ParamBrowLY": -0.9, "ParamMouthOpenY": 0.15},
+    "angry": {"ParamEyeLOpen": 0.8, "ParamEyeROpen": 0.8, "ParamBrowLY": -1.0, "ParamMouthOpenY": 0.1, "Param53": 1.0},
+    "heart_eyes": {"ParamEyeLOpen": 1.0, "ParamEyeROpen": 1.0, "ParamMouthOpenY": 0.2, "ParamBrowLY": 0.6, "ParamEyeLSmile": 0.8, "ParamEyeRSmile": 0.8},
+    "star_eyes": {"ParamEyeLOpen": 1.2, "ParamEyeROpen": 1.2, "ParamMouthOpenY": 0.5, "ParamBrowLY": 1.0, "ParamEyeLSmile": 1.0, "ParamEyeRSmile": 1.0},
+}
+
+# ---------------------------------------------------------------------------
+# Mood -> expression triggering (semantic, deterministic; no LLM filenames)
+# ---------------------------------------------------------------------------
+
+EMOTION_EXPRESSION_MAP: dict[str, str] = {k: v for k, v in DEFAULT_EXPRESSIONS.items()}
+
+
+def build_mood_expression_map(avatar: Any,
+                              emotion_map: Optional[dict[str, str]] = None,
+                              ) -> dict[str, str]:
+    """Build the runtime mood -> expression mapping for one loaded model.
+
+    Starts from the default emotion map merged with config overrides
+    (``avatar.expressions``), then keeps only entries whose target actually
+    resolves against the avatar's discovered expression catalog. Moods whose
+    target is missing on this model are dropped (the caller then falls back
+    to parameter-based faces), so switching models never breaks mood logic.
+
+    Returns: {emotion: semantic_expression_id}
+    """
+    merged = {**DEFAULT_EXPRESSIONS, **(emotion_map or {})}
+    result: dict[str, str] = {}
+    for emotion, target in merged.items():
+        exp, path = resolve_semantic_expression(avatar, target)
+        if path:
+            result[emotion] = (exp.id if exp else target)
+        else:
+            logger.debug("Mood '%s' -> expression '%s' not available on this "
+                         "model; will use parameter fallback", emotion, target)
+    return result
+
+
+def sanitize_expressions_map(avatar: Any) -> None:
+    """Validate mood -> expression targets against the loaded catalog.
+
+    Rules (see DEFAULT_EXPRESSIONS comment block):
+    - An empty/whitespace target means "plain default face" (kept).
+    - A target that resolves to a kind="item" file is REJECTED — items
+      are toggled explicitly via toggle_item(), never driven by moods.
+    - A target that doesn't resolve at all is kept (the caller falls
+      back to parameter-driven faces) unless it names a known item stem.
+    """
+    cleaned: dict[str, str] = {}
+    for mood, target in avatar.expressions_map.items():
+        t = (target or "").strip()
+        if not t:
+            cleaned[mood] = ""
+            continue
+        exp, _path = resolve_semantic_expression(avatar, t)
+        if exp is not None and exp.kind == KIND_ITEM:
+            logger.warning(
+                "Mood '%s' maps to '%s' which is an ITEM toggle, not a "
+                "facial expression — ignoring this mapping (items are "
+                "toggled with [item_on:...]/[item_off:...] instead).",
+                mood, t)
+            cleaned[mood] = ""
+            continue
+        cleaned[mood] = t
+    avatar.expressions_map = cleaned
+
+
+def resolve_semantic_expression(avatar: Any,
+                                name: str) -> tuple[Optional[ExpressionInfo], str]:
+    """Resolve any accepted expression reference to (ExpressionInfo, path).
+
+    Accepts, in order of precedence:
+    1. semantic id ("angry")          -> ku.exp3.json via catalog
+    2. emotion name ("angry")         -> config expressions map
+    3. display name ("生气")           -> catalog lookup by name
+    4. file stem ("ku") or filename ("ku.exp3.json") -> direct file
+
+    Legacy ``*_toggle`` item ids (glasses_toggle / bow_toggle / ...) and
+    other ITEM_ID_ALIASES spellings are normalized to their canonical
+    semantic ids before lookup, so old configs and saved state still
+    resolve instead of logging "Unknown expression".
+    """
+    key = (name or "").strip()
+    if not key:
+        return None, ""
+    # "neutral" is a VALID state with no .exp3.json file by design: it
+    # means "plain default face". Resolve it to the reset sentinel
+    # (None, "") BEFORE any catalog lookup so it never logs an
+    # "Unknown expression" warning. Callers treat an empty path as
+    # "reset the facial layer" (trigger_expression / set_expression).
+    if key.casefold() == "neutral":
+        return None, ""
+    # Canonicalize legacy aliases case-insensitively (Glasses_Toggle etc.)
+    lowered = key.lower().replace(" ", "_").replace("-", "_")
+    canonical = ITEM_ID_ALIASES.get(lowered)
+    if canonical:
+        key = canonical
+
+    exp = avatar._expression_catalog.get(key)
+    if exp:
+        return exp, exp.path
+
+    # Emotion -> semantic id (configurable via avatar.expressions)
+    mapped = avatar.expressions_map.get(key)
+    if mapped and mapped != key:
+        exp = avatar._expression_catalog.get(mapped)
+        if exp:
+            return exp, exp.path
+        key_file = mapped
+
+    # Display-name lookup (Chinese names)
+    for e in avatar._expression_catalog.values():
+        if e.name == key:
+            return e, e.path
+
+    # Direct file stem / filename lookup
+    fname = key if key.endswith(".exp3.json") else f"{key}.exp3.json"
+    if avatar._model_path:
+        model_dir = avatar._model_path.parent
+        for search_dir in (model_dir, model_dir / "expressions", model_dir / "Exp"):
+            candidate = search_dir / fname
+            if candidate.exists():
+                return None, str(candidate)
+
+    logger.warning("Unknown expression '%s' (no semantic id, emotion, "
+                   "display name, or file match)", name)
+    return None, ""
+
+
+def trigger_expression(avatar: Any, expression_id: str) -> bool:
+    """Trigger an expression by SEMANTIC id (e.g. "angry", "heart_eyes").
+
+    This is the deterministic API for the AI/LLM behaviour layer:
+    semantic ids are translated to concrete .exp3.json files here —
+    the LLM never needs to know filenames.
+
+    ``trigger_expression("neutral")`` (or an empty id) is a VALID reset
+    operation: it clears the facial-expression layer back to the plain
+    default face and returns True. It never loads "neutral.exp3.json"
+    (no such file exists by design) and never warns. Active ITEMS are
+    preserved.
+
+    Returns True if the expression was applied (or the reset succeeded).
+    """
+    if not avatar._initialized or not avatar._model:
+        logger.debug("trigger_expression('%s') ignored: model not initialized",
+                     expression_id)
+        return False
+
+    # Neutral / explicit reset: valid state, no .exp3.json involved.
+    if not (expression_id or "").strip() or \
+            (expression_id or "").strip().casefold() == "neutral":
+        return reset_expressions(avatar)
+
+    exp, path = resolve_semantic_expression(avatar, expression_id)
+    if not path:
+        # Resolution failed. If the name was a known FACIAL semantic id
+        # whose file is simply missing/broken on disk, fall back to the
+        # parameter-driven face instead of failing hard; otherwise treat
+        # any other unresolved-but-empty case as neutral reset.
+        sem = DEFAULT_SEMANTIC_NAMES.get(
+            (expression_id or "").strip().lower())
+        if sem and sem[3] == KIND_EXPRESSION:
+            logger.warning(
+                "trigger_expression('%s'): expression file missing; "
+                "using parameter fallback", expression_id)
+            with avatar._lock:
+                avatar._current_expression = sem[0]
+            set_expression_params(avatar, sem[0])
+            return True
+        return False
+    # Guard the two-layer contract: an ITEM must never be triggered as a
+    # facial expression (use enable_item()/disable_item() for items).
+    if exp is not None and exp.kind == KIND_ITEM:
+        logger.warning(
+            "trigger_expression('%s'): '%s' is an ITEM — use "
+            "enable_item()/disable_item() instead.", expression_id, exp.id)
+        return False
+    return load_expression_file(
+        avatar, path, label=(exp.id if exp else expression_id))
+
+
+def set_expression(avatar: Any, emotion: str) -> None:
+    """Set avatar expression based on emotion.
+
+    An empty/whitespace ``emotion`` means "no expression": the face is
+    reset to the plain default (the DEFAULT_EXPRESSIONS default is now
+    "" for every mood, so mood changes land here and clear the face —
+    only an explicit LLM avatar_action sets a real expression).
+
+    Resolution order (all deterministic, no LLM-side filenames needed):
+    1. semantic id / display name / file stem via the discovered catalog
+       (e.g. "angry" -> ku.exp3.json, "heart_eyes" -> mz.exp3.json)
+    2. legacy raw filename search ({name}.exp3.json in model dir)
+    3. parameter-based fallback (EMOTION_PARAMS) so the face still works
+       even with zero expression files present.
+    """
+    if not avatar._initialized or not avatar._model:
+        return
+
+    if not (emotion or "").strip() or \
+            (emotion or "").strip().casefold() == "neutral":
+        # "none" / "neutral" / plain default face: release any active
+        # expression parameters (items untouched) and stop here. There is
+        # intentionally NO neutral.exp3.json — never try to load one.
+        reset_expressions(avatar)
+        return
+
+    # FIX: Protect shared state with lock
+    with avatar._lock:
+        avatar._current_expression = emotion
+
+    # 1) Emotion -> semantic id via the (config-overridable) expression
+    #    map FIRST, so e.g. mood "happy" triggers star_eyes even if the
+    #    model happens to ship a file literally named happy.exp3.json.
+    mapped = avatar.expressions_map.get(emotion)
+    if mapped and mapped != emotion:
+        exp, path = resolve_semantic_expression(avatar, mapped)
+        if path and load_expression_file(
+                avatar, path, label=(exp.id if exp else mapped)):
+            return
+
+    # 2) Semantic catalog / display name / file stem direct match
+    exp, path = resolve_semantic_expression(avatar, emotion)
+    if path and load_expression_file(
+            avatar, path, label=(exp.id if exp else emotion)):
+        return
+
+    # 3) Legacy: try the raw mapped/legacy filename too
+    #    (e.g. expressions: {happy: "happy"} -> happy.exp3.json)
+    if avatar._model_path:
+        candidates = [emotion]
+        mapped = avatar.expressions_map.get(emotion)
+        if mapped and mapped != emotion:
+            candidates.append(mapped)
+        model_dir = avatar._model_path.parent
+        for name in candidates:
+            for search_dir in [model_dir, model_dir / "expressions", model_dir / "Exp"]:
+                exp_file = search_dir / f"{name}.exp3.json"
+                if exp_file.exists():
+                    if load_expression_file(avatar, str(exp_file), label=name):
+                        return
+
+    # 4) Fallback: set parameters directly
+    logger.debug("No expression file for '%s'; using parameter fallback", emotion)
+    set_expression_params(avatar, emotion)
+
+
+def set_expression_params(avatar: Any, emotion: str) -> None:
+    """Set expression via model parameters."""
+    if not avatar._model:
+        return
+    # Map standard-name dict keys to this model's resolved actual IDs
+    # (only eye/mouth are auto-resolved; other params pass through as-is)
+    id_overrides = {
+        "ParamEyeLOpen": avatar._param_eye_l_open,
+        "ParamEyeROpen": avatar._param_eye_r_open,
+        "ParamMouthOpenY": avatar._param_mouth_open,
+    }
+    # Try the raw mood name first, then the semantic id it maps to.
+    params = EMOTION_PARAMS.get(emotion)
+    if params is None:
+        mapped = avatar.expressions_map.get(emotion, "")
+        params = EMOTION_PARAMS.get(mapped) or EMOTION_PARAMS["neutral"]
+    for param_id, value in params.items():
+        resolved_id = id_overrides.get(param_id, param_id)
+        try:
+            avatar._model.SetParameterValue(resolved_id, value)
+        except Exception as e:
+            logger.error(f"Live2D param error (expression '{resolved_id}'): {e}")
