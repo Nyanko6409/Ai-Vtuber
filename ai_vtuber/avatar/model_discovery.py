@@ -135,12 +135,34 @@ DEFAULT_SEMANTIC_NAMES: dict[str, tuple[str, str, str, str]] = {
 
 # Backward-compatible aliases for the old "*_toggle" item ids. Anything that
 # still references an alias (configs, saved state, older prompts) resolves to
-# the canonical id above via ALIAS_TO_SEMANTIC_ID.
+# the canonical id above via ALIAS_TO_SEMANTIC_ID. Aliases NEVER create their
+# own catalog entries — they only normalize to the canonical semantic ids.
 ITEM_ID_ALIASES: dict[str, str] = {
     "bow_toggle":         "bow",
     "glasses_toggle":     "glasses",
     "hat_toggle":         "hat",
+    # Historical spellings kept for backwards compatibility; both resolve
+    # to the canonical "magic_wand" id.
+    "magic_wand_toggle":  "magic_wand",
     "magic_wand_summon":  "magic_wand",
+}
+
+# Natural-language aliases for ITEMS only (the LLM / user may phrase them
+# with spaces or synonyms). These normalize to canonical semantic ids and
+# never become catalog entries themselves. NOTE: this deliberately does NOT
+# include mood words like "happy"/"sad" — moods are conversational tags, not
+# avatar actions, and must never auto-map to expressions (autonomous-LLM
+# architecture; see avatar_control.py).
+ITEM_NATURAL_ALIASES: dict[str, str] = {
+    "spectacles":        "glasses",
+    "cap":               "hat",
+    "ghost":             "little_ghost",
+    "little ghost":      "little_ghost",
+    "wand":              "magic_wand",
+    "magic wand":        "magic_wand",
+    "mic":               "microphone_gesture",
+    "microphone":        "microphone_gesture",
+    "game gesture":      "gaming_gesture",
 }
 
 # Reverse lookup: canonical semantic id -> default (exp3 filename stem,

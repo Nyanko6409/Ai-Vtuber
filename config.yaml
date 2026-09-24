@@ -183,6 +183,34 @@ avatar:
     smug: ""
     performing: ""
 
+  # ---- Avatar MODES ------------------------------------------------------
+  # Higher-level named looks that sit ABOVE the item layer: entering a mode
+  # equips its items; leaving it removes ONLY the items that mode activated
+  # (items requested directly or owned by another active mode stay on).
+  # Modes are stackable (nerd + witch = glasses + magic_wand) unless a mode
+  # is explicitly configured with `exclusive: true`. LLM runtime actions:
+  #   [mode_on:<name>] / [mode_off:<name>]  (or "modes_on"/"modes_off" keys
+  #   in the structured avatar_action JSON).
+  # Item ids here MUST be canonical semantic ids resolved to .exp3.json
+  # files by model_discovery.py — never filenames. The optional future
+  # behaviour metadata (e.g. personality hints) is reserved for later; do
+  # NOT invent a personality system here.
+  modes:
+    nerd:
+      items: [glasses]
+    witch:
+      items: [magic_wand]
+    evil:
+      items: [little_ghost]
+    gamer:
+      items: [gaming_gesture]
+    singer:
+      items: [microphone_gesture]
+    cute:
+      items: [bow]
+    fancy:
+      items: [hat]
+
 # Audio Settings
 audio:
   microphone_index: -1  # -1 for default microphone

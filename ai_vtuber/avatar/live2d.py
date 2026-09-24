@@ -463,6 +463,14 @@ class Live2DAvatar:
         self._item_ids: set[str] = set()
         # Currently ON items, in toggle order: semantic id -> owning exp3 stem
         self._active_items: dict[str, str] = {}
+        # --- avatar MODES layer (config-driven, sits ABOVE the item layer) ---
+        # config "modes": mode name -> {"items": [...], "exclusive": bool}
+        self._mode_defs: dict[str, dict] = config.get("modes", {}) or {}
+        # Active modes: mode name -> list of item ids that mode activated
+        self._active_modes: dict[str, list] = {}
+        # Items the user/LLM requested directly (not via a mode). A mode
+        # going OFF never removes a manually-requested item it also owns.
+        self._manual_items: set[str] = set()
         self._mouth_value: float = 0.0
 
         # Resolved parameter IDs — filled in after model load by _resolve_parameter_ids().
@@ -989,6 +997,13 @@ class Live2DAvatar:
         key = (name or "").strip()
         if not key:
             return None, ""
+        # "neutral" is a VALID state with no .exp3.json file by design: it
+        # means "plain default face". Resolve it to the reset sentinel
+        # (None, "") BEFORE any catalog lookup so it never logs an
+        # "Unknown expression" warning. Callers treat an empty path as
+        # "reset the facial layer" (trigger_expression / set_expression).
+        if key.casefold() == "neutral":
+            return None, ""
         # Canonicalize legacy aliases case-insensitively (Glasses_Toggle etc.)
         lowered = key.lower().replace(" ", "_").replace("-", "_")
         canonical = ITEM_ID_ALIASES.get(lowered)
@@ -1032,15 +1047,40 @@ class Live2DAvatar:
         semantic ids are translated to concrete .exp3.json files here —
         the LLM never needs to know filenames.
 
-        Returns True if the expression was applied.
+        ``trigger_expression("neutral")`` (or an empty id) is a VALID reset
+        operation: it clears the facial-expression layer back to the plain
+        default face and returns True. It never loads "neutral.exp3.json"
+        (no such file exists by design) and never warns. Active ITEMS are
+        preserved.
+
+        Returns True if the expression was applied (or the reset succeeded).
         """
         if not self._initialized or not self._model:
             logger.debug("trigger_expression('%s') ignored: model not initialized",
                          expression_id)
             return False
 
+        # Neutral / explicit reset: valid state, no .exp3.json involved.
+        if not (expression_id or "").strip() or \
+                (expression_id or "").strip().casefold() == "neutral":
+            return self.reset_expressions()
+
         exp, path = self._resolve_semantic_expression(expression_id)
         if not path:
+            # Resolution failed. If the name was a known FACIAL semantic id
+            # whose file is simply missing/broken on disk, fall back to the
+            # parameter-driven face instead of failing hard; otherwise treat
+            # any other unresolved-but-empty case as neutral reset.
+            sem = DEFAULT_SEMANTIC_NAMES.get(
+                (expression_id or "").strip().lower())
+            if sem and sem[3] == KIND_EXPRESSION:
+                logger.warning(
+                    "trigger_expression('%s'): expression file missing; "
+                    "using parameter fallback", expression_id)
+                with self._lock:
+                    self._current_expression = sem[0]
+                self._set_expression_params(sem[0])
+                return True
             return False
         # Guard the two-layer contract: an ITEM must never be triggered as a
         # facial expression (use enable_item()/disable_item() for items).
@@ -1050,6 +1090,48 @@ class Live2DAvatar:
                 "enable_item()/disable_item() instead.", expression_id, exp.id)
             return False
         return self._load_expression_file(path, label=(exp.id if exp else expression_id))
+
+    # Backwards-compatible alias used by older pipelines/tests:
+    # set_emotion("") / set_emotion("neutral") reset the FACE only (items
+    # stay on); any other value behaves like trigger_expression().
+    def set_emotion(self, emotion: str) -> bool:
+        """Set the facial expression from an emotion/mood/semantic name."""
+        if not (emotion or "").strip() or \
+                (emotion or "").strip().casefold() == "neutral":
+            if not self._initialized or not self._model:
+                return False
+            return self.reset_expressions()
+        return self.trigger_expression(emotion)
+
+    def apply_action_tag(self, tag: str) -> bool:
+        """Apply one structured avatar action tag. Never raises.
+
+        Accepted forms (canonical runtime actions; all take SEMANTIC ids —
+        filenames are resolved internally by the discovery catalog):
+
+            expression:<id> | item_on:<id> | item_off:<id>
+            mode_on:<mode>  | mode_off:<mode>
+
+        ``expression:neutral`` (and empty ids) reset the face only. Items
+        and modes never touch the face; expressions never touch items.
+        Unknown ids/modes log a warning and return False.
+        """
+        text = str(tag or "").strip().strip("[]")
+        action, _, arg = text.partition(":")
+        action = action.strip().casefold()
+        arg = arg.strip()
+        if action == "expression":
+            return self.trigger_expression(arg or "neutral")
+        if action == "item_on":
+            return self.enable_item(arg)
+        if action == "item_off":
+            return self.disable_item(arg)
+        if action == "mode_on":
+            return self.enable_mode(arg)
+        if action == "mode_off":
+            return self.disable_mode(arg)
+        logger.warning("apply_action_tag: unknown action %r", tag)
+        return False
 
     def _load_expression_file(self, path: str, label: str = "") -> bool:
         """Apply one .exp3.json to the runtime model. Never raises.
@@ -1277,13 +1359,17 @@ class Live2DAvatar:
             defaults[pid] = EMOTION_PARAMS["neutral"].get(pid, 0.0)
         return defaults
 
-    def enable_item(self, item_id: str) -> bool:
+    def enable_item(self, item_id: str, via_mode: bool = False) -> bool:
         """Activate one discovered kind="item" .exp3.json (stackable).
 
         Accepts canonical semantic ids ("glasses", "hat", ...) as well as
         legacy aliases via _resolve_semantic_expression. Unknown ids or
         non-item ids are rejected (returns False, never raises). Enabling
         an item does NOT change the active facial expression.
+
+        ``via_mode=True`` marks the activation as mode-owned: a manually
+        requested item stays flagged in ``_manual_items`` so disabling the
+        mode later will not strip it (§ ownership tracking).
         """
         if not self._initialized or not self._model:
             logger.debug("enable_item('%s') ignored: model not initialized",
@@ -1296,9 +1382,16 @@ class Live2DAvatar:
             return False
         stem = exp3_stem(exp.file)
         if stem in self._active_items.values():
-            return True  # idempotent: already wearing this file
+            # Idempotent: already wearing this file. A direct request also
+            # marks the item as manually owned so mode teardown won't strip
+            # it (see disable_mode()).
+            if not via_mode:
+                self._manual_items.add(exp.id)
+            return True
         if self._load_expression_file(path, label=exp.id):
             self._active_items[exp.id] = stem
+            if not via_mode:
+                self._manual_items.add(exp.id)
             return True
         return False
 
@@ -1319,6 +1412,12 @@ class Live2DAvatar:
                            item_id)
             return False
         stem = self._active_items.pop(exp.id, None) or exp3_stem(exp.file)
+        # Explicit removal clears every reason the item was active (manual
+        # request + any owning modes), keeping the state bookkeeping honest.
+        self._manual_items.discard(exp.id)
+        for m_items in self._active_modes.values():
+            if exp.id in m_items:
+                m_items.remove(exp.id)
         owned = self._expression_owned.pop(stem, set())
         # Also release any params from the parsed exp3 file not tracked yet.
         owned |= set(exp.parameters.keys())
@@ -1346,6 +1445,109 @@ class Live2DAvatar:
     def get_active_items(self) -> list[str]:
         """Semantic ids of the currently enabled items."""
         return sorted(self._active_items.keys())
+
+    # ------------------------------------------------------------------
+    # Mode layer (config-driven, sits ABOVE the item layer).
+    # A mode is a named bundle of items (optionally future behaviour
+    # metadata). Modes are stackable by default; only modes explicitly
+    # configured with `exclusive: true` clear other active modes.
+    # Definitions come from config (`avatar.modes`) — NEVER hardcoded here.
+    # ------------------------------------------------------------------
+
+    def available_modes(self) -> list[str]:
+        """Configured avatar mode names (empty when none are defined)."""
+        return sorted(str(k) for k in self._mode_defs)
+
+    def _mode_items(self, mode: str) -> list[str]:
+        """Canonical item ids belonging to one mode definition."""
+        defn = self._mode_defs.get(mode)
+        if defn is None:
+            # Case-insensitive mode lookup (Nerd -> nerd).
+            for k, v in self._mode_defs.items():
+                if str(k).casefold() == mode.casefold():
+                    mode, defn = str(k), v
+                    break
+        if not isinstance(defn, dict):
+            return []
+        raw_items = defn.get("items") or []
+        if isinstance(raw_items, str):
+            raw_items = [raw_items]
+        out: list[str] = []
+        for it in raw_items:
+            key = str(it or "").strip().casefold()
+            canonical = ITEM_ID_ALIASES.get(key, key)
+            if canonical and canonical not in out:
+                out.append(canonical)
+        return out
+
+    def enable_mode(self, mode_name: str) -> bool:
+        """Enter an avatar mode: activate its configured items.
+
+        Multiple modes may be active simultaneously unless a mode is
+        explicitly configured ``exclusive: true``. Unknown modes and
+        unknown items inside a mode fail safely (logged, never raise).
+        Returns True when at least the mode bookkeeping succeeded.
+        """
+        mode = str(mode_name or "").strip().casefold()
+        if not mode or mode not in {str(k).casefold() for k in self._mode_defs}:
+            logger.warning("enable_mode('%s'): unknown avatar mode", mode_name)
+            return False
+        defn = next(v for k, v in self._mode_defs.items()
+                    if str(k).casefold() == mode)
+        canonical_name = next(str(k) for k in self._mode_defs
+                              if str(k).casefold() == mode)
+        # Exclusive modes clear OTHER active modes first (never items that
+        # were requested manually or owned solely by another source).
+        if isinstance(defn, dict) and defn.get("exclusive"):
+            for other in list(self._active_modes):
+                if other != canonical_name:
+                    self.disable_mode(other)
+        activated: list[str] = []
+        ok = True
+        for item_id in self._mode_items(canonical_name):
+            if self.enable_item(item_id, via_mode=True):
+                activated.append(item_id)
+            else:
+                ok = False
+        self._active_modes[canonical_name] = activated
+        logger.info("Mode '%s' ON (items: %s)", canonical_name, activated or "-")
+        return ok or bool(activated) or not self._mode_items(canonical_name)
+
+    def disable_mode(self, mode_name: str) -> bool:
+        """Leave an avatar mode: remove ONLY the items that mode activated.
+
+        Ownership rule: an item stays active while ANY remaining reason for
+        it exists (manual request, another active mode). Disabling 'nerd'
+        therefore keeps a manually-requested hat — and even glasses the user
+        explicitly asked to keep.
+        """
+        mode = str(mode_name or "").strip().casefold()
+        canonical_name = next((str(k) for k in self._mode_defs
+                               if str(k).casefold() == mode), None)
+        if canonical_name is None:
+            logger.warning("disable_mode('%s'): unknown avatar mode", mode_name)
+            return False
+        owned = self._active_modes.pop(canonical_name, [])
+        for item_id in owned:
+            still_needed = (item_id in self._manual_items
+                            or any(item_id in m for m in self._active_modes.values()))
+            if still_needed:
+                logger.debug("Item '%s' kept active after mode '%s' off "
+                             "(other ownership reasons remain)",
+                             item_id, canonical_name)
+                continue
+            self.disable_item(item_id)
+        logger.info("Mode '%s' OFF (released: %s)", canonical_name, owned or "-")
+        return True
+
+    def toggle_mode(self, mode_name: str) -> bool:
+        if str(mode_name or "").strip().casefold() in \
+                {k.casefold() for k in self._active_modes}:
+            return self.disable_mode(mode_name)
+        return self.enable_mode(mode_name)
+
+    def get_active_modes(self) -> list[str]:
+        return sorted(self._active_modes.keys())
 
     def set_parameter(self, param_id: str, value: float) -> bool:
         """Set one Live2D parameter by ID with validation.
@@ -1438,9 +1640,11 @@ class Live2DAvatar:
         if not self._initialized or not self._model:
             return
 
-        if not (emotion or "").strip():
-            # "none" / plain default face: release any active expression
-            # parameters (items untouched) and stop here.
+        if not (emotion or "").strip() or \
+                (emotion or "").strip().casefold() == "neutral":
+            # "none" / "neutral" / plain default face: release any active
+            # expression parameters (items untouched) and stop here. There is
+            # intentionally NO neutral.exp3.json — never try to load one.
             self.reset_expressions()
             return
 
