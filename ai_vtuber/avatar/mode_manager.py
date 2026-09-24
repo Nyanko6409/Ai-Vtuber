@@ -19,7 +19,7 @@ mode state attributes (``_active_modes``, ``_mode_defs``).
 import logging
 from typing import Any
 
-from .model_discovery import ITEM_ID_ALIASES
+from .model_discovery import canonicalize_semantic_id
 from .item_manager import enable_item, disable_item
 
 logger = logging.getLogger(__name__)
@@ -47,7 +47,7 @@ def mode_items(avatar: Any, mode: str) -> list[str]:
     out: list[str] = []
     for it in raw_items:
         key = str(it or "").strip().casefold()
-        canonical = ITEM_ID_ALIASES.get(key, key)
+        canonical = canonicalize_semantic_id(key)
         if canonical and canonical not in out:
             out.append(canonical)
     return out

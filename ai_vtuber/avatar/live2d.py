@@ -64,6 +64,12 @@ from .expression_manager import (  # noqa: F401
     EMOTION_EXPRESSION_MAP,
     build_mood_expression_map,
 )
+from .model_discovery import (  # noqa: F401
+    EXPRESSION_FILES,
+    FACIAL_EXPRESSIONS,
+    ITEMS,
+    canonicalize_semantic_id,
+)
 from .item_manager import ITEM_IDS  # noqa: F401
 from .live2d_runtime import (  # noqa: F401
     _fix_mojibake,

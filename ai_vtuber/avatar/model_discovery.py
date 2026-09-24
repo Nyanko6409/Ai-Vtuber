@@ -113,38 +113,79 @@ def exp3_stem(name: str | Path) -> str:
         n = n[: -len(EXP3_SUFFIX)]
     return n.lower()
 
-# Maps an ASCII "semantic hint" (usually the pinyin abbreviation used in the
-# .exp3.json filename) to (semantic_id, english_description, emoji, kind).
-# Config `avatar.expression_semantics` can override/add entries per model.
-DEFAULT_SEMANTIC_NAMES: dict[str, tuple[str, str, str, str]] = {
-    # --- facial expressions (5) — mood-driven, mutually exclusive ---
-    "fz":  ("black_face",         "Black Face / Dark Face", "😠", KIND_EXPRESSION),
-    "hdj": ("crying",             "Crying",                "😭", KIND_EXPRESSION),
-    "ku":  ("angry",              "Angry",                 "😡", KIND_EXPRESSION),
-    "mz":  ("heart_eyes",         "Heart Eyes",            "🥰", KIND_EXPRESSION),
-    "sq":  ("star_eyes",          "Star Eyes / Sparkly Eyes", "🤩", KIND_EXPRESSION),
-    # --- item / accessory toggles (7) — stack with each other + expressions ---
-    "cw":  ("little_ghost",       "Little Ghost",          "👻", KIND_ITEM),
-    "h":   ("bow",                "Bow",                   "🎀", KIND_ITEM),
-    "x":   ("glasses",            "Glasses",               "👓", KIND_ITEM),
-    "xx":  ("gaming_gesture",     "Gaming Gesture",        "🎮", KIND_ITEM),
-    "yj":  ("microphone_gesture", "Microphone Gesture",    "🎤", KIND_ITEM),
-    "zs1": ("magic_wand",         "Magic Wand",            "🪄", KIND_ITEM),
-    "zs2": ("hat",                "Hat",                   "🎩", KIND_ITEM),
+# ---------------------------------------------------------------------------
+# CANONICAL EXPRESSION SHEET — the ONE authoritative semantic-name mapping.
+#
+# Manually cross-checked against the actual Live2D model. This table is the
+# ONLY source of truth for .exp3.json filename -> semantic name and for the
+# expression/item classification. Every runtime layer consumes it through
+# the derived maps below — no module may keep a duplicate dictionary.
+# ---------------------------------------------------------------------------
+EXPRESSION_FILES: dict[str, str] = {
+    "ghosts":           "cw.exp3.json",
+    "wand":             "fz.exp3.json",
+    "dark_face":        "h.exp3.json",
+    "bow":              "hdj.exp3.json",
+    "cry":              "ku.exp3.json",
+    "hat":              "mz.exp3.json",
+    "angry":            "sq.exp3.json",
+    "heart_eyes":       "x.exp3.json",
+    "star_eyes":        "xx.exp3.json",
+    "glasses":          "yj.exp3.json",
+    "gamer_controller": "zs1.exp3.json",
+    "mic":              "zs2.exp3.json",
 }
 
-# Backward-compatible aliases for the old "*_toggle" item ids. Anything that
-# still references an alias (configs, saved state, older prompts) resolves to
-# the canonical id above via ALIAS_TO_SEMANTIC_ID. Aliases NEVER create their
-# own catalog entries — they only normalize to the canonical semantic ids.
-ITEM_ID_ALIASES: dict[str, str] = {
-    "bow_toggle":         "bow",
-    "glasses_toggle":     "glasses",
-    "hat_toggle":         "hat",
-    # Historical spellings kept for backwards compatibility; both resolve
-    # to the canonical "magic_wand" id.
-    "magic_wand_toggle":  "magic_wand",
-    "magic_wand_summon":  "magic_wand",
+# Canonical semantic names classified by their actual purpose. The keyboard
+# keys from the sheet (Q/C/W/E/R/V/A/S/D/F/Z/X) are shortcuts only — they
+# are NOT semantic ids and never appear here.
+FACIAL_EXPRESSIONS: frozenset[str] = frozenset({
+    "dark_face",
+    "bow",
+    "cry",
+    "angry",
+    "heart_eyes",
+    "star_eyes",
+})
+
+ITEMS: frozenset[str] = frozenset({
+    "ghosts",
+    "wand",
+    "hat",
+    "glasses",
+    "gamer_controller",
+    "mic",
+})
+
+assert set(EXPRESSION_FILES) == set(FACIAL_EXPRESSIONS) | set(ITEMS), \
+    "canonical expression sheet inconsistency"
+
+# Display metadata keyed by SEMANTIC ID (english description + emoji).
+SEMANTIC_ID_META: dict[str, tuple[str, str]] = {
+    "ghosts":           ("Ghosts",                  "👻"),
+    "wand":             ("Wand",                    "🪄"),
+    "dark_face":        ("Dark Face",               "😶"),
+    "bow":              ("Bow",                     "🎀"),
+    "cry":              ("Cry",                     "😭"),
+    "hat":              ("Hat",                     "🎩"),
+    "angry":            ("Angry",                   "😡"),
+    "heart_eyes":       ("Heart Eyes",              "🥰"),
+    "star_eyes":        ("Star Eyes / Sparkly Eyes", "🤩"),
+    "glasses":          ("Glasses",                 "👓"),
+    "gamer_controller": ("Gamer Controller",        "🎮"),
+    "mic":              ("Mic",                     "🎤"),
+}
+
+# Maps an ASCII "semantic hint" (the .exp3.json filename stem) to
+# (semantic_id, english_description, emoji, kind). DERIVED from the
+# canonical EXPRESSION_FILES sheet above — never edit this directly.
+# Config `avatar.expression_semantics` can override/add entries per model.
+DEFAULT_SEMANTIC_NAMES: dict[str, tuple[str, str, str, str]] = {
+    exp3_stem(fname): (sem_id,
+                       SEMANTIC_ID_META[sem_id][0],
+                       SEMANTIC_ID_META[sem_id][1],
+                       KIND_EXPRESSION if sem_id in FACIAL_EXPRESSIONS else KIND_ITEM)
+    for sem_id, fname in EXPRESSION_FILES.items()
 }
 
 # Natural-language aliases for ITEMS only (the LLM / user may phrase them
@@ -156,14 +197,80 @@ ITEM_ID_ALIASES: dict[str, str] = {
 ITEM_NATURAL_ALIASES: dict[str, str] = {
     "spectacles":        "glasses",
     "cap":               "hat",
-    "ghost":             "little_ghost",
-    "little ghost":      "little_ghost",
-    "wand":              "magic_wand",
-    "magic wand":        "magic_wand",
-    "mic":               "microphone_gesture",
-    "microphone":        "microphone_gesture",
-    "game gesture":      "gaming_gesture",
+    "ghost":             "ghosts",
+    "little ghost":      "ghosts",
+    "magic wand":        "wand",
+    "microphone":        "mic",
+    "game gesture":      "gamer_controller",
 }
+
+# Backward-compatible aliases so older configs, saved state and prompts that
+# use the PREVIOUS naming scheme still resolve to the NEW canonical semantic
+# ids. Each entry maps an old id (including its historical "*_toggle" /
+# "*_summon" spellings) onto the canonical id whose .exp3.json FILE matches
+# the file the old name pointed at on the old sheet — e.g. the old item
+# "bow" was h.exp3.json, which the new sheet calls "dark_face". Aliases
+# NEVER create their own catalog entries — they only normalize to the
+# canonical ids above.
+ITEM_ID_ALIASES: dict[str, str] = {
+    # cw.exp3.json:  old item "little_ghost"          -> new "ghosts"
+    "little_ghost":       "ghosts",
+    # fz.exp3.json:  old face "black_face"            -> new "wand"
+    "black_face":         "wand",
+    # h.exp3.json:   old item "bow" / "bow_toggle"    -> new "dark_face"
+    "bow":                "dark_face",
+    "bow_toggle":         "dark_face",
+    # hdj.exp3.json: old face "crying"                -> new "bow"
+    "crying":             "bow",
+    # ku.exp3.json:  old face "angry"                 -> new "cry"
+    "angry":              "cry",
+    # mz.exp3.json:  old face "heart_eyes"            -> new "hat"
+    "heart_eyes":         "hat",
+    # sq.exp3.json:  old face "star_eyes"             -> new "angry"
+    "star_eyes":          "angry",
+    # x.exp3.json:   old item "glasses" / "glasses_toggle" -> new "heart_eyes"
+    "glasses":            "heart_eyes",
+    "glasses_toggle":     "heart_eyes",
+    # xx.exp3.json:  old item "gaming_gesture"        -> new "star_eyes"
+    "gaming_gesture":     "star_eyes",
+    # yj.exp3.json:  old item "microphone_gesture"    -> new "glasses"
+    "microphone_gesture": "glasses",
+    # zs1.exp3.json: old item "magic_wand" (+ variants) -> new "gamer_controller"
+    "magic_wand":         "gamer_controller",
+    "magic_wand_toggle":  "gamer_controller",
+    "magic_wand_summon":  "gamer_controller",
+    # zs2.exp3.json: old item "hat" / "hat_toggle"    -> new "mic"
+    "hat":                "mic",
+    "hat_toggle":         "mic",
+}
+
+# Aliases for the OLD *facial* semantic ids. The new sheet renamed most of
+# them, so legacy configs / saved state keep resolving to the canonical id
+# whose .exp3.json file matches the one the old name pointed at (e.g. the
+# old face "angry" was ku.exp3.json, which the new sheet calls "cry").
+FACIAL_ID_ALIASES: dict[str, str] = {
+    "black_face": "wand",        # fz.exp3.json
+    "crying":     "bow",         # hdj.exp3.json
+    "angry":      "cry",         # ku.exp3.json
+    "heart_eyes": "hat",         # mz.exp3.json
+    "star_eyes":  "angry",       # sq.exp3.json
+}
+
+# Combined legacy-id -> canonical-id lookup (items + faces). Every runtime
+# layer normalizes incoming semantic ids through canonicalize_semantic_id().
+LEGACY_ID_ALIASES: dict[str, str] = {**ITEM_ID_ALIASES, **FACIAL_ID_ALIASES}
+
+
+def canonicalize_semantic_id(sem_id: str) -> str:
+    """Normalize a legacy/pre-rename semantic id to the NEW canonical sheet.
+
+    Unknown ids pass through unchanged (they may be natural-language
+    aliases handled elsewhere, or genuinely unknown). This keeps configs,
+    saved state and prompts written against the old naming scheme working
+    without reintroducing the old filename mapping.
+    """
+    return LEGACY_ID_ALIASES.get(str(sem_id), sem_id)
+
 
 # Reverse lookup: canonical semantic id -> default (exp3 filename stem,
 # description, emoji, kind). Used by the avatar controller to translate the
@@ -173,6 +280,23 @@ SEMANTIC_ID_DEFAULTS: dict[str, tuple[str, str, str, str]] = {
     sid: (stem, desc, emoji, kind)
     for stem, (sid, desc, emoji, kind) in DEFAULT_SEMANTIC_NAMES.items()
 }
+
+# Runtime consistency guard: every canonical semantic name must resolve to
+# exactly the file from EXPRESSION_FILES, and the FACIAL_EXPRESSIONS / ITEMS
+# classification must match the derived catalog kinds. This fails loudly at
+# import time if any duplicate/stale mapping sneaks back in.
+assert set(SEMANTIC_ID_DEFAULTS) == set(EXPRESSION_FILES), \
+    "semantic-id catalog drifted from EXPRESSION_FILES"
+for _sid, _fname in EXPRESSION_FILES.items():
+    _stem = exp3_stem(_fname)
+    assert _stem in DEFAULT_SEMANTIC_NAMES, f"missing catalog entry for {_fname}"
+    assert DEFAULT_SEMANTIC_NAMES[_stem][0] == _sid, \
+        f"filename->id mismatch for {_fname}: expected {_sid}"
+    _kind = KIND_EXPRESSION if _sid in FACIAL_EXPRESSIONS else KIND_ITEM
+    assert DEFAULT_SEMANTIC_NAMES[_stem][3] == _kind, \
+        f"kind mismatch for {_sid} ({_fname})"
+assert not (FACIAL_EXPRESSIONS & ITEMS), "expression/item sets overlap"
+del _sid, _fname, _stem, _kind
 
 # VTube Studio per-model hotkey file (<model_name>.vtube.json) layout:
 #   Hotkeys[].Type == "HotkeyExpressionParameter" carries
@@ -222,6 +346,9 @@ def load_vtube_hotkeys(model3_path: Path | str) -> dict[str, dict]:
 
 # Fallback semantic ids derived from Chinese display names (CDI ExpName or
 # the "Name" field inside the exp3.json), when no better match exists.
+# NOTE: these are DISPLAY-NAME fallbacks only — the authoritative filename ->
+# semantic mapping is EXPRESSION_FILES above. The ids/kinds below carry the
+# NEW canonical sheet's semantics (e.g. ku.exp3.json is "cry", not "angry").
 CHINESE_NAME_FALLBACK: dict[str, tuple[str, str, str, str]] = {
     "小幽灵切换": ("little_ghost", "Little Ghost", "👻", KIND_ITEM),
     "黑脸": ("black_face", "Black Face / Dark Face", "😠", KIND_EXPRESSION),
@@ -458,12 +585,20 @@ def discover_model(model3_json: Path | str,
     # Duplicate semantic id detection (keep first occurrence, rename dupes)
     _dedupe_expression_ids(dm)
 
-    # Normalize legacy "*_toggle" ids that may come from older configs or
-    # per-model overrides (bow_toggle -> bow, glasses_toggle -> glasses, ...).
+    # Normalize legacy ids that may come from older configs or per-model
+    # overrides (*_toggle spellings AND the previous naming scheme, e.g.
+    # little_ghost -> ghosts, angry -> cry). The canonical sheet is keyed by
+    # FILENAME (EXPRESSION_FILES), so after renaming we also re-sync kind /
+    # description / emoji from it whenever the target file is known.
     for exp in dm.expressions:
-        canon = ITEM_ID_ALIASES.get(exp.id)
-        if canon:
+        canon = canonicalize_semantic_id(exp.id)
+        if canon != exp.id:
             exp.id = canon
+        default = DEFAULT_SEMANTIC_NAMES.get(exp3_stem(exp.file))
+        if default and default[0] == exp.id:
+            exp.description = default[1]
+            exp.emoji = default[2]
+            exp.kind = default[3]
 
     return dm
 
@@ -594,6 +729,13 @@ def _parse_expression(exp_file: Path,
         sem = DEFAULT_SEMANTIC_NAMES[stem]
     elif display_name in CHINESE_NAME_FALLBACK:
         sem = CHINESE_NAME_FALLBACK[display_name]
+        # Legacy display names may carry an OLD semantic id; normalize it
+        # (and its kind) through the canonical alias tables.
+        canon = ITEM_ID_ALIASES.get(sem[0]) or FACIAL_ID_ALIASES.get(sem[0])
+        if canon:
+            default = DEFAULT_SEMANTIC_NAMES.get(exp3_stem(EXPRESSION_FILES[canon]))
+            if default and default[0] == canon:
+                sem = (canon, default[1], default[2], default[3])
     else:
         sem = (_slug(stem), display_name, "🙂", KIND_EXPRESSION)
     kind = sem[3] if len(sem) > 3 else KIND_EXPRESSION

@@ -28,7 +28,12 @@ from typing import Any, Optional
 
 from .model_discovery import (
     DEFAULT_SEMANTIC_NAMES,
-    ITEM_ID_ALIASES,
+    EXPRESSION_FILES,
+    FACIAL_EXPRESSIONS,
+    ITEMS,
+    FACIAL_ID_ALIASES,
+    canonicalize_semantic_id,
+    exp3_stem,
     KIND_EXPRESSION,
     KIND_ITEM,
     ExpressionInfo,
@@ -53,29 +58,28 @@ logger = logging.getLogger(__name__)
 #
 #     neutral      — no expression file; default state; use when no strong
 #                    visual emotion is appropriate
-#     black_face   — fz.exp3.json  😶  dark/awkward/deadpan comedic reaction
-#                    (awkward silence, disbelief, uncomfortable comedy).
-#                    Never interpret the name literally as a racial expression.
-#     crying       — hdj.exp3.json 😭  genuine sadness, emotional moments,
-#                    sympathy, dramatic crying
-#     angry        — ku.exp3.json  😠  genuine irritation/frustration, being
-#                    provoked, appropriate mock anger
-#     heart_eyes   — mz.exp3.json  🥰  strong affection / deeply charmed
-#                    (not for every compliment)
-#     star_eyes    — sq.exp3.json  🤩  excitement / amazement / fascination
+#     dark_face    — h.exp3.json   😶  dark/awkward/deadpan comedic reaction
+#     bow          — hdj.exp3.json 🎀  cute/feminine moments, styling
+#     cry          — ku.exp3.json  😭  genuine sadness, emotional moments
+#     angry        — sq.exp3.json  😡  genuine irritation/frustration
+#     heart_eyes   — x.exp3.json   🥰  strong affection / deeply charmed
+#     star_eyes    — xx.exp3.json  🤩  excitement / amazement / fascination
 #
 #   ITEMS / ACCESSORIES (kind="item") — MULTIPLE may be active at the same
 #   time; they stack with each other and with the active expression. Adding
 #   or removing an item NEVER changes the expression. Items persist until
 #   Airi decides to remove them (see ai_vtuber/avatar/item_manager.py):
 #
-#     little_ghost        — cw.exp3.json  👻  ghost/spooky/supernatural jokes
-#     bow                 — h.exp3.json   🎀  cute/feminine moments, styling
-#     glasses             — x.exp3.json   👓  studying, coding, reading, nerdy
-#     gaming_gesture      — xx.exp3.json  🎮  gaming talk / roleplay
-#     microphone_gesture  — yj.exp3.json  🎤  singing, streaming, performing
-#     magic_wand          — zs1.exp3.json 🪄  magic / fantasy roleplay
-#     hat                 — zs2.exp3.json 🎩  dressing up, character RP
+#     ghosts           — cw.exp3.json 👻  ghost/spooky/supernatural jokes
+#     wand             — fz.exp3.json 🪄  magic / fantasy roleplay
+#     hat              — mz.exp3.json 🎩  dressing up, character RP
+#     glasses          — yj.exp3.json 👓  studying, coding, reading, nerdy
+#     gamer_controller — zs1.exp3.json 🎮 gaming talk / roleplay
+#     mic              — zs2.exp3.json 🎤 singing, streaming, performing
+#
+# The single authoritative filename -> semantic mapping lives in
+# model_discovery.EXPRESSION_FILES (derived FACIAL_EXPRESSIONS / ITEMS);
+# this block documents it, code must never re-hardcode filenames.
 #
 # Avatar state rules (enforced by AvatarController + validated here):
 #   * Expression: max ONE active; change replaces; does NOT remove items.
@@ -84,10 +88,10 @@ logger = logging.getLogger(__name__)
 #     structured {"avatar_action": ...} JSON (or chooses no action at all).
 # ---------------------------------------------------------------------------
 
-# Semantic ids of the 5 (+neutral) facial expressions on Airi's sheet.
-FACIAL_EXPRESSION_IDS: tuple[str, ...] = (
-    "neutral", "black_face", "crying", "angry", "heart_eyes", "star_eyes",
-)
+# Semantic ids of the 6 (+neutral) facial expressions on the canonical
+# Live2D sheet (model_discovery.EXPRESSION_FILES / FACIAL_EXPRESSIONS —
+# the single source of truth; this is derived, never a duplicate catalog).
+FACIAL_EXPRESSION_IDS: tuple[str, ...] = ("neutral", *sorted(FACIAL_EXPRESSIONS))
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +128,8 @@ DEFAULT_EXPRESSIONS: dict[str, str] = {
 # Used ONLY when no matching .exp3.json file can be resolved — e.g. a
 # different model with fewer files. Values use standard Cubism param ids
 # which are auto-resolved to the loaded model's actual ids.
-EMOTION_PARAMS: dict[str, dict[str, float]] = {
+# Legacy parameter-fallback faces, keyed by the OLD semantic id -> params.
+_LEGACY_EMOTION_PARAMS: dict[str, dict[str, float]] = {
     "neutral": {"ParamEyeLOpen": 1.0, "ParamEyeROpen": 1.0, "ParamMouthOpenY": 0.0},
     "black_face": {"ParamEyeLOpen": 0.9, "ParamEyeROpen": 0.9, "ParamBrowLY": -0.3, "ParamFaceDark": 1.0},
     "crying": {"ParamEyeLOpen": 0.5, "ParamEyeROpen": 0.5, "ParamBrowLY": -0.9, "ParamMouthOpenY": 0.15},
@@ -132,6 +137,20 @@ EMOTION_PARAMS: dict[str, dict[str, float]] = {
     "heart_eyes": {"ParamEyeLOpen": 1.0, "ParamEyeROpen": 1.0, "ParamMouthOpenY": 0.2, "ParamBrowLY": 0.6, "ParamEyeLSmile": 0.8, "ParamEyeRSmile": 0.8},
     "star_eyes": {"ParamEyeLOpen": 1.2, "ParamEyeROpen": 1.2, "ParamMouthOpenY": 0.5, "ParamBrowLY": 1.0, "ParamEyeLSmile": 1.0, "ParamEyeRSmile": 1.0},
 }
+
+# EMOTION_PARAMS keyed by the NEW canonical semantic ids: each legacy face
+# keeps its fallback parameters but follows the FILE it was authored for
+# (e.g. the old "angry" face drove ku.exp3.json, which the canonical sheet
+# names "cry"). Values are only used when no .exp3.json can be resolved.
+EMOTION_PARAMS: dict[str, dict[str, float]] = {"neutral": _LEGACY_EMOTION_PARAMS["neutral"]}
+for _legacy_key, _legacy_params in _LEGACY_EMOTION_PARAMS.items():
+    if _legacy_key == "neutral":
+        continue
+    _canon = canonicalize_semantic_id(_legacy_key)
+    if _canon in EXPRESSION_FILES:
+        EMOTION_PARAMS[_canon] = _legacy_params
+del _legacy_key, _legacy_params, _canon
+
 
 # ---------------------------------------------------------------------------
 # Mood -> expression triggering (semantic, deterministic; no LLM filenames)
@@ -182,6 +201,10 @@ def sanitize_expressions_map(avatar: Any) -> None:
             cleaned[mood] = ""
             continue
         exp, _path = resolve_semantic_expression(avatar, t)
+        if exp is not None:
+            # Persist the CANONICAL sheet id (not a legacy spelling) so
+            # downstream lookups always hit the current catalog.
+            t = exp.id
         if exp is not None and exp.kind == KIND_ITEM:
             logger.warning(
                 "Mood '%s' maps to '%s' which is an ITEM toggle, not a "
@@ -204,10 +227,12 @@ def resolve_semantic_expression(avatar: Any,
     3. display name ("生气")           -> catalog lookup by name
     4. file stem ("ku") or filename ("ku.exp3.json") -> direct file
 
-    Legacy ``*_toggle`` item ids (glasses_toggle / bow_toggle / ...) and
-    other ITEM_ID_ALIASES spellings are normalized to their canonical
-    semantic ids before lookup, so old configs and saved state still
-    resolve instead of logging "Unknown expression".
+    Legacy ids from the previous naming scheme (``glasses_toggle`` /
+    ``bow_toggle`` / ``little_ghost`` / ``black_face`` / ...) are normalized
+    to the canonical semantic ids of the new sheet via
+    :func:`model_discovery.canonicalize_semantic_id` before lookup, so old
+    configs and saved state still resolve instead of logging "Unknown
+    expression".
     """
     key = (name or "").strip()
     if not key:
@@ -221,8 +246,8 @@ def resolve_semantic_expression(avatar: Any,
         return None, ""
     # Canonicalize legacy aliases case-insensitively (Glasses_Toggle etc.)
     lowered = key.lower().replace(" ", "_").replace("-", "_")
-    canonical = ITEM_ID_ALIASES.get(lowered)
-    if canonical:
+    canonical = canonicalize_semantic_id(lowered)
+    if canonical != lowered:
         key = canonical
 
     exp = avatar._expression_catalog.get(key)
@@ -287,8 +312,15 @@ def trigger_expression(avatar: Any, expression_id: str) -> bool:
         # whose file is simply missing/broken on disk, fall back to the
         # parameter-driven face instead of failing hard; otherwise treat
         # any other unresolved-but-empty case as neutral reset.
-        sem = DEFAULT_SEMANTIC_NAMES.get(
-            (expression_id or "").strip().lower())
+        raw_key = (expression_id or "").strip().lower()
+        sem = DEFAULT_SEMANTIC_NAMES.get(raw_key)
+        if not sem:
+            # The caller may have used an OLD semantic id from the previous
+            # naming scheme; resolve it through the canonical alias table.
+            canon = canonicalize_semantic_id(raw_key)
+            stem = next((st for st, (sid, *_r) in DEFAULT_SEMANTIC_NAMES.items()
+                         if sid == canon), None)
+            sem = DEFAULT_SEMANTIC_NAMES.get(stem) if stem else None
         if sem and sem[3] == KIND_EXPRESSION:
             logger.warning(
                 "trigger_expression('%s'): expression file missing; "
