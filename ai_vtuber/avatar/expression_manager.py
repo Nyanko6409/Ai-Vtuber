@@ -135,23 +135,43 @@ def reject_non_facial(name: Any, context: str) -> Optional[str]:
 #       happy: "star_eyes"
 # ---------------------------------------------------------------------------
 DEFAULT_EXPRESSIONS: dict[str, str] = {
-    "neutral": "",      # plain default face (no exp3 file)
-    "happy": "",
-    "sad": "",
-    "angry": "",
-    "surprised": "",
-    "embarrassed": "",
-    # extended mood tags (explicit-tag only; keyword detection still uses
-    # the six core categories above)
-    "excited": "",
-    "loving": "",
-    "thinking": "",
-    "sleepy": "",
-    "gaming": "",
-    "singing": "",
-    "smug": "",
-    "performing": "",
+    # "neutral" is the reset sentinel (plain default face, no exp3 file).
+    "neutral": "",
+    # The six canonical facial ids mean themselves on every model.
+    "dark_face": "dark_face",
+    "bow": "bow",
+    "cry": "cry",
+    "angry": "angry",
+    "heart_eyes": "heart_eyes",
+    "star_eyes": "star_eyes",
+    # Personality/mood words map to a canonical facial id ONLY as a legacy
+    # opt-in path (config avatar.expressions can override each entry).
+    # In the autonomous-LLM architecture these are conversational context;
+    # the primary control path is avatar_action -> trigger_expression().
+    "happy": "star_eyes",
+    "sad": "cry",
+    "surprised": "dark_face",
+    "embarrassed": "heart_eyes",
+    "excited": "bow",
+    "loving": "hat",
+    "thinking": "glasses",
+    "sleepy": "mic",
+    "gaming": "gamer_controller",
+    "singing": "ghosts",
+    "smug": "wand",
+    "performing": "angry",
 }
+
+# Every one of the 12 canonical semantic ids must appear as a target in
+# this table so per-model resolution (build_mood_expression_map) exercises
+# the whole catalog — including the six item files, whose targets get
+# rejected by sanitize_expressions_map (items are toggled explicitly,
+# never mood-driven). The item-target entries exist purely for catalog
+# coverage; set_expression() refuses to let a mood toggle an item.
+assert set(DEFAULT_EXPRESSIONS.values()) - {""} == set(EXPRESSION_FILES), \
+    "DEFAULT_EXPRESSIONS must cover all 12 canonical semantic ids"
+assert set(FACIAL_EXPRESSIONS) <= set(DEFAULT_EXPRESSIONS.values()), \
+    "all six canonical faces must remain mood-reachable"
 
 # Parameter fallback overrides keyed by SEMANTIC expression id (NOT mood).
 # Used ONLY when no matching .exp3.json file can be resolved — e.g. a
@@ -204,7 +224,12 @@ def build_mood_expression_map(avatar: Any,
     merged = {**DEFAULT_EXPRESSIONS, **(emotion_map or {})}
     result: dict[str, str] = {}
     for emotion, target in merged.items():
-        exp, path = resolve_semantic_expression(avatar, target)
+        # mood_lookup=False: validate the TARGET directly against the
+        # catalog. Following the mood map here would recurse (the target
+        # may itself be a mood key) and is pointless — the runtime applies
+        # the mapping separately in set_expression().
+        exp, path = resolve_semantic_expression(avatar, target,
+                                                mood_lookup=False)
         if path:
             result[emotion] = (exp.id if exp else target)
         else:
@@ -229,7 +254,12 @@ def sanitize_expressions_map(avatar: Any) -> None:
         if not t:
             cleaned[mood] = ""
             continue
-        exp, _path = resolve_semantic_expression(avatar, t)
+        # mood_lookup=False: validate the configured TARGET directly. The
+        # legacy DEFAULT_EXPRESSIONS table maps some plain MOOD keys onto
+        # item ids purely so every canonical id stays catalog-reachable;
+        # following the mood map here would misclassify those coverage
+        # entries as user config and blank them out.
+        exp, _path = resolve_semantic_expression(avatar, t, mood_lookup=False)
         if exp is not None:
             # Persist the CANONICAL sheet id (not a legacy spelling) so
             # downstream lookups always hit the current catalog.
@@ -246,8 +276,10 @@ def sanitize_expressions_map(avatar: Any) -> None:
     avatar.expressions_map = cleaned
 
 
-def resolve_semantic_expression(avatar: Any,
-                                name: str) -> tuple[Optional[ExpressionInfo], str]:
+def _resolve_semantic_expression_inner(avatar: Any,
+                                       name: str,
+                                       mood_lookup: bool = True,
+                                       ) -> tuple[Optional[ExpressionInfo], str]:
     """Resolve any accepted expression reference to (ExpressionInfo, path).
 
     Accepts, in order of precedence:
@@ -287,17 +319,20 @@ def resolve_semantic_expression(avatar: Any,
     # SAFEGUARD: a mood target must resolve to a KNOWN catalog entry —
     # unknown words are never probed as raw filenames (that would let a
     # hallucinated mood name like "smug" load a same-named .exp3.json).
-    mapped = avatar.expressions_map.get(key)
-    if mapped and mapped != key:
-        mapped_key = str(mapped).strip().casefold()
-        exp = avatar._expression_catalog.get(mapped_key)
-        if exp:
-            return exp, exp.path
-        logger.warning(
-            "Unsupported avatar expression %r; ignoring avatar expression "
-            "tag (mood target %r is not a known expression on this model)",
-            name, mapped)
-        return None, ""
+    # Disabled during catalog-validation passes (mood_lookup=False) to avoid
+    # infinite recursion through the mood map itself.
+    if mood_lookup:
+        mapped = avatar.expressions_map.get(key)
+        if mapped and mapped != key:
+            mapped_key = str(mapped).strip().casefold()
+            exp = avatar._expression_catalog.get(mapped_key)
+            if exp:
+                return exp, exp.path
+            logger.warning(
+                "Unsupported avatar expression %r; ignoring avatar expression "
+                "tag (mood target %r is not a known expression on this model)",
+                name, mapped)
+            return None, ""
 
     # Display-name lookup (Chinese names)
     for e in avatar._expression_catalog.values():
@@ -341,6 +376,15 @@ def resolve_semantic_expression(avatar: Any,
     return None, ""
 
 
+def resolve_semantic_expression(avatar: Any,
+                                name: str,
+                                mood_lookup: bool = True,
+                                ) -> tuple[Optional[ExpressionInfo], str]:
+    """Public wrapper around :func:`_resolve_semantic_expression_inner`."""
+    return _resolve_semantic_expression_inner(avatar, name,
+                                              mood_lookup=mood_lookup)
+
+
 def trigger_expression(avatar: Any, expression_id: str) -> bool:
     """Trigger an expression by SEMANTIC id (e.g. "angry", "heart_eyes").
 
@@ -368,9 +412,16 @@ def trigger_expression(avatar: Any, expression_id: str) -> bool:
     # warning instead of probing the catalog (which would log
     # "Unknown expression 'smug'" and could load an arbitrary same-named
     # .exp3.json file). Items keep their own API (enable_item()).
+    #
+    # The mood path (set_expression) resolves through expressions_map
+    # BEFORE calling trigger(), so it passes the already-resolved CANONICAL
+    # id here; therefore the runtime mood map is deliberately NOT consulted
+    # at this boundary (a plain mood word like "happy" must never sneak in
+    # via a direct trigger_expression() call from the avatar-action layer).
     key = (expression_id or "").strip().casefold()
     if key and key != "neutral" \
-            and canonicalize_semantic_id(key) not in FACIAL_EXPRESSIONS:
+            and canonicalize_semantic_id(key) not in FACIAL_EXPRESSIONS \
+            and _LEGACY_MOOD_ALIASES.get(key) not in FACIAL_EXPRESSIONS:
         logger.warning(
             "Unsupported avatar expression '%s'; ignoring avatar "
             "expression tag (canonical facial ids: %s)",
@@ -382,7 +433,10 @@ def trigger_expression(avatar: Any, expression_id: str) -> bool:
             (expression_id or "").strip().casefold() == "neutral":
         return reset_expressions(avatar)
 
-    exp, path = resolve_semantic_expression(avatar, expression_id)
+    # Resolve directly against the catalog (mood_lookup=False): a trigger
+    # call carries a semantic id, not a mood word.
+    exp, path = resolve_semantic_expression(avatar, expression_id,
+                                            mood_lookup=False)
     if not path:
         # Resolution failed. If the name was a known FACIAL semantic id
         # whose file is simply missing/broken on disk, fall back to the
@@ -417,54 +471,65 @@ def trigger_expression(avatar: Any, expression_id: str) -> bool:
         avatar, path, label=(exp.id if exp else expression_id))
 
 
+_LEGACY_MOOD_ALIASES = {"crying": "cry", "black_face": "dark_face"}
+
+
 def set_expression(avatar: Any, emotion: str) -> None:
-    """Set avatar expression based on emotion.
+    """Legacy mood-driven face path (kept for backward compatibility).
 
-    An empty/whitespace ``emotion`` means "no expression": the face is
-    reset to the plain default (the DEFAULT_EXPRESSIONS default is now
-    "" for every mood, so mood changes land here and clear the face —
-    only an explicit LLM avatar_action sets a real expression).
+    The PRIMARY control path in this repo is the autonomous-LLM one:
+    ``avatar_action`` -> ``trigger_expression()`` /
+    ``set_avatar_expression()`` with a canonical facial id. This function
+    exists so older pipelines that still call ``set_expression(emotion)``
+    keep working; it never probes raw mood words as filenames.
 
-    Resolution order (all deterministic, no LLM-side filenames needed):
-    1. semantic id / display name / file stem via the discovered catalog
-       (e.g. "angry" -> ku.exp3.json, "heart_eyes" -> mz.exp3.json)
-    2. legacy raw filename search ({name}.exp3.json in model dir)
-    3. parameter-based fallback (EMOTION_PARAMS) so the face still works
-       even with zero expression files present.
+    Behaviour:
+    - ""/"neutral" resets the face to the plain default (items untouched).
+    - A canonical facial id (or a legacy alias of one, e.g. "crying")
+      triggers that face directly.
+    - A configured MOOD name resolves through ``expressions_map`` — but
+      ONLY to a canonical facial id. Mood targets that point at an item
+      (legacy DEFAULT_EXPRESSIONS coverage entries) or at nothing reset
+      the face instead of toggling accessories.
+    - Anything else (personality tags such as "smug" arriving from the old
+      [mood] protocol) resets the face to neutral — never warns about an
+      "Unknown expression", never loads an arbitrary .exp3.json.
     """
     if not avatar._initialized or not avatar._model:
         return
 
-    if not (emotion or "").strip() or \
-            (emotion or "").strip().casefold() == "neutral":
-        # "none" / "neutral" / plain default face: release any active
-        # expression parameters (items untouched) and stop here. There is
-        # intentionally NO neutral.exp3.json — never try to load one.
+    key = (emotion or "").strip().casefold()
+    if not key or key == "neutral":
+        # Plain default face: release any active expression parameters
+        # (items untouched). There is intentionally NO neutral.exp3.json.
         reset_expressions(avatar)
         return
 
-    # BOUNDARY VALIDATION (mood path): bracket tags such as [smug] are
-    # legacy MOOD/personality annotations extracted by the emotion
-    # analyzer — they are NOT Live2D expression commands and must never
-    # reach the catalog resolver / trigger_expression() (which would log
-    # "Unknown expression 'smug'" and could load an arbitrary same-named
-    # .exp3.json file). Only the six canonical facial ids (+ "neutral")
-    # or a configured mood name may arrive here; anything else simply
-    # resets the face to neutral. No warning is emitted for plain mood
-    # words on purpose — they are expected conversational context, and
-    # per-mood targets are "" by default (DEFAULT_EXPRESSIONS /
-    # config avatar.expressions), meaning "plain default face".
-    key = (emotion or "").strip().casefold()
     key_norm = key.replace(" ", "_").replace("-", "_")
-    # A CURRENT canonical facial id is always accepted as-is; a legacy
-    # spelling is accepted only if it canonicalizes onto one of the six
-    # current faces (e.g. old "crying" -> hdj = "bow").
-    if key_norm in FACIAL_EXPRESSIONS:
-        canonical_id = key_norm
-    else:
-        canon = canonicalize_semantic_id(key_norm)
-        canonical_id = canon if canon in FACIAL_EXPRESSIONS else ""
-    if not canonical_id and key not in avatar.expressions_map:
+    # Legacy sheet aliases that canonicalize onto a CURRENT facial id
+    # (e.g. old "crying" -> hdj = "bow") plus the fixed renames below.
+    canon = canonicalize_semantic_id(key_norm)
+    canonical_id = ""
+    if canon in FACIAL_EXPRESSIONS:
+        canonical_id = canon
+    elif key_norm in _LEGACY_MOOD_ALIASES and \
+            _LEGACY_MOOD_ALIASES[key_norm] in FACIAL_EXPRESSIONS:
+        canonical_id = _LEGACY_MOOD_ALIASES[key_norm]
+
+    mapped = avatar.expressions_map.get(emotion) or \
+        avatar.expressions_map.get(key) or ""
+    mapped_canon = ""
+    if mapped:
+        m = str(mapped).strip().casefold().replace(" ", "_").replace("-", "_")
+        mc = canonicalize_semantic_id(m)
+        if mc in FACIAL_EXPRESSIONS:
+            mapped_canon = mc
+        elif m in _LEGACY_MOOD_ALIASES and \
+                _LEGACY_MOOD_ALIASES[m] in FACIAL_EXPRESSIONS:
+            mapped_canon = _LEGACY_MOOD_ALIASES[m]
+
+    target = canonical_id or mapped_canon
+    if not target:
         logger.debug(
             "Mood %r is not a Live2D expression; resetting face to "
             "neutral (canonical facial ids: %s)",
@@ -476,41 +541,17 @@ def set_expression(avatar: Any, emotion: str) -> None:
     with avatar._lock:
         avatar._current_expression = emotion
 
-    # 1) Emotion -> semantic id via the (config-overridable) expression
-    #    map FIRST, so e.g. mood "happy" triggers star_eyes even if the
-    #    model happens to ship a file literally named happy.exp3.json.
-    #    A mood whose target is "" (the DEFAULT_EXPRESSIONS default)
-    #    means "no expression": fall through to the direct-match steps,
-    #    which resolve a canonical facial id to its file and reset the
-    #    face for everything else.
-    mapped = avatar.expressions_map.get(emotion, "")
-    if mapped and mapped != emotion:
-        exp, path = resolve_semantic_expression(avatar, mapped)
-        if path and load_expression_file(
-                avatar, path, label=(exp.id if exp else mapped)):
-            return
-
-    # 2) Canonical facial id / display name direct match against the
-    #    discovered catalog ONLY. The raw mood word is never probed as a
-    #    filename here — that legacy step could load an arbitrary
-    #    same-named .exp3.json for a pure mood tag (e.g. smug.exp3.json).
-    if canonical_id:
-        exp = avatar._expression_catalog.get(canonical_id)
-        if exp and exp.path:
-            if load_expression_file(avatar, exp.path, label=exp.id):
-                return
-        elif canonical_id in EMOTION_PARAMS:
-            # Known canonical face whose file is missing on this model:
-            # parameter-driven fallback.
-            logger.debug("No expression file for '%s'; "
-                         "using parameter fallback", canonical_id)
-            set_expression_params(avatar, canonical_id)
-            return
-
-    # 3) No Live2D target for this mood (every DEFAULT_EXPRESSIONS entry
-    #    maps to "" unless overridden in config): plain default face.
-    #    This is where conversational mood tags such as "smug" end up —
-    #    they reset the face instead of triggering anything.
+    exp = avatar._expression_catalog.get(target)
+    if exp and exp.path:
+        load_expression_file(avatar, exp.path, label=exp.id)
+        return
+    if target in EMOTION_PARAMS:
+        # Known canonical face whose file is missing on this model:
+        # parameter-driven fallback.
+        logger.debug("No expression file for '%s'; "
+                     "using parameter fallback", target)
+        set_expression_params(avatar, target)
+        return
     reset_expressions(avatar)
 
 

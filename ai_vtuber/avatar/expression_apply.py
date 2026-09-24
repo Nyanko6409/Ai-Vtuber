@@ -63,10 +63,17 @@ def load_expression_file(avatar: Any, path: str, label: str = "") -> bool:
         sem = DEFAULT_SEMANTIC_NAMES.get(label.lower())
         kind = sem[3] if sem else None
     item_layer = kind == KIND_ITEM
-    try:
-        # --- Native path (only when the installed build supports it) ---
-        if hasattr(avatar._model, "LoadExpression") and \
-                hasattr(avatar._model, "SetExpression"):
+
+    # --- Native path (only when the installed build supports it) ----------
+    # IMPORTANT: this branch must run BEFORE any parameter work. Older
+    # live2d-py builds (0.7.0.x) expose NO GetParameterValue, so probing it
+    # would raise AttributeError and silently drop us into the emulated
+    # path — which in turn cannot read params on such models (no
+    # SetParameterValue either). Keep the probe strictly to the methods we
+    # actually call below.
+    if hasattr(avatar._model, "LoadExpression") and \
+            hasattr(avatar._model, "SetExpression"):
+        try:
             if not item_layer:
                 # Facial switch: cleanly deactivate the previous FACE
                 # only — loaded item files stay active (stacking).
@@ -85,7 +92,11 @@ def load_expression_file(avatar: Any, path: str, label: str = "") -> bool:
             logger.info("Expression applied (native): %s (%s)",
                         label or stem, name)
             return True
+        except Exception as e:
+            logger.error(f"Native expression '{label or stem}' failed: {e}; "
+                         f"falling back to parameter emulation")
 
+    try:
         # --- Emulated path: apply exp3 parameters directly ---
         # 1) Prefer parameters already parsed during discovery (no re-read).
         #    Match case-insensitively on the stem so an on-disk file named
