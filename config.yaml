@@ -146,39 +146,42 @@ avatar:
   #   -   : Zoom out
   #   R   : Reset zoom and position
   #   Arrow keys / WASD: Move avatar
-  # Expression mapping: mood -> semantic expression id
+  # Expression mapping: mood -> semantic expression id (OPTIONAL opt-in).
+  # The current architecture is AUTONOMOUS: the LLM chooses avatar actions
+  # (facial expressions + stackable items) itself — see avatar_control.py.
+  # These mood targets therefore default to "" (plain face, no .exp3.json).
   # Semantic ids are resolved to the model's external .exp3.json files by
-  # auto-discovery (never filenames here). Values may also be raw file
-  # stems ("ku") or Chinese display names ("生气").
+  # auto-discovery in model_discovery.py (the single runtime source of truth
+  # for filename -> semantic id — never duplicate that catalog here).
+  # Values may also be raw file stems ("ku") or Chinese display names ("生气").
   #
   # IMPORTANT — two independent layers (see avatar_control.py):
-  #   * FACIAL EXPRESSIONS (mood-driven, mutually exclusive), valid targets:
+  #   * FACIAL EXPRESSIONS (mutually exclusive), valid targets:
   #       black_face 😠 crying 😭 angry 😡 heart_eyes 🥰 star_eyes 🤩
   #   * ITEM TOGGLES (accessories/props, stackable) — NOT valid mood
-  #       targets anymore; Airi equips them autonomously via
-  #       [item_on:<id>] / [item_off:<id>] tags:
+  #       targets; Airi equips them autonomously via structured avatar
+  #       actions / [item_on:<id>] / [item_off:<id>] tags:
   #       little_ghost 👻 bow 🎀 glasses 👓 gaming_gesture 🎮
   #       microphone_gesture 🎤 magic_wand 🪄 hat 🎩
-  # Mapping a mood to an item id logs "Unknown expression ..."/
-  # "maps to an ITEM toggle" warnings and is ignored — keep moods on faces.
+  # Mapping a mood to an item id logs a warning and is ignored.
   # An empty target ("") means the plain default face (no expression file).
-  # The LLM picks a mood via its leading [tag]; this map translates it.
-  # Override any entry below to re-brand moods without touching code.
+  # Override individual entries below ONLY if you intentionally want a mood
+  # tag to drive a face again; leave empty for autonomous behaviour.
   expressions:
     neutral: ""                      # plain default face (no exp3 file)
-    happy: "star_eyes"               # 🤩 sq.exp3.json
-    excited: "star_eyes"             # 🤩 sq.exp3.json
-    sad: "crying"                    # 😭 hdj.exp3.json
-    angry: "angry"                   # 😡 ku.exp3.json
-    surprised: "black_face"          # 😠 fz.exp3.json
-    embarrassed: "heart_eyes"        # 🥰 mz.exp3.json
-    loving: "heart_eyes"             # 🥰 mz.exp3.json
-    thinking: "black_face"           # 😠 pensive dark face (wand is an ITEM)
-    sleepy: "crying"                 # 😭 droopy face (ghost is an ITEM)
-    gaming: "star_eyes"              # 🤩 locked-in focus face (controller is an ITEM)
-    singing: "heart_eyes"            # 🥰 (mic is an ITEM)
-    smug: "angry"                    # 😡 pouty smug face (bow is an ITEM)
-    performing: "star_eyes"          # 🤩 showtime face (hat is an ITEM)
+    happy: ""
+    excited: ""
+    sad: ""
+    angry: ""
+    surprised: ""
+    embarrassed: ""
+    loving: ""
+    thinking: ""
+    sleepy: ""
+    gaming: ""
+    singing: ""
+    smug: ""
+    performing: ""
 
 # Audio Settings
 audio:

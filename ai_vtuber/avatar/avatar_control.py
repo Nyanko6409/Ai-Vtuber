@@ -44,6 +44,7 @@ from .model_discovery import (
     KIND_EXPRESSION,
     KIND_ITEM,
     SEMANTIC_ID_DEFAULTS,
+    exp3_stem,
 )
 
 logger = logging.getLogger(__name__)
@@ -92,7 +93,9 @@ def load_live2d_config(raw_config: dict) -> dict:
             if not isinstance(meta, dict):
                 continue
             fname = str(meta.get("file") or "")
-            stem = fname[: -len(".exp3.json")] if fname.endswith(".exp3.json") else fname
+            # Shared case-insensitive stem helper (model_discovery.exp3_stem):
+            # "FZ.exp3.json" and "fz" both yield the canonical key "fz".
+            stem = exp3_stem(fname) if fname else ""
             if not stem:
                 default = SEMANTIC_ID_DEFAULTS.get(sem_id)
                 if not default:
