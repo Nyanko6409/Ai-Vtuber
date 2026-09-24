@@ -149,15 +149,23 @@ avatar:
   # Expression mapping: mood -> semantic expression id
   # Semantic ids are resolved to the model's external .exp3.json files by
   # auto-discovery (never filenames here). Values may also be raw file
-  # stems ("ku") or Chinese display names ("生气"). Valid ids for the
-  # 魔女 model:
-  #   little_ghost 👻 black_face 😠 bow_toggle 🎀 crying 😭 angry 😡
-  #   heart_eyes 🥰 star_eyes 🤩 glasses_toggle 👓 gaming_gesture 🎮
-  #   microphone_gesture 🎤 magic_wand 🪄 hat_toggle 🎩
+  # stems ("ku") or Chinese display names ("生气").
+  #
+  # IMPORTANT — two independent layers (see avatar_control.py):
+  #   * FACIAL EXPRESSIONS (mood-driven, mutually exclusive), valid targets:
+  #       black_face 😠 crying 😭 angry 😡 heart_eyes 🥰 star_eyes 🤩
+  #   * ITEM TOGGLES (accessories/props, stackable) — NOT valid mood
+  #       targets anymore; Airi equips them autonomously via
+  #       [item_on:<id>] / [item_off:<id>] tags:
+  #       little_ghost 👻 bow 🎀 glasses 👓 gaming_gesture 🎮
+  #       microphone_gesture 🎤 magic_wand 🪄 hat 🎩
+  # Mapping a mood to an item id logs "Unknown expression ..."/
+  # "maps to an ITEM toggle" warnings and is ignored — keep moods on faces.
+  # An empty target ("") means the plain default face (no expression file).
   # The LLM picks a mood via its leading [tag]; this map translates it.
   # Override any entry below to re-brand moods without touching code.
   expressions:
-    neutral: "glasses_toggle"        # 👓 calm default look (x.exp3.json)
+    neutral: ""                      # plain default face (no exp3 file)
     happy: "star_eyes"               # 🤩 sq.exp3.json
     excited: "star_eyes"             # 🤩 sq.exp3.json
     sad: "crying"                    # 😭 hdj.exp3.json
@@ -165,12 +173,12 @@ avatar:
     surprised: "black_face"          # 😠 fz.exp3.json
     embarrassed: "heart_eyes"        # 🥰 mz.exp3.json
     loving: "heart_eyes"             # 🥰 mz.exp3.json
-    thinking: "magic_wand"           # 🪄 zs1.exp3.json
-    sleepy: "little_ghost"           # 👻 cw.exp3.json
-    gaming: "gaming_gesture"         # 🎮 xx.exp3.json
-    singing: "microphone_gesture"    # 🎤 yj.exp3.json
-    smug: "bow_toggle"               # 🎀 h.exp3.json
-    performing: "hat_toggle"         # 🎩 zs2.exp3.json
+    thinking: "black_face"           # 😠 pensive dark face (wand is an ITEM)
+    sleepy: "crying"                 # 😭 droopy face (ghost is an ITEM)
+    gaming: "star_eyes"              # 🤩 locked-in focus face (controller is an ITEM)
+    singing: "heart_eyes"            # 🥰 (mic is an ITEM)
+    smug: "angry"                    # 😡 pouty smug face (bow is an ITEM)
+    performing: "star_eyes"          # 🤩 showtime face (hat is an ITEM)
 
 # Audio Settings
 audio:

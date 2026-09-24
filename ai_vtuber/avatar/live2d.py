@@ -18,6 +18,7 @@ import numpy as np
 
 from .model_discovery import (
     DEFAULT_SEMANTIC_NAMES,
+    ITEM_ID_ALIASES,
     KIND_EXPRESSION,
     KIND_ITEM,
     DiscoveredModel,
@@ -937,10 +938,20 @@ class Live2DAvatar:
         2. emotion name ("angry")         -> config expressions map
         3. display name ("生气")           -> catalog lookup by name
         4. file stem ("ku") or filename ("ku.exp3.json") -> direct file
+
+        Legacy ``*_toggle`` item ids (glasses_toggle / bow_toggle / ...) and
+        other ITEM_ID_ALIASES spellings are normalized to their canonical
+        semantic ids before lookup, so old configs and saved state still
+        resolve instead of logging "Unknown expression".
         """
         key = (name or "").strip()
         if not key:
             return None, ""
+        # Canonicalize legacy aliases case-insensitively (Glasses_Toggle etc.)
+        lowered = key.lower().replace(" ", "_").replace("-", "_")
+        canonical = ITEM_ID_ALIASES.get(lowered)
+        if canonical:
+            key = canonical
 
         exp = self._expression_catalog.get(key)
         if exp:
@@ -1048,10 +1059,23 @@ class Live2DAvatar:
                     if isinstance(pid, str) and isinstance(val, (int, float)):
                         params[pid] = float(val)
 
-            # 3) Release parameters owned by the previously active expression(s).
+            # 3) Release parameters owned by the previously active FACE.
+            #    Item (accessory/prop) files are NEVER released here — items
+            #    persist across mood switches and only change through the
+            #    explicit enable_item()/disable_item() layer.
+            face_stems = {e.file[:-len(".exp3.json")]
+                          for e in self._expression_catalog.values()
+                          if e.kind != KIND_ITEM}
+            item_stems = {e.file[:-len(".exp3.json")]
+                          for e in self._expression_catalog.values()
+                          if e.kind == KIND_ITEM}
             for old_stem, old_ids in list(self._expression_owned.items()):
                 if old_stem == stem:
                     continue
+                is_face = (old_stem in face_stems
+                           or (not face_stems and old_stem not in item_stems))
+                if not is_face:
+                    continue  # keep active item layers untouched
                 for pid in old_ids:
                     # Only release ids this new expression doesn't also set.
                     if pid not in params:
