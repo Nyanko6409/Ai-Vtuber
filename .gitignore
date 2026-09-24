@@ -1,6 +1,8 @@
-# Python compiled files
+# Compiled and build artifacts
 __pycache__/
 *.pyc
 
-# Testing artifacts
-.pytest_cache/
+# Environment
+.env
+.env.local
+.env.*

@@ -25,6 +25,7 @@ from .model_discovery import (
     ExpressionInfo,
     classify_parameter,
     discover_model,
+    exp3_stem,
     format_diagnostic,
 )
 
@@ -1041,6 +1042,13 @@ class Live2DAvatar:
         exp, path = self._resolve_semantic_expression(expression_id)
         if not path:
             return False
+        # Guard the two-layer contract: an ITEM must never be triggered as a
+        # facial expression (use enable_item()/disable_item() for items).
+        if exp is not None and exp.kind == KIND_ITEM:
+            logger.warning(
+                "trigger_expression('%s'): '%s' is an ITEM — use "
+                "enable_item()/disable_item() instead.", expression_id, exp.id)
+            return False
         return self._load_expression_file(path, label=(exp.id if exp else expression_id))
 
     def _load_expression_file(self, path: str, label: str = "") -> bool:
@@ -1061,21 +1069,35 @@ class Live2DAvatar:
         otherwise we fall back to parameter emulation transparently.
         """
         name = Path(path).name  # live2d-py keys expressions by filename
-        stem = name.replace(".exp3.json", "") or label or "?"
+        stem = exp3_stem(name) or (label.lower() if label else "") or "?"
+        # Which layer does this file belong to? Prefer the discovered catalog
+        # (authoritative kind); fall back to the semantic-id -> kind map from
+        # model_discovery for uncatalogued files.
+        catalog_kinds = {exp3_stem(e.file): e.kind
+                         for e in self._expression_catalog.values()}
+        kind = catalog_kinds.get(stem)
+        if kind is None and label:
+            sem = DEFAULT_SEMANTIC_NAMES.get(label.lower())
+            kind = sem[3] if sem else None
+        item_layer = kind == KIND_ITEM
         try:
             # --- Native path (only when the installed build supports it) ---
             if hasattr(self._model, "LoadExpression") and \
                     hasattr(self._model, "SetExpression"):
-                prev = self._active_expression_name
-                if prev and prev != name:
-                    try:
-                        self._model.DeleteExpression(prev)
-                    except Exception:
-                        pass
+                if not item_layer:
+                    # Facial switch: cleanly deactivate the previous FACE
+                    # only — loaded item files stay active (stacking).
+                    prev = self._active_expression_name
+                    if prev and prev != name:
+                        try:
+                            self._model.DeleteExpression(prev)
+                        except Exception:
+                            pass
                 self._model.LoadExpression(path)
                 self._model.SetExpression(name, 1.0)
                 with self._lock:
-                    self._active_expression_name = name
+                    if not item_layer:
+                        self._active_expression_name = name
                     self._current_expression = label or self._current_expression
                 logger.info("Expression applied (native): %s (%s)",
                             label or stem, name)
@@ -1083,9 +1105,11 @@ class Live2DAvatar:
 
             # --- Emulated path: apply exp3 parameters directly ---
             # 1) Prefer parameters already parsed during discovery (no re-read).
+            #    Match case-insensitively on the stem so an on-disk file named
+            #    "FZ.exp3.json" still resolves via its catalog entry.
             params: dict[str, float] = {}
             for exp in self._expression_catalog.values():
-                if exp.file == f"{stem}.exp3.json" and exp.parameters:
+                if exp3_stem(exp.file) == stem and exp.parameters:
                     params = dict(exp.parameters)
                     break
 
@@ -1104,10 +1128,10 @@ class Live2DAvatar:
             #    Item (accessory/prop) files are NEVER released here — items
             #    persist across mood switches and only change through the
             #    explicit enable_item()/disable_item() layer.
-            face_stems = {e.file[:-len(".exp3.json")]
+            face_stems = {exp3_stem(e.file)
                           for e in self._expression_catalog.values()
                           if e.kind != KIND_ITEM}
-            item_stems = {e.file[:-len(".exp3.json")]
+            item_stems = {exp3_stem(e.file)
                           for e in self._expression_catalog.values()
                           if e.kind == KIND_ITEM}
             for old_stem, old_ids in list(self._expression_owned.items()):
@@ -1162,20 +1186,46 @@ class Live2DAvatar:
             return False
 
     def reset_expressions(self) -> bool:
-        """Release all expression-driven parameters (our '归零' equivalent).
+        """Release all FACIAL-expression-driven parameters (归零 equivalent).
 
         Note: 归零 (Reset/Return to Zero) in VTube Studio is a built-in app
         action (HotkeyReset), NOT one of this model's .exp3.json files. We
         reproduce its effect here instead of inventing an expression file:
-        every parameter currently owned by an applied expression is reset
-        back to the model default via ResetParameterValue.
+        every parameter currently owned by an applied FACIAL expression is
+        reset back to the model default via ResetParameterValue.
+
+        IMPORTANT: This clears the FACE ONLY. Active ITEMS (kind="item"
+        accessories/props tracked in self._active_items) are never released
+        here — items persist until explicitly removed via disable_item().
         """
         if not self._initialized or not self._model:
             return False
         try:
-            # 1) Release parameters owned by emulated expressions (reset to
-            #    model defaults — works on every live2d-py build).
+            # Which exp3 stems belong to discovered facial expressions vs
+            # items (case-insensitive stems; see exp3_stem).
+            face_stems = {exp3_stem(e.file)
+                          for e in self._expression_catalog.values()
+                          if e.kind != KIND_ITEM}
+            item_stems = {exp3_stem(e.file)
+                          for e in self._expression_catalog.values()
+                          if e.kind == KIND_ITEM}
+            # Stems currently owned by enabled items must be preserved.
+            active_item_stems = set(self._active_items.values())
+
+            # 1) Release parameters owned by emulated FACIAL expressions
+            #    (reset to model defaults — works on every live2d-py build).
+            kept_params: dict[str, float] = {}
             for stem, ids in list(self._expression_owned.items()):
+                is_item_layer = (stem in item_stems
+                                 or stem in active_item_stems
+                                 or (stem not in face_stems and item_stems
+                                     and stem not in face_stems))
+                if is_item_layer:
+                    # Keep item layers (owned params + values) intact.
+                    for pid in ids:
+                        if pid in self._expression_params:
+                            kept_params[pid] = self._expression_params[pid]
+                    continue
                 for pid in ids:
                     try:
                         self._model.ResetParameterValue(pid)
@@ -1185,12 +1235,13 @@ class Live2DAvatar:
                         except Exception:
                             pass
                 self._expression_owned.pop(stem, None)
-            self._expression_params = {}
+            self._expression_params = kept_params
 
-            # 2) Legacy native-expression cleanup (harmless on builds without
-            #    DeleteExpression, e.g. live2d-py 0.7.0.4).
-            names = {self._active_expression_name} | {
-                exp.file for exp in self._expression_catalog.values()}
+            # 2) Legacy native-expression cleanup: delete only the active
+            #    FACIAL expression file (harmless on builds without
+            #    DeleteExpression, e.g. live2d-py 0.7.0.4). Items loaded via
+            #    the native path stay active.
+            names = {self._active_expression_name}
             for n in names:
                 if not n:
                     continue
@@ -1201,11 +1252,100 @@ class Live2DAvatar:
             with self._lock:
                 self._active_expression_name = ""
                 self._current_expression = "neutral"
-            logger.debug("Expressions reset (归零 equivalent)")
+            logger.debug("Facial expressions reset (归零 equivalent); items kept")
             return True
         except Exception as e:
             logger.error(f"reset_expressions failed: {e}")
             return False
+
+    # ------------------------------------------------------------------
+    # Item layer (accessories/props) — independent of the facial layer.
+    # Multiple items may be active simultaneously; enabling/removing an
+    # item NEVER touches the active facial expression.
+    # ------------------------------------------------------------------
+
+    def _item_default_params(self, exp: ExpressionInfo) -> dict[str, float]:
+        """Best-effort 'off' values for an item's parameters.
+
+        live2d-py 0.7.x exposes no parameter-defaults API, so we use the
+        model's own neutral fallback values where they overlap and 0.0
+        otherwise (the standard Cubism 'part hidden / deformer neutral'
+        value). This is a best-effort inverse of the emulated apply path.
+        """
+        defaults: dict[str, float] = {}
+        for pid in exp.parameters:
+            defaults[pid] = EMOTION_PARAMS["neutral"].get(pid, 0.0)
+        return defaults
+
+    def enable_item(self, item_id: str) -> bool:
+        """Activate one discovered kind="item" .exp3.json (stackable).
+
+        Accepts canonical semantic ids ("glasses", "hat", ...) as well as
+        legacy aliases via _resolve_semantic_expression. Unknown ids or
+        non-item ids are rejected (returns False, never raises). Enabling
+        an item does NOT change the active facial expression.
+        """
+        if not self._initialized or not self._model:
+            logger.debug("enable_item('%s') ignored: model not initialized",
+                         item_id)
+            return False
+        exp, path = self._resolve_semantic_expression(item_id)
+        if exp is None or exp.kind != KIND_ITEM or not path:
+            logger.warning("enable_item('%s'): not a known item on this model",
+                           item_id)
+            return False
+        stem = exp3_stem(exp.file)
+        if stem in self._active_items.values():
+            return True  # idempotent: already wearing this file
+        if self._load_expression_file(path, label=exp.id):
+            self._active_items[exp.id] = stem
+            return True
+        return False
+
+    def disable_item(self, item_id: str) -> bool:
+        """Deactivate one item without touching the facial expression.
+
+        Releases only the parameters owned by that item's exp3 file whose
+        current values were set by the item itself (values re-set by the
+        active face are preserved). Returns False for unknown/non-item ids.
+        """
+        if not self._initialized or not self._model:
+            logger.debug("disable_item('%s') ignored: model not initialized",
+                         item_id)
+            return False
+        exp, _path = self._resolve_semantic_expression(item_id)
+        if exp is None or exp.kind != KIND_ITEM:
+            logger.warning("disable_item('%s'): not a known item on this model",
+                           item_id)
+            return False
+        stem = self._active_items.pop(exp.id, None) or exp3_stem(exp.file)
+        owned = self._expression_owned.pop(stem, set())
+        # Also release any params from the parsed exp3 file not tracked yet.
+        owned |= set(exp.parameters.keys())
+        face_active = self._active_expression_name
+        for pid in sorted(owned):
+            # Don't clobber a value currently owned by the active FACE.
+            for f_stem, f_ids in self._expression_owned.items():
+                if f_stem != stem and pid in f_ids:
+                    break
+            else:
+                try:
+                    self._model.ResetParameterValue(pid)
+                except Exception:
+                    try:
+                        default = self._item_default_params(exp).get(pid, 0.0)
+                        self._model.SetParameterValue(pid, default)
+                    except Exception:
+                        pass
+            self._expression_params.pop(pid, None)
+        if face_active:
+            logger.debug("Item '%s' disabled (face %s untouched)",
+                         exp.id, face_active)
+        return True
+
+    def get_active_items(self) -> list[str]:
+        """Semantic ids of the currently enabled items."""
+        return sorted(self._active_items.keys())
 
     def set_parameter(self, param_id: str, value: float) -> bool:
         """Set one Live2D parameter by ID with validation.

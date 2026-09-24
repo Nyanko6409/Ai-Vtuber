@@ -94,6 +94,25 @@ def classify_parameter(param_id: str) -> str:
 KIND_EXPRESSION = "expression"
 KIND_ITEM = "item"
 
+# Canonical .exp3.json filename suffix (Cubism 3 expression files).
+EXP3_SUFFIX = ".exp3.json"
+
+
+def exp3_stem(name: str | Path) -> str:
+    """Return the lowercase semantic filename stem of an .exp3.json file.
+
+    Case-insensitive so ``FZ.exp3.json`` / ``Fz.exp3.json`` / ``fz.exp3.json``
+    all resolve to the same stem (``fz``). Only the canonical trailing
+    ``.exp3.json`` suffix is stripped, so ``xx.exp3.json`` keeps stem ``xx``
+    (never collapses to ``x``) and ``zs1.exp3.json`` keeps stem ``zs1``.
+    This is the SINGLE shared helper for parsing .exp3.json filenames; all
+    runtime layers must use it instead of ad-hoc string surgery.
+    """
+    n = str(name)
+    if n.lower().endswith(EXP3_SUFFIX):
+        n = n[: -len(EXP3_SUFFIX)]
+    return n.lower()
+
 # Maps an ASCII "semantic hint" (usually the pinyin abbreviation used in the
 # .exp3.json filename) to (semantic_id, english_description, emoji, kind).
 # Config `avatar.expression_semantics` can override/add entries per model.
@@ -511,7 +530,9 @@ def _parse_expression(exp_file: Path,
                       hotkeys: dict[str, str],
                       vtube_meta: Optional[dict] = None) -> Optional[ExpressionInfo]:
     """Parse one .exp3.json into ExpressionInfo. Broken files are skipped."""
-    stem = exp_file.name[: -len(".exp3.json")] if exp_file.name.endswith(".exp3.json") else exp_file.stem
+    # Shared, case-insensitive stem helper: FZ.exp3.json -> "fz". The exact
+    # discovered filename is preserved in ExpressionInfo.file for loading.
+    stem = exp3_stem(exp_file.name)
     vtube_meta = vtube_meta or {}
 
     try:
