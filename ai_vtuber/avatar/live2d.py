@@ -31,63 +31,82 @@ from .model_discovery import (
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# EXPRESSIONS vs ITEMS — two SEPARATE layers, never mixed.
+# AIRI LIVE2D AVATAR SHEET — expressions vs items, two SEPARATE systems.
 #
-#   Facial expressions (kind="expression"): mood-driven faces. Exactly ONE is
-#   active at a time; switching moods replaces the previous face. The 魔女
-#   model ships 5 real facial expressions:
-#     angry 😡 (ku)  black_face 😠 (fz)  crying 😭 (hdj)
-#     heart_eyes 🥰 (mz)  star_eyes 🤩 (sq)
+# This is the single authoritative avatar definition for behaviour code.
+# The actual .exp3.json assets live OUTSIDE this repository (external VTube
+# Studio install, configured via avatar.model_path); nothing here copies or
+# modifies model asset files.
 #
-#   Item toggles (kind="item"): accessories / props that SWITCH ON/OFF
-#   (glasses 👓 x, hat 🎩 zs2, bow 🎀 h, ghost 👻 cw, wand 🪄 zs1,
-#    mic 🎤 yj, controller 🎮 xx). Items are independent of each other AND of
-#   the active expression — they co-exist/stack and are only changed when
-#   explicitly asked for (toggle_item / [item_on:...] / [item_off:...] tags).
+#   FACIAL EXPRESSIONS (kind="expression") — exactly ONE active at a time;
+#   changing the expression REPLACES the previous one but NEVER removes
+#   items. Airi's LLM decides autonomously which expression fits (there is
+#   NO hardcoded mood -> expression mapping anymore — see
+#   ai_vtuber/avatar/avatar_control.py):
 #
-# Moods therefore ONLY ever map to facial expressions below. An item id used
-# as a mood target is rejected at load time (see _sanitize_expressions_map),
-# so items can never be clobbered by mood switches again.
+#     neutral      — no expression file; default state; use when no strong
+#                    visual emotion is appropriate
+#     black_face   — fz.exp3.json  😶  dark/awkward/deadpan comedic reaction
+#                    (awkward silence, disbelief, uncomfortable comedy).
+#                    Never interpret the name literally as a racial expression.
+#     crying       — hdj.exp3.json 😭  genuine sadness, emotional moments,
+#                    sympathy, dramatic crying
+#     angry        — ku.exp3.json  😠  genuine irritation/frustration, being
+#                    provoked, appropriate mock anger
+#     heart_eyes   — mz.exp3.json  🥰  strong affection / deeply charmed
+#                    (not for every compliment)
+#     star_eyes    — sq.exp3.json  🤩  excitement / amazement / fascination
+#
+#   ITEMS / ACCESSORIES (kind="item") — MULTIPLE may be active at the same
+#   time; they stack with each other and with the active expression. Adding
+#   or removing an item NEVER changes the expression. Items persist until
+#   Airi decides to remove them:
+#
+#     little_ghost        — cw.exp3.json  👻  ghost/spooky/supernatural jokes
+#     bow                 — h.exp3.json   🎀  cute/feminine moments, styling
+#     glasses             — x.exp3.json   👓  studying, coding, reading, nerdy
+#     gaming_gesture      — xx.exp3.json  🎮  gaming talk / roleplay
+#     microphone_gesture  — yj.exp3.json  🎤  singing, streaming, performing
+#     magic_wand          — zs1.exp3.json 🪄  magic / fantasy roleplay
+#     hat                 — zs2.exp3.json 🎩  dressing up, character RP
+#
+# Avatar state rules (enforced by AvatarController + validated here):
+#   * Expression: max ONE active; change replaces; does NOT remove items.
+#   * Items: many active; toggle does NOT change the expression.
+#   * The USER never commands the avatar directly; the LLM decides via
+#     structured {"avatar_action": ...} JSON (or chooses no action at all).
 # ---------------------------------------------------------------------------
-DEFAULT_EXPRESSIONS: dict[str, str] = {
-    # --- core analyzer emotions -> the 5 facial expressions ---
-    "neutral": "",                     # plain default face, no expression file
-    "happy": "star_eyes",              # 🤩 sq.exp3.json
-    "sad": "crying",                   # 😭 hdj.exp3.json
-    "angry": "angry",                  # 😡 ku.exp3.json
-    "surprised": "black_face",         # 😠 fz.exp3.json (dark shock face)
-    "embarrassed": "heart_eyes",       # 🥰 mz.exp3.json
-    # --- extended moods (LLM tags, config-extensible) ---
-    "excited": "star_eyes",            # 🤩
-    "loving": "heart_eyes",            # 🥰
-    "thinking": "crying",              # placeholder until a dedicated face exists
-    "sleepy": "black_face",            # placeholder until a dedicated face exists
-    "gaming": "star_eyes",             # 🤩 locked-in focus face (controller is an ITEM)
-    "singing": "heart_eyes",           # 🥰 (mic is an ITEM)
-    "smug": "angry",                   # placeholder pout face (bow is an ITEM)
-    "performing": "star_eyes",         # 🤩 showtime face (hat is an ITEM)
-}
 
-# Mood → parameter fallback overrides (used ONLY when no matching .exp3.json
-# expression can be resolved — e.g. a different model with fewer files).
-# Keys mirror DEFAULT_EXPRESSIONS moods; values use standard Cubism param
-# ids which are auto-resolved to the loaded model's actual ids.
+# Semantic ids of the 5 (+neutral) facial expressions on Airi's sheet.
+FACIAL_EXPRESSION_IDS: tuple[str, ...] = (
+    "neutral", "black_face", "crying", "angry", "heart_eyes", "star_eyes",
+)
+
+# Semantic ids of the 7 stackable items on Airi's sheet.
+ITEM_IDS: tuple[str, ...] = (
+    "little_ghost", "bow", "glasses", "gaming_gesture",
+    "microphone_gesture", "magic_wand", "hat",
+)
+
+# NOTE: The old hardcoded mood -> expression table (happy->star_eyes,
+# embarrassed->heart_eyes, gaming->star_eyes, sleepy->crying, smug->angry,
+# surprised/thinking->black_face, singing->heart_eyes, performing->star_eyes,
+# sad->crying, angry->angry, loving->heart_eyes, excited->star_eyes) has been
+# REMOVED. Mood/emotion may still exist as internal conversational context
+# (see ai_vtuber/emotion/analyzer.py) but it must NEVER automatically drive
+# the Live2D expression. The LLM's autonomous avatar decision has priority.
+
+# Parameter fallback overrides keyed by SEMANTIC expression id (NOT mood).
+# Used ONLY when no matching .exp3.json file can be resolved — e.g. a
+# different model with fewer files. Values use standard Cubism param ids
+# which are auto-resolved to the loaded model's actual ids.
 EMOTION_PARAMS: dict[str, dict[str, float]] = {
     "neutral": {"ParamEyeLOpen": 1.0, "ParamEyeROpen": 1.0, "ParamMouthOpenY": 0.0},
-    "happy": {"ParamEyeLOpen": 1.0, "ParamEyeROpen": 0.8, "ParamMouthOpenY": 0.3, "ParamBrowLY": 0.8, "ParamEyeLSmile": 1.0, "ParamEyeRSmile": 1.0},
-    "excited": {"ParamEyeLOpen": 1.2, "ParamEyeROpen": 1.2, "ParamMouthOpenY": 0.5, "ParamBrowLY": 1.0, "ParamEyeLSmile": 1.0, "ParamEyeRSmile": 1.0},
-    "loving": {"ParamEyeLOpen": 1.0, "ParamEyeROpen": 1.0, "ParamMouthOpenY": 0.2, "ParamBrowLY": 0.6},
-    "thinking": {"ParamEyeLOpen": 0.7, "ParamEyeROpen": 1.0, "ParamBrowLY": -0.5},
-    "surprised": {"ParamEyeLOpen": 1.3, "ParamEyeROpen": 1.3, "ParamMouthOpenY": 0.7, "ParamBrowLY": 1.0},
-    "sad": {"ParamEyeLOpen": 0.6, "ParamEyeROpen": 0.6, "ParamBrowLY": -0.8, "ParamMouthOpenY": 0.0},
+    "black_face": {"ParamEyeLOpen": 0.9, "ParamEyeROpen": 0.9, "ParamBrowLY": -0.3, "ParamFaceDark": 1.0},
     "crying": {"ParamEyeLOpen": 0.5, "ParamEyeROpen": 0.5, "ParamBrowLY": -0.9, "ParamMouthOpenY": 0.15},
     "angry": {"ParamEyeLOpen": 0.8, "ParamEyeROpen": 0.8, "ParamBrowLY": -1.0, "ParamMouthOpenY": 0.1, "Param53": 1.0},
-    "embarrassed": {"ParamEyeLOpen": 0.9, "ParamEyeROpen": 0.9, "ParamBrowLY": 0.4, "ParamEyeLSmile": 0.6, "ParamEyeRSmile": 0.6},
-    "smug": {"ParamEyeLOpen": 0.8, "ParamEyeROpen": 0.8, "ParamBrowLY": 0.3, "ParamMouthForm": 0.6},
-    "sleepy": {"ParamEyeLOpen": 0.3, "ParamEyeROpen": 0.3, "ParamBrowLY": -0.5},
-    "gaming": {"ParamEyeLOpen": 1.1, "ParamEyeROpen": 1.1, "ParamBrowLY": 0.5},
-    "singing": {"ParamEyeLOpen": 0.9, "ParamEyeROpen": 0.9, "ParamMouthOpenY": 0.4, "ParamBrowLY": 0.6},
-    "performing": {"ParamEyeLOpen": 1.0, "ParamEyeROpen": 1.0, "ParamMouthForm": 0.5, "ParamBrowLY": 0.7},
+    "heart_eyes": {"ParamEyeLOpen": 1.0, "ParamEyeROpen": 1.0, "ParamMouthOpenY": 0.2, "ParamBrowLY": 0.6, "ParamEyeLSmile": 0.8, "ParamEyeRSmile": 0.8},
+    "star_eyes": {"ParamEyeLOpen": 1.2, "ParamEyeROpen": 1.2, "ParamMouthOpenY": 0.5, "ParamBrowLY": 1.0, "ParamEyeLSmile": 1.0, "ParamEyeRSmile": 1.0},
 }
 
 
