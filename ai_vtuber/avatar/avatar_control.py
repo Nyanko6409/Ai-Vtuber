@@ -41,6 +41,7 @@ from typing import Any, Optional
 
 from .model_discovery import (
     ITEM_ID_ALIASES,
+    ITEM_NATURAL_ALIASES,
     KIND_EXPRESSION,
     KIND_ITEM,
     SEMANTIC_ID_DEFAULTS,
@@ -127,16 +128,23 @@ def load_live2d_config(raw_config: dict) -> dict:
 def normalize_semantic_id(raw: Any) -> str:
     """Coerce any LLM-supplied reference to its canonical semantic id.
 
-    Accepts exact ids, legacy aliases (``hat_toggle`` -> ``hat``), display
-    names and file stems. Returns "" when nothing matches (caller rejects).
-    Never touches the filesystem beyond the already-discovered catalog.
+    Accepts exact ids, legacy aliases (``hat_toggle`` -> ``hat``), natural
+    item phrasings (``"magic wand"`` / ``mic`` / ``cap`` -> canonical ids),
+    display names and file stems. Returns "" when nothing matches (caller
+    rejects). Never touches the filesystem beyond the already-discovered
+    catalog. Aliases NEVER introduce new catalog entries — they only
+    resolve to ids that already exist in the discovery catalog.
     """
     key = str(raw or "").strip()
     if not key:
         return ""
-    lowered = key.lower().replace(" ", "_").replace("-", "_")
+    lowered = key.lower().replace("-", "_")
     lowered = ITEM_ID_ALIASES.get(lowered, lowered)
-    return lowered
+    # Natural-language spellings may contain spaces ("magic wand").
+    lowered = ITEM_NATURAL_ALIASES.get(lowered,
+                                       ITEM_NATURAL_ALIASES.get(
+                                           lowered.replace("_", " "), lowered))
+    return lowered.replace(" ", "_")
 
 
 class AvatarController:
@@ -207,7 +215,15 @@ class AvatarController:
         ``None`` from the LLM means "keep current expression" — that decision
         is made by the caller (:meth:`apply_avatar_action`); an explicit call
         here with None resets to the plain default face.
+
+        ``"neutral"`` (any casing) is a VALID target meaning "plain default
+        face": it has no .exp3.json file by design, resolves to None, and
+        resets only the facial layer — active items are never touched.
         """
+        if expression_id is not None and \
+                str(expression_id).strip().casefold() == "neutral":
+            return self.set_expression(None)
+
         if expression_id is None:
             self._avatar.set_expression("")
             self.current_expression = None
@@ -260,25 +276,94 @@ class AvatarController:
     def get_active_items(self) -> set[str]:
         return set(self.active_items)
 
+    # -- mode layer (config-driven bundles of items; stackable) -------------
+    def _delegate_mode(self, method: str, mode_name: str) -> bool:
+        """Call a mode method on the avatar if it supports modes.
+
+        Modes are defined in config (``avatar.modes``) and owned by the
+        Live2D runtime; the controller only validates/forwards. Avatars
+        without mode support (older/duck-typed ones) fail safely.
+        """
+        fn = getattr(self._avatar, method, None)
+        if fn is None:
+            logger.debug("Avatar does not support %s()", method)
+            return False
+        try:
+            return bool(fn(str(mode_name or "").strip()))
+        except Exception as e:  # never let a bad action crash the pipeline
+            logger.warning("%s('%s') failed: %s", method, mode_name, e)
+            return False
+
+    def enable_mode(self, mode_name: str) -> bool:
+        """Enter an avatar mode (activates its configured items)."""
+        mode = str(mode_name or "").strip().casefold()
+        if not mode:
+            return False
+        ok = self._delegate_mode("enable_mode", mode)
+        if ok:
+            logger.info("Mode on: %s (expression unchanged: %s)",
+                        mode, self.current_expression)
+        else:
+            logger.debug("Mode action rejected: unknown/unavailable mode %r",
+                         mode_name)
+        return ok
+
+    def disable_mode(self, mode_name: str) -> bool:
+        """Leave an avatar mode (removes ONLY that mode's items)."""
+        mode = str(mode_name or "").strip().casefold()
+        if not mode:
+            return False
+        ok = self._delegate_mode("disable_mode", mode)
+        if ok:
+            logger.info("Mode off: %s", mode)
+        return ok
+
+    def toggle_mode(self, mode_name: str) -> bool:
+        if str(mode_name or "").strip().casefold() in \
+                {m.casefold() for m in self.get_active_modes()}:
+            return self.disable_mode(mode_name)
+        return self.enable_mode(mode_name)
+
+    def get_active_modes(self) -> list[str]:
+        fn = getattr(self._avatar, "get_active_modes", None)
+        try:
+            return sorted(fn()) if fn else []
+        except Exception:
+            return []
+
+    @property
+    def available_modes(self) -> list[str]:
+        fn = getattr(self._avatar, "available_modes", None)
+        try:
+            return sorted(fn()) if fn else []
+        except Exception:
+            return []
+
     # -- structured action application --------------------------------------
     def apply_avatar_action(self, action: Optional[dict]) -> dict:
         """Apply one autonomous avatar action from Airi's LLM.
 
-        Accepted shape::
+        Accepted shape (modes/items/expressions are all supported; the old
+        ``items_add``/``items_remove`` spellings stay valid aliases)::
 
             {"expression": <semantic id | null>,
-             "items_add": [<semantic ids>], "items_remove": [<semantic ids>]}
+             "items_on":    [<semantic ids>],   # alias: items_add
+             "items_off":   [<semantic ids>],   # alias: items_remove
+             "modes_on":    [<mode names>],
+             "modes_off":   [<mode names>]}
 
         Semantics:
         - ``expression`` null/missing/invalid  -> KEEP current expression.
-        - ``items_add`` / ``items_remove``     -> additive deltas; items not
-          mentioned stay exactly as they were (persistence).
+          "neutral" explicitly resets to the plain face (items untouched).
+        - ``items_*`` / ``modes_*``            -> additive deltas; anything
+          not mentioned stays exactly as it was (persistence).
         - Invalid ids are dropped individually; valid ones still apply.
 
         Returns a report dict describing what actually changed.
         """
         report = {"expression_set": None, "expression_kept": True,
-                  "added": [], "removed": [], "rejected": []}
+                  "added": [], "removed": [], "modes_on": [],
+                  "modes_off": [], "rejected": []}
         if not isinstance(action, dict):
             return report
 
@@ -290,18 +375,32 @@ class AvatarController:
             else:
                 report["rejected"].append(str(expr_raw))
 
-        for raw in action.get("items_add") or []:
+        for raw in (action.get("items_on")
+                    or action.get("items_add") or []):
             if self.enable_item(raw):
                 report["added"].append(normalize_semantic_id(raw))
             else:
                 report["rejected"].append(str(raw))
 
-        for raw in action.get("items_remove") or []:
+        for raw in (action.get("items_off")
+                    or action.get("items_remove") or []):
             before = set(self.active_items)
             if self.disable_item(raw):
                 removed = before - self.active_items
                 if removed:
                     report["removed"].append(removed.pop())
+            else:
+                report["rejected"].append(str(raw))
+
+        for raw in action.get("modes_on") or []:
+            if self.enable_mode(raw):
+                report["modes_on"].append(str(raw).strip().casefold())
+            else:
+                report["rejected"].append(str(raw))
+
+        for raw in action.get("modes_off") or []:
+            if self.disable_mode(raw):
+                report["modes_off"].append(str(raw).strip().casefold())
             else:
                 report["rejected"].append(str(raw))
 
@@ -319,6 +418,9 @@ class AvatarController:
         lines.append(f"- Expression: {self.current_expression or 'none (plain face)'}")
         items = ", ".join(sorted(self.active_items)) if self.active_items else "none"
         lines.append(f"- Items active: {items}")
+        modes = self.get_active_modes()
+        if modes:
+            lines.append(f"- Modes active: {', '.join(modes)}")
         return "\n".join(lines)
 
 
@@ -375,18 +477,19 @@ def parse_avatar_response(raw: str) -> AvatarResponse:
             data = None
         if isinstance(data, dict):
             candidate = data.get("avatar_action", None)
+            if not isinstance(candidate, dict) and candidate is None \
+                    and "expression" in data:
+                # Tolerate the bare form {"expression": ..., ...}
+                candidate = data
             if isinstance(candidate, dict):
                 action = {
                     "expression": candidate.get("expression"),
-                    "items_add": candidate.get("items_add") or [],
-                    "items_remove": candidate.get("items_remove") or [],
-                }
-            elif candidate is None and "expression" in data:
-                # Tolerate the bare form {"expression": ..., ...}
-                action = {
-                    "expression": data.get("expression"),
-                    "items_add": data.get("items_add") or [],
-                    "items_remove": data.get("items_remove") or [],
+                    "items_add": (candidate.get("items_add")
+                                  or candidate.get("items_on") or []),
+                    "items_remove": (candidate.get("items_remove")
+                                     or candidate.get("items_off") or []),
+                    "modes_on": candidate.get("modes_on") or [],
+                    "modes_off": candidate.get("modes_off") or [],
                 }
             remaining = (remaining[:match.start()] + remaining[match.end():]).strip()
             break
@@ -438,8 +541,9 @@ How to use your body:
   JSON block. It is body language, not narration — never talk about the
   block itself. Example:
   ```json
-  {{"avatar_action": {{"expression": "star_eyes", "items_add": [], "items_remove": []}}}}
+  {{"avatar_action": {{"expression": "star_eyes", "items_on": [], "items_off": [], "modes_on": [], "modes_off": []}}}}
   ```
+  (Legacy key spellings "items_add"/"items_remove" are still accepted.)
 - The avatar action is OPTIONAL. Most replies need none at all. If nothing
   meaningfully changed, send NO block (equivalently: "expression": null with
   empty add/remove lists). Null/omitted expression means KEEP whatever face
