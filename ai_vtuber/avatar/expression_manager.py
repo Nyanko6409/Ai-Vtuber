@@ -397,3 +397,53 @@ def set_expression_params(avatar: Any, emotion: str) -> None:
             avatar._model.SetParameterValue(resolved_id, value)
         except Exception as e:
             logger.error(f"Live2D param error (expression '{resolved_id}'): {e}")
+
+
+def set_emotion(avatar: Any, emotion: str) -> bool:
+    """Set the facial expression from an emotion/mood/semantic name.
+
+    Backwards-compatible alias used by older pipelines/tests:
+    ``set_emotion("")`` / ``set_emotion("neutral")`` reset the FACE only
+    (items stay on); any other value behaves like trigger_expression().
+    """
+    if not (emotion or "").strip() or \
+            (emotion or "").strip().casefold() == "neutral":
+        if not avatar._initialized or not avatar._model:
+            return False
+        return reset_expressions(avatar)
+    return trigger_expression(avatar, emotion)
+
+
+def apply_action_tag(avatar: Any, tag: str) -> bool:
+    """Apply one structured avatar action tag. Never raises.
+
+    Accepted forms (canonical runtime actions; all take SEMANTIC ids —
+    filenames are resolved internally by the discovery catalog):
+
+        expression:<id> | item_on:<id> | item_off:<id>
+        mode_on:<mode>  | mode_off:<mode>
+
+    ``expression:neutral`` (and empty ids) reset the face only. Items
+    and modes never touch the face; expressions never touch items.
+    Unknown ids/modes log a warning and return False.
+    """
+    # Imported lazily: item_manager imports this module at module level,
+    # so a top-level import here would create an import cycle.
+    from . import item_manager, mode_manager
+
+    text = str(tag or "").strip().strip("[]")
+    action, _, arg = text.partition(":")
+    action = action.strip().casefold()
+    arg = arg.strip()
+    if action == "expression":
+        return trigger_expression(avatar, arg or "neutral")
+    if action == "item_on":
+        return item_manager.enable_item(avatar, arg)
+    if action == "item_off":
+        return item_manager.disable_item(avatar, arg)
+    if action == "mode_on":
+        return mode_manager.enable_mode(avatar, arg)
+    if action == "mode_off":
+        return mode_manager.disable_mode(avatar, arg)
+    logger.warning("apply_action_tag: unknown action %r", tag)
+    return False
