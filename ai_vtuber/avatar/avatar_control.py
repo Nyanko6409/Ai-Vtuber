@@ -42,9 +42,11 @@ from typing import Any, Optional
 from .model_discovery import (
     ITEM_ID_ALIASES,
     ITEM_NATURAL_ALIASES,
+    FACIAL_ID_ALIASES,
     KIND_EXPRESSION,
     KIND_ITEM,
     SEMANTIC_ID_DEFAULTS,
+    canonicalize_semantic_id,
     exp3_stem,
 )
 
@@ -139,12 +141,18 @@ def normalize_semantic_id(raw: Any) -> str:
     if not key:
         return ""
     lowered = key.lower().replace("-", "_")
+    # Legacy "*_toggle" spellings normalize first...
     lowered = ITEM_ID_ALIASES.get(lowered, lowered)
-    # Natural-language spellings may contain spaces ("magic wand").
+    # ...then natural-language item phrasings (may contain spaces,
+    # e.g. "magic wand")...
     lowered = ITEM_NATURAL_ALIASES.get(lowered,
                                        ITEM_NATURAL_ALIASES.get(
                                            lowered.replace("_", " "), lowered))
-    return lowered.replace(" ", "_")
+    lowered = lowered.replace(" ", "_")
+    # ...and finally OLD semantic ids from the pre-rename naming scheme
+    # (both item and facial names) map onto the canonical sheet ids.
+    lowered = FACIAL_ID_ALIASES.get(lowered, lowered)
+    return canonicalize_semantic_id(lowered)
 
 
 class AvatarController:

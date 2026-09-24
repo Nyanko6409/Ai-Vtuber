@@ -19,6 +19,8 @@ import logging
 from typing import Any
 
 from .model_discovery import (
+    ITEMS,
+    canonicalize_semantic_id,
     KIND_ITEM,
     ExpressionInfo,
     exp3_stem,
@@ -28,11 +30,9 @@ from .expression_apply import load_expression_file
 
 logger = logging.getLogger(__name__)
 
-# Semantic ids of the 7 stackable items on Airi's sheet.
-ITEM_IDS: tuple[str, ...] = (
-    "little_ghost", "bow", "glasses", "gaming_gesture",
-    "microphone_gesture", "magic_wand", "hat",
-)
+# Semantic ids of the 6 stackable items on the canonical Live2D sheet
+# (derived from model_discovery.ITEMS — the single source of truth).
+ITEM_IDS: tuple[str, ...] = tuple(sorted(ITEMS))
 
 
 def item_default_params(avatar: Any, exp: ExpressionInfo) -> dict[str, float]:
