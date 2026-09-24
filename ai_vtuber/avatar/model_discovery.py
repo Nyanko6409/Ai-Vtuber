@@ -202,6 +202,13 @@ ITEM_NATURAL_ALIASES: dict[str, str] = {
     "magic wand":        "wand",
     "microphone":        "mic",
     "game gesture":      "gamer_controller",
+    # Legacy item names whose NEW canonical id is a FACIAL id on this sheet
+    # (the rename shuffled names between files). Keeping them here means the
+    # legacy spellings always resolve to their historical FILE with its
+    # CURRENT kind — e.g. old item "bow" was hdj.exp3.json, which today's
+    # sheet calls "bow" (facial): so plain "bow" stays facial (hdj), while
+    # the old *item* meanings of "crying"/"gaming_gesture"/"microphone_
+    # gesture"/"magic_wand" route through ITEM_ID_ALIASES below.
 }
 
 # Backward-compatible aliases so older configs, saved state and prompts that
@@ -357,19 +364,27 @@ def load_vtube_hotkeys(model3_path: Path | str) -> dict[str, dict]:
 # NOTE: these are DISPLAY-NAME fallbacks only — the authoritative filename ->
 # semantic mapping is EXPRESSION_FILES above. The ids/kinds below carry the
 # NEW canonical sheet's semantics (e.g. ku.exp3.json is "cry", not "angry").
+# Each entry is keyed by the display name and carries the id/description/
+# emoji/kind of the file it historically labelled — i.e. exactly what
+# DEFAULT_SEMANTIC_NAMES says for that file on the canonical sheet (e.g.
+# 哭哭 is hdj.exp3.json -> current id "bow"; 生气 is ku.exp3.json -> "cry").
+# _parse_expression additionally re-syncs every entry through the filename
+# anchor at load time, so this table can never drift from EXPRESSION_FILES.
 CHINESE_NAME_FALLBACK: dict[str, tuple[str, str, str, str]] = {
-    "小幽灵切换": ("little_ghost", "Little Ghost", "👻", KIND_ITEM),
-    "黑脸": ("black_face", "Black Face / Dark Face", "😠", KIND_EXPRESSION),
-    "蝴蝶结切换": ("bow", "Bow", "🎀", KIND_ITEM),
-    "哭哭": ("crying", "Crying", "😭", KIND_EXPRESSION),
-    "生气": ("angry", "Angry", "😡", KIND_EXPRESSION),
-    "爱心眼": ("heart_eyes", "Heart Eyes", "🥰", KIND_EXPRESSION),
-    "星星眼": ("star_eyes", "Star Eyes / Sparkly Eyes", "🤩", KIND_EXPRESSION),
-    "眼镜切换": ("glasses", "Glasses", "👓", KIND_ITEM),
-    "打游戏手势": ("gaming_gesture", "Gaming Gesture", "🎮", KIND_ITEM),
-    "话筒手势": ("microphone_gesture", "Microphone Gesture", "🎤", KIND_ITEM),
-    "法杖召唤": ("magic_wand", "Magic Wand", "🪄", KIND_ITEM),
-    "帽子切换": ("hat", "Hat", "🎩", KIND_ITEM),
+    "小幽灵切换": ("ghosts", "Ghosts", "👻", KIND_ITEM),               # cw
+    "黑脸": ("wand", "Wand", "🪄", KIND_ITEM),                        # fz
+    "蝴蝶结切换": ("bow", "Bow", "🎀", KIND_EXPRESSION),              # hdj
+    "哭哭": ("bow", "Bow", "🎀", KIND_EXPRESSION),                    # hdj
+    "生气": ("cry", "Cry", "😭", KIND_EXPRESSION),                    # ku
+    "爱心眼": ("hat", "Hat", "🎩", KIND_ITEM),                        # mz
+    "星星眼": ("angry", "Angry", "😡", KIND_EXPRESSION),              # sq
+    "眼镜切换": ("heart_eyes", "Heart Eyes", "🥰", KIND_EXPRESSION),  # x
+    "打游戏手势": ("star_eyes", "Star Eyes / Sparkly Eyes", "🤩",
+                   KIND_EXPRESSION),                                   # xx
+    "话筒手势": ("glasses", "Glasses", "👓", KIND_ITEM),              # yj
+    "法杖召唤": ("gamer_controller", "Gamer Controller", "🎮",
+                 KIND_ITEM),                                           # zs1
+    "帽子切换": ("mic", "Mic", "🎤", KIND_ITEM),                      # zs2
     # VTube Studio UI action "归零" (reset-to-zero) is NOT an expression
     # file on this model — it is VTube Studio's HotkeyReset action. If a
     # future model ships a real reset exp3.json, it maps here:
