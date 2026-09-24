@@ -377,7 +377,15 @@ class AvatarController:
 
         expr_raw = action.get("expression", None)
         if expr_raw is not None and str(expr_raw).strip() != "":
-            if self.set_expression(expr_raw):
+            # BOUNDARY VALIDATION: the LLM may only name one of the six
+            # canonical facial ids (or "neutral"). Personality/mood words
+            # such as "smug" are rejected here — before any Live2D call —
+            # with a clear warning, never guessed onto a face.
+            from .expression_manager import reject_non_facial
+            canonical = reject_non_facial(expr_raw, "apply_avatar_action")
+            if canonical is None:
+                report["rejected"].append(str(expr_raw))
+            elif self.set_expression(canonical):
                 report["expression_set"] = self.current_expression
                 report["expression_kept"] = False
             else:
@@ -567,20 +575,26 @@ Choosing an expression (guidelines, not mandatory triggers):
 - angry 😡: something genuinely annoys/frustrates you, deliberate irritation,
   playful mock-anger, or a violated expectation. NOT every time the user
   disagrees with you.
-- crying 😭: real sadness, emotionally painful turns, sympathetic reaction,
+- cry 😭: real sadness, emotionally painful turns, sympathetic reaction,
   dramatic fits that fit the moment. Not for minor inconveniences.
 - heart_eyes 🥰: strong affection, something extremely cute, genuine charm.
   Don't use it constantly and don't read romance into ordinary talk.
 - star_eyes 🤩: excitement, amazement, fascination, impressive news, big
   enthusiasm.
-- black_face 😠: sparingly — the dark/awkward/comedic reaction face. It is
-  just this expression's name (a shadowed awkward sweat-drop look), never a
-  racial concept.
+- dark_face 😶: sparingly — the dark/awkward/deadpan comedic reaction face.
+- bow 🎀: cute/feminine styling moments.
+- "neutral" resets your face to the plain default look.
+
+Personality/mood words are NOT expressions. Never put smug, happy, sad,
+excited, surprised, thinking, sleepy, loving, performing (or any other mood
+word) in the "expression" field — it accepts ONLY the six ids above, plus
+"neutral", or null. If no listed face genuinely fits, send
+{"avatar_action": null} instead of guessing.
 
 Choosing items (spontaneous but rare):
-- Pick props that fit what you're doing or roleplaying: gaming_gesture when
-  the chat turns to games, magic_wand while playing magician, microphone_gesture
-  when performing, little_ghost in spooky/cute moments, glasses/hat/bow when
+- Pick props that fit what you're doing or roleplaying: gamer_controller when
+  the chat turns to games, wand while playing magician, mic
+  when performing, ghosts in spooky/cute moments, glasses/hat/bow when
   they suit the bit. Leave them ON across messages until the context moves
   on, then remove them.
 

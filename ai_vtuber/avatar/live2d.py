@@ -63,6 +63,8 @@ from .expression_manager import (  # noqa: F401
     EMOTION_PARAMS,
     EMOTION_EXPRESSION_MAP,
     build_mood_expression_map,
+    is_canonical_facial_id,
+    reject_non_facial,
 )
 from .model_discovery import (  # noqa: F401
     EXPRESSION_FILES,
@@ -620,6 +622,22 @@ class Live2DAvatar:
 
     def set_expression(self, emotion: str) -> None:
         expression_manager.set_expression(self, emotion)
+
+    def set_avatar_expression(self, expression_id) -> bool:
+        """AVATAR-ACTION BOUNDARY: apply one LLM-supplied facial id.
+
+        Accepts ONLY the six canonical facial ids plus "neutral" (the
+        reset state). Personality/mood words from the LLM ("smug",
+        "happy", ...) are rejected with a clear warning and NEVER passed
+        to trigger_expression()/the catalog resolver — they must not be
+        treated as Live2D expressions. Items stay on their own API
+        (enable_item / item_on tags). Returns True if applied/reset.
+        """
+        canonical = expression_manager.reject_non_facial(
+            expression_id, "set_avatar_expression")
+        if canonical is None:
+            return False
+        return expression_manager.trigger_expression(self, canonical)
 
     def _set_expression_params(self, emotion: str) -> None:
         expression_manager.set_expression_params(self, emotion)

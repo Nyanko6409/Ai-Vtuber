@@ -94,6 +94,35 @@ logger = logging.getLogger(__name__)
 FACIAL_EXPRESSION_IDS: tuple[str, ...] = ("neutral", *sorted(FACIAL_EXPRESSIONS))
 
 
+def is_canonical_facial_id(name: Any) -> bool:
+    """True iff ``name`` (case-insensitive) is one of the six canonical
+    facial expression ids or the "neutral" reset state.
+
+    This is the avatar-action-boundary whitelist: personality/mood words
+    the LLM may hallucinate (smug, happy, sad, excited, ...) are NOT Live2D
+    expressions and must never reach trigger_expression()/load_expression_file().
+    """
+    return str(name or "").strip().casefold() in FACIAL_EXPRESSION_IDS
+
+
+def reject_non_facial(name: Any, context: str) -> Optional[str]:
+    """Validate one LLM-supplied expression reference at the boundary.
+
+    Returns the canonical facial id on success ("neutral" included), or
+    None after logging a clear warning. Unsupported names — arbitrary mood
+    text such as "smug" — are IGNORED, never guessed onto a real face and
+    never looked up in the catalog (so no "Unknown expression" noise comes
+    out of the resolver for pure personality tags).
+    """
+    if is_canonical_facial_id(name):
+        return str(name).strip().casefold()
+    logger.warning(
+        "Unsupported avatar expression %r; ignoring avatar expression tag "
+        "(canonical facial ids: %s)",
+        str(name)[:60], ", ".join(FACIAL_EXPRESSION_IDS))
+    return None
+
+
 # ---------------------------------------------------------------------------
 # DEFAULT_EXPRESSIONS — mood -> expression defaults. The default is NONE:
 # every supported mood maps to "" (plain default face, no .exp3.json).
@@ -254,27 +283,40 @@ def resolve_semantic_expression(avatar: Any,
     if exp:
         return exp, exp.path
 
-    # Emotion -> semantic id (configurable via avatar.expressions)
+    # Emotion -> semantic id (configurable via avatar.expressions).
+    # SAFEGUARD: a mood target must resolve to a KNOWN catalog entry —
+    # unknown words are never probed as raw filenames (that would let a
+    # hallucinated mood name like "smug" load a same-named .exp3.json).
     mapped = avatar.expressions_map.get(key)
     if mapped and mapped != key:
-        exp = avatar._expression_catalog.get(mapped)
+        mapped_key = str(mapped).strip().casefold()
+        exp = avatar._expression_catalog.get(mapped_key)
         if exp:
             return exp, exp.path
-        key_file = mapped
+        logger.warning(
+            "Unsupported avatar expression %r; ignoring avatar expression "
+            "tag (mood target %r is not a known expression on this model)",
+            name, mapped)
+        return None, ""
 
     # Display-name lookup (Chinese names)
     for e in avatar._expression_catalog.values():
         if e.name == key:
             return e, e.path
 
-    # Direct file stem / filename lookup
-    fname = key if key.endswith(".exp3.json") else f"{key}.exp3.json"
-    if avatar._model_path:
-        model_dir = avatar._model_path.parent
-        for search_dir in (model_dir, model_dir / "expressions", model_dir / "Exp"):
-            candidate = search_dir / fname
-            if candidate.exists():
-                return None, str(candidate)
+    # Direct file stem / filename lookup — ONLY for ids that exist in the
+    # canonical discovery catalog (stem-level check of the sheet); arbitrary
+    # LLM/mood words never reach the filesystem here.
+    if key in DEFAULT_SEMANTIC_NAMES or key in {
+            exp3_stem(f) for f in EXPRESSION_FILES.values()}:
+        fname = key if key.endswith(".exp3.json") else f"{key}.exp3.json"
+        if avatar._model_path:
+            model_dir = avatar._model_path.parent
+            for search_dir in (model_dir, model_dir / "expressions",
+                               model_dir / "Exp"):
+                candidate = search_dir / fname
+                if candidate.exists():
+                    return None, str(candidate)
 
     logger.warning("Unknown expression '%s' (no semantic id, emotion, "
                    "display name, or file match)", name)
@@ -299,6 +341,22 @@ def trigger_expression(avatar: Any, expression_id: str) -> bool:
     if not avatar._initialized or not avatar._model:
         logger.debug("trigger_expression('%s') ignored: model not initialized",
                      expression_id)
+        return False
+
+    # BOUNDARY VALIDATION: only the six canonical facial ids (+ neutral, and
+    # legacy sheet aliases that canonicalize onto them) may be triggered as
+    # expressions. Personality/mood words from the LLM ("smug", "happy",
+    # ...) are NOT Live2D expressions — reject them here with a clear
+    # warning instead of probing the catalog (which would log
+    # "Unknown expression 'smug'" and could load an arbitrary same-named
+    # .exp3.json file). Items keep their own API (enable_item()).
+    key = (expression_id or "").strip().casefold()
+    if key and key != "neutral" \
+            and canonicalize_semantic_id(key) not in FACIAL_EXPRESSIONS:
+        logger.warning(
+            "Unsupported avatar expression '%s'; ignoring avatar "
+            "expression tag (canonical facial ids: %s)",
+            expression_id, ", ".join(FACIAL_EXPRESSION_IDS))
         return False
 
     # Neutral / explicit reset: valid state, no .exp3.json involved.
@@ -364,6 +422,20 @@ def set_expression(avatar: Any, emotion: str) -> None:
         # "none" / "neutral" / plain default face: release any active
         # expression parameters (items untouched) and stop here. There is
         # intentionally NO neutral.exp3.json — never try to load one.
+        reset_expressions(avatar)
+        return
+
+    # BOUNDARY VALIDATION (mood path): a mood/emotion word that has no
+    # entry in the config mood map must NEVER be treated as a Live2D
+    # expression id. Personality tags like "smug" are conversational
+    # context only — clear the face, warn once, and do not probe the
+    # catalog (no "Unknown expression 'smug'" from the resolver, and no
+    # accidental load of a same-named .exp3.json file).
+    if emotion not in avatar.expressions_map:
+        logger.warning(
+            "Unsupported avatar expression '%s'; ignoring avatar "
+            "expression tag (canonical facial ids: %s)",
+            emotion, ", ".join(FACIAL_EXPRESSION_IDS))
         reset_expressions(avatar)
         return
 
@@ -468,6 +540,19 @@ def apply_action_tag(avatar: Any, tag: str) -> bool:
     action = action.strip().casefold()
     arg = arg.strip()
     if action == "expression":
+        # BOUNDARY: bracket tags like [smug] are legacy mood/personality
+        # annotations, NOT avatar expression commands. Only the six
+        # canonical facial ids (+ neutral) may drive trigger_expression();
+        # anything else is ignored with a clear warning (and never falls
+        # through to another action type).
+        from .model_discovery import FACIAL_EXPRESSIONS as _FACIAL
+        from .model_discovery import canonicalize_semantic_id as _canon
+        key = (arg or "neutral").casefold()
+        if key != "neutral" and _canon(key) not in _FACIAL:
+            logger.warning(
+                "apply_action_tag: unsupported avatar expression %r; "
+                "ignoring avatar expression tag", arg)
+            return False
         return trigger_expression(avatar, arg or "neutral")
     if action == "item_on":
         return item_manager.enable_item(avatar, arg)
