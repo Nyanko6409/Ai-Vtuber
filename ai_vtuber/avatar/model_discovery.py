@@ -217,19 +217,19 @@ ITEM_ID_ALIASES: dict[str, str] = {
     "little_ghost":       "ghosts",
     # fz.exp3.json:  old face "black_face"            -> new "wand"
     "black_face":         "wand",
-    # h.exp3.json:   old item "bow" / "bow_toggle"    -> new "dark_face"
-    "bow":                "dark_face",
+    # h.exp3.json:   old item "bow_toggle"            -> new "dark_face"
+    # (plain "bow" is a CURRENT canonical facial id — never alias it)
     "bow_toggle":         "dark_face",
     # hdj.exp3.json: old face "crying"                -> new "bow"
     "crying":             "bow",
     # ku.exp3.json:  old face "angry"                 -> new "cry"
-    "angry":              "cry",
+    # ("angry" itself is a CURRENT canonical facial id — never alias it)
     # mz.exp3.json:  old face "heart_eyes"            -> new "hat"
-    "heart_eyes":         "hat",
+    # ("heart_eyes" itself is CURRENT — never alias it)
     # sq.exp3.json:  old face "star_eyes"             -> new "angry"
-    "star_eyes":          "angry",
-    # x.exp3.json:   old item "glasses" / "glasses_toggle" -> new "heart_eyes"
-    "glasses":            "heart_eyes",
+    # ("star_eyes" itself is CURRENT — never alias it)
+    # x.exp3.json:   old item "glasses_toggle"        -> new "heart_eyes"
+    # (plain "glasses" is a CURRENT canonical item id — never alias it)
     "glasses_toggle":     "heart_eyes",
     # xx.exp3.json:  old item "gaming_gesture"        -> new "star_eyes"
     "gaming_gesture":     "star_eyes",
@@ -239,8 +239,8 @@ ITEM_ID_ALIASES: dict[str, str] = {
     "magic_wand":         "gamer_controller",
     "magic_wand_toggle":  "gamer_controller",
     "magic_wand_summon":  "gamer_controller",
-    # zs2.exp3.json: old item "hat" / "hat_toggle"    -> new "mic"
-    "hat":                "mic",
+    # zs2.exp3.json: old item "hat_toggle"            -> new "mic"
+    # (plain "hat" is a CURRENT canonical item id — never alias it)
     "hat_toggle":         "mic",
 }
 
@@ -251,14 +251,22 @@ ITEM_ID_ALIASES: dict[str, str] = {
 FACIAL_ID_ALIASES: dict[str, str] = {
     "black_face": "wand",        # fz.exp3.json
     "crying":     "bow",         # hdj.exp3.json
-    "angry":      "cry",         # ku.exp3.json
-    "heart_eyes": "hat",         # mz.exp3.json
-    "star_eyes":  "angry",       # sq.exp3.json
 }
+# NOTE: the old faces "angry" / "heart_eyes" / "star_eyes" are NOT aliased
+# here because those names are CURRENT canonical ids on the new sheet
+# (ku->cry renamed away from "angry"; x->heart_eyes; xx->star_eyes).
+# Canonical ids must always mean themselves.
 
 # Combined legacy-id -> canonical-id lookup (items + faces). Every runtime
 # layer normalizes incoming semantic ids through canonicalize_semantic_id().
 LEGACY_ID_ALIASES: dict[str, str] = {**ITEM_ID_ALIASES, **FACIAL_ID_ALIASES}
+
+# Runtime guard: an alias key must NEVER be one of the 12 current canonical
+# ids (that would silently re-point a valid name at a different file).
+_asserted_overlap = set(LEGACY_ID_ALIASES) & set(EXPRESSION_FILES)
+assert not _asserted_overlap, \
+    f"legacy aliases collide with canonical ids: {sorted(_asserted_overlap)}"
+del _asserted_overlap
 
 
 def canonicalize_semantic_id(sem_id: str) -> str:

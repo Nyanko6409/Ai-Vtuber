@@ -425,16 +425,31 @@ def set_expression(avatar: Any, emotion: str) -> None:
         reset_expressions(avatar)
         return
 
-    # BOUNDARY VALIDATION (mood path): a mood/emotion word that has no
-    # entry in the config mood map must NEVER be treated as a Live2D
-    # expression id. Personality tags like "smug" are conversational
-    # context only — clear the face, warn once, and do not probe the
-    # catalog (no "Unknown expression 'smug'" from the resolver, and no
-    # accidental load of a same-named .exp3.json file).
-    if emotion not in avatar.expressions_map:
-        logger.warning(
-            "Unsupported avatar expression '%s'; ignoring avatar "
-            "expression tag (canonical facial ids: %s)",
+    # BOUNDARY VALIDATION (mood path): bracket tags such as [smug] are
+    # legacy MOOD/personality annotations extracted by the emotion
+    # analyzer — they are NOT Live2D expression commands and must never
+    # reach the catalog resolver / trigger_expression() (which would log
+    # "Unknown expression 'smug'" and could load an arbitrary same-named
+    # .exp3.json file). Only the six canonical facial ids (+ "neutral")
+    # or a configured mood name may arrive here; anything else simply
+    # resets the face to neutral. No warning is emitted for plain mood
+    # words on purpose — they are expected conversational context, and
+    # per-mood targets are "" by default (DEFAULT_EXPRESSIONS /
+    # config avatar.expressions), meaning "plain default face".
+    key = (emotion or "").strip().casefold()
+    key_norm = key.replace(" ", "_").replace("-", "_")
+    # A CURRENT canonical facial id is always accepted as-is; a legacy
+    # spelling is accepted only if it canonicalizes onto one of the six
+    # current faces (e.g. old "crying" -> hdj = "bow").
+    if key_norm in FACIAL_EXPRESSIONS:
+        canonical_id = key_norm
+    else:
+        canon = canonicalize_semantic_id(key_norm)
+        canonical_id = canon if canon in FACIAL_EXPRESSIONS else ""
+    if not canonical_id and key not in avatar.expressions_map:
+        logger.debug(
+            "Mood %r is not a Live2D expression; resetting face to "
+            "neutral (canonical facial ids: %s)",
             emotion, ", ".join(FACIAL_EXPRESSION_IDS))
         reset_expressions(avatar)
         return
@@ -446,37 +461,39 @@ def set_expression(avatar: Any, emotion: str) -> None:
     # 1) Emotion -> semantic id via the (config-overridable) expression
     #    map FIRST, so e.g. mood "happy" triggers star_eyes even if the
     #    model happens to ship a file literally named happy.exp3.json.
-    mapped = avatar.expressions_map.get(emotion)
+    #    A mood whose target is "" (the DEFAULT_EXPRESSIONS default)
+    #    means "no expression": fall through to the direct-match steps,
+    #    which resolve a canonical facial id to its file and reset the
+    #    face for everything else.
+    mapped = avatar.expressions_map.get(emotion, "")
     if mapped and mapped != emotion:
         exp, path = resolve_semantic_expression(avatar, mapped)
         if path and load_expression_file(
                 avatar, path, label=(exp.id if exp else mapped)):
             return
 
-    # 2) Semantic catalog / display name / file stem direct match
-    exp, path = resolve_semantic_expression(avatar, emotion)
-    if path and load_expression_file(
-            avatar, path, label=(exp.id if exp else emotion)):
-        return
+    # 2) Canonical facial id / display name direct match against the
+    #    discovered catalog ONLY. The raw mood word is never probed as a
+    #    filename here — that legacy step could load an arbitrary
+    #    same-named .exp3.json for a pure mood tag (e.g. smug.exp3.json).
+    if canonical_id:
+        exp = avatar._expression_catalog.get(canonical_id)
+        if exp and exp.path:
+            if load_expression_file(avatar, exp.path, label=exp.id):
+                return
+        elif canonical_id in EMOTION_PARAMS:
+            # Known canonical face whose file is missing on this model:
+            # parameter-driven fallback.
+            logger.debug("No expression file for '%s'; "
+                         "using parameter fallback", canonical_id)
+            set_expression_params(avatar, canonical_id)
+            return
 
-    # 3) Legacy: try the raw mapped/legacy filename too
-    #    (e.g. expressions: {happy: "happy"} -> happy.exp3.json)
-    if avatar._model_path:
-        candidates = [emotion]
-        mapped = avatar.expressions_map.get(emotion)
-        if mapped and mapped != emotion:
-            candidates.append(mapped)
-        model_dir = avatar._model_path.parent
-        for name in candidates:
-            for search_dir in [model_dir, model_dir / "expressions", model_dir / "Exp"]:
-                exp_file = search_dir / f"{name}.exp3.json"
-                if exp_file.exists():
-                    if load_expression_file(avatar, str(exp_file), label=name):
-                        return
-
-    # 4) Fallback: set parameters directly
-    logger.debug("No expression file for '%s'; using parameter fallback", emotion)
-    set_expression_params(avatar, emotion)
+    # 3) No Live2D target for this mood (every DEFAULT_EXPRESSIONS entry
+    #    maps to "" unless overridden in config): plain default face.
+    #    This is where conversational mood tags such as "smug" end up —
+    #    they reset the face instead of triggering anything.
+    reset_expressions(avatar)
 
 
 def set_expression_params(avatar: Any, emotion: str) -> None:
