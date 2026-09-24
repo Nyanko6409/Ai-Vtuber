@@ -333,9 +333,6 @@ _AVATAR_INLINE_RE = re.compile(
 )
 
 
-@staticmethod_disabled_placeholder = None  # noqa: E305  (keeps flake noise down)
-
-
 class AvatarResponse:
     """Parsed LLM reply: spoken text + optional autonomous avatar action."""
 

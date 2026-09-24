@@ -132,10 +132,6 @@ SEMANTIC_ID_DEFAULTS: dict[str, tuple[str, str, str, str]] = {
     sid: (stem, desc, emoji, kind)
     for stem, (sid, desc, emoji, kind) in DEFAULT_SEMANTIC_NAMES.items()
 }
-SEMANTIC_ID_DEFAULTS.update(
-    {sid: (stem, desc, emoji, kind)
-     for stem, (sid, desc, emoji, kind) in CHINESE_NAME_FALLBACK.items()}
-)
 
 # VTube Studio per-model hotkey file (<model_name>.vtube.json) layout:
 #   Hotkeys[].Type == "HotkeyExpressionParameter" carries
