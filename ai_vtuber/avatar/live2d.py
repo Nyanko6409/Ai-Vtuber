@@ -88,13 +88,35 @@ ITEM_IDS: tuple[str, ...] = (
     "microphone_gesture", "magic_wand", "hat",
 )
 
-# NOTE: The old hardcoded mood -> expression table (happy->star_eyes,
-# embarrassed->heart_eyes, gaming->star_eyes, sleepy->crying, smug->angry,
-# surprised/thinking->black_face, singing->heart_eyes, performing->star_eyes,
-# sad->crying, angry->angry, loving->heart_eyes, excited->star_eyes) has been
-# REMOVED. Mood/emotion may still exist as internal conversational context
+# ---------------------------------------------------------------------------
+# DEFAULT_EXPRESSIONS — mood -> expression defaults. The default is NONE:
+# every supported mood maps to "" (plain default face, no .exp3.json).
+# Mood/emotion may still exist as internal conversational context
 # (see ai_vtuber/emotion/analyzer.py) but it must NEVER automatically drive
 # the Live2D expression. The LLM's autonomous avatar decision has priority.
+# To opt back in to mood-driven faces, override per-mood targets via config:
+#   avatar:
+#     expressions:
+#       happy: "star_eyes"
+# ---------------------------------------------------------------------------
+DEFAULT_EXPRESSIONS: dict[str, str] = {
+    "neutral": "",      # plain default face (no exp3 file)
+    "happy": "",
+    "sad": "",
+    "angry": "",
+    "surprised": "",
+    "embarrassed": "",
+    # extended mood tags (explicit-tag only; keyword detection still uses
+    # the six core categories above)
+    "excited": "",
+    "loving": "",
+    "thinking": "",
+    "sleepy": "",
+    "gaming": "",
+    "singing": "",
+    "smug": "",
+    "performing": "",
+}
 
 # Parameter fallback overrides keyed by SEMANTIC expression id (NOT mood).
 # Used ONLY when no matching .exp3.json file can be resolved — e.g. a
@@ -1261,6 +1283,11 @@ class Live2DAvatar:
     def set_expression(self, emotion: str) -> None:
         """Set avatar expression based on emotion.
 
+        An empty/whitespace ``emotion`` means "no expression": the face is
+        reset to the plain default (the DEFAULT_EXPRESSIONS default is now
+        "" for every mood, so mood changes land here and clear the face —
+        only an explicit LLM avatar_action sets a real expression).
+
         Resolution order (all deterministic, no LLM-side filenames needed):
         1. semantic id / display name / file stem via the discovered catalog
            (e.g. "angry" -> ku.exp3.json, "heart_eyes" -> mz.exp3.json)
@@ -1269,6 +1296,12 @@ class Live2DAvatar:
            even with zero expression files present.
         """
         if not self._initialized or not self._model:
+            return
+
+        if not (emotion or "").strip():
+            # "none" / plain default face: release any active expression
+            # parameters (items untouched) and stop here.
+            self.reset_expressions()
             return
 
         # FIX: Protect shared state with lock
