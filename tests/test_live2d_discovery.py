@@ -23,19 +23,29 @@ from ai_vtuber.avatar.live2d import (
 
 logger = logging.getLogger(__name__)
 
+# Canonical semantic sheet (model_discovery.EXPRESSION_FILES): the .exp3.json
+# FILENAME is the authoritative anchor; the semantic id is whatever the sheet
+# currently calls that file. Legacy spellings (little_ghost / bow_toggle / ...)
+# were renamed to ghosts / dark_face / ... — this table tracks the canonical
+# ids so discovery regressions (wrong id for a given file) still fail loudly.
 EXPECTED_MAP = {
-    "little_ghost": "cw.exp3.json",
-    "black_face": "fz.exp3.json",
-    "bow_toggle": "h.exp3.json",
-    "crying": "hdj.exp3.json",
-    "angry": "ku.exp3.json",
-    "heart_eyes": "mz.exp3.json",
-    "star_eyes": "sq.exp3.json",
-    "glasses_toggle": "x.exp3.json",
-    "gaming_gesture": "xx.exp3.json",
-    "microphone_gesture": "yj.exp3.json",
-    "magic_wand": "zs1.exp3.json",
-    "hat_toggle": "zs2.exp3.json",
+    "ghosts":           "cw.exp3.json",
+    "wand":             "fz.exp3.json",
+    "dark_face":        "h.exp3.json",
+    "bow":              "hdj.exp3.json",
+    "cry":              "ku.exp3.json",
+    "hat":              "mz.exp3.json",
+    "angry":            "sq.exp3.json",
+    "heart_eyes":       "x.exp3.json",
+    "star_eyes":        "xx.exp3.json",
+    "glasses":          "yj.exp3.json",
+    "gamer_controller": "zs1.exp3.json",
+    "mic":              "zs2.exp3.json",
+}
+
+# The six kind="expression" faces of the canonical sheet (items excluded).
+FACIAL_TARGETS = {
+    "dark_face", "bow", "cry", "angry", "heart_eyes", "star_eyes",
 }
 
 EXPR_PARAMS = {
@@ -151,10 +161,12 @@ def test_semantic_resolution_via_avatar(external_model_dir):
     av = Live2DAvatar({"model_path": str(external_model_dir / "魔女.model3.json")})
     av._discover_model()
     assert "angry" in av.available_expression_ids()
+    # Resolution is FILENAME-anchored: heart_eyes -> x.exp3.json on the
+    # canonical sheet (never assume a stem by hand).
     exp, path = av._resolve_semantic_expression("heart_eyes")
-    assert exp is not None and exp.file == "mz.exp3.json"
+    assert exp is not None and exp.file == EXPECTED_MAP["heart_eyes"]
     exp, path = av._resolve_semantic_expression("生气")  # Chinese display name
-    assert exp is not None and exp.file == "ku.exp3.json"
+    assert exp is not None and exp.file == EXPECTED_MAP["cry"]
     # Runtime-less calls degrade gracefully (return False, never raise)
     assert av.trigger_expression("angry") is False
     assert av.trigger_expression("does_not_exist") is False

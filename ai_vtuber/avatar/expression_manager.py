@@ -304,19 +304,37 @@ def resolve_semantic_expression(avatar: Any,
         if e.name == key:
             return e, e.path
 
+    # Display-name lookup on the *canonicalized* key too: legacy configs may
+    # carry an OLD semantic id ("crying") as a mood target. Canonicalization
+    # renames it to the current sheet id ("bow"), which no longer equals the
+    # Chinese display name stored in the exp3 file — without this second
+    # pass such targets would silently stop resolving after a rename.
+    if key != (name or "").strip():
+        for e in avatar._expression_catalog.values():
+            if e.name == key:
+                return e, e.path
+
     # Direct file stem / filename lookup — ONLY for ids that exist in the
     # canonical discovery catalog (stem-level check of the sheet); arbitrary
     # LLM/mood words never reach the filesystem here.
     if key in DEFAULT_SEMANTIC_NAMES or key in {
             exp3_stem(f) for f in EXPRESSION_FILES.values()}:
         fname = key if key.endswith(".exp3.json") else f"{key}.exp3.json"
+        search_dirs: list[Path] = []
+        # Preferred: the directory discovery actually scanned (honours
+        # avatar.expression_directory overrides).
+        discovered_dir = getattr(avatar._discovered, "root", None) \
+            if avatar._discovered is not None else None
+        if discovered_dir is not None:
+            search_dirs.append(Path(discovered_dir))
         if avatar._model_path:
             model_dir = avatar._model_path.parent
-            for search_dir in (model_dir, model_dir / "expressions",
-                               model_dir / "Exp"):
-                candidate = search_dir / fname
-                if candidate.exists():
-                    return None, str(candidate)
+            search_dirs.extend((model_dir, model_dir / "expressions",
+                                model_dir / "Exp"))
+        for search_dir in search_dirs:
+            candidate = search_dir / fname
+            if candidate.exists():
+                return None, str(candidate)
 
     logger.warning("Unknown expression '%s' (no semantic id, emotion, "
                    "display name, or file match)", name)
