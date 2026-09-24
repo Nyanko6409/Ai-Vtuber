@@ -105,14 +105,37 @@ DEFAULT_SEMANTIC_NAMES: dict[str, tuple[str, str, str, str]] = {
     "mz":  ("heart_eyes",         "Heart Eyes",            "🥰", KIND_EXPRESSION),
     "sq":  ("star_eyes",          "Star Eyes / Sparkly Eyes", "🤩", KIND_EXPRESSION),
     # --- item / accessory toggles (7) — stack with each other + expressions ---
-    "cw":  ("little_ghost",       "Little Ghost Toggle",   "👻", KIND_ITEM),
-    "h":   ("bow_toggle",         "Bow Toggle",            "🎀", KIND_ITEM),
-    "x":   ("glasses_toggle",     "Glasses Toggle",        "👓", KIND_ITEM),
+    "cw":  ("little_ghost",       "Little Ghost",          "👻", KIND_ITEM),
+    "h":   ("bow",                "Bow",                   "🎀", KIND_ITEM),
+    "x":   ("glasses",            "Glasses",               "👓", KIND_ITEM),
     "xx":  ("gaming_gesture",     "Gaming Gesture",        "🎮", KIND_ITEM),
     "yj":  ("microphone_gesture", "Microphone Gesture",    "🎤", KIND_ITEM),
-    "zs1": ("magic_wand",         "Magic Wand Summon",     "🪄", KIND_ITEM),
-    "zs2": ("hat_toggle",         "Hat Toggle",            "🎩", KIND_ITEM),
+    "zs1": ("magic_wand",         "Magic Wand",            "🪄", KIND_ITEM),
+    "zs2": ("hat",                "Hat",                   "🎩", KIND_ITEM),
 }
+
+# Backward-compatible aliases for the old "*_toggle" item ids. Anything that
+# still references an alias (configs, saved state, older prompts) resolves to
+# the canonical id above via ALIAS_TO_SEMANTIC_ID.
+ITEM_ID_ALIASES: dict[str, str] = {
+    "bow_toggle":         "bow",
+    "glasses_toggle":     "glasses",
+    "hat_toggle":         "hat",
+    "magic_wand_summon":  "magic_wand",
+}
+
+# Reverse lookup: canonical semantic id -> default (exp3 filename stem,
+# description, emoji, kind). Used by the avatar controller to translate the
+# config.yaml `live2d.expressions` / `live2d.items` semantic blocks into the
+# per-model `expression_semantics` overrides understood by discovery.
+SEMANTIC_ID_DEFAULTS: dict[str, tuple[str, str, str, str]] = {
+    sid: (stem, desc, emoji, kind)
+    for stem, (sid, desc, emoji, kind) in DEFAULT_SEMANTIC_NAMES.items()
+}
+SEMANTIC_ID_DEFAULTS.update(
+    {sid: (stem, desc, emoji, kind)
+     for stem, (sid, desc, emoji, kind) in CHINESE_NAME_FALLBACK.items()}
+)
 
 # VTube Studio per-model hotkey file (<model_name>.vtube.json) layout:
 #   Hotkeys[].Type == "HotkeyExpressionParameter" carries
@@ -163,18 +186,18 @@ def load_vtube_hotkeys(model3_path: Path | str) -> dict[str, dict]:
 # Fallback semantic ids derived from Chinese display names (CDI ExpName or
 # the "Name" field inside the exp3.json), when no better match exists.
 CHINESE_NAME_FALLBACK: dict[str, tuple[str, str, str, str]] = {
-    "小幽灵切换": ("little_ghost", "Little Ghost Toggle", "👻", KIND_ITEM),
+    "小幽灵切换": ("little_ghost", "Little Ghost", "👻", KIND_ITEM),
     "黑脸": ("black_face", "Black Face / Dark Face", "😠", KIND_EXPRESSION),
-    "蝴蝶结切换": ("bow_toggle", "Bow Toggle", "🎀", KIND_ITEM),
+    "蝴蝶结切换": ("bow", "Bow", "🎀", KIND_ITEM),
     "哭哭": ("crying", "Crying", "😭", KIND_EXPRESSION),
     "生气": ("angry", "Angry", "😡", KIND_EXPRESSION),
     "爱心眼": ("heart_eyes", "Heart Eyes", "🥰", KIND_EXPRESSION),
     "星星眼": ("star_eyes", "Star Eyes / Sparkly Eyes", "🤩", KIND_EXPRESSION),
-    "眼镜切换": ("glasses_toggle", "Glasses Toggle", "👓", KIND_ITEM),
+    "眼镜切换": ("glasses", "Glasses", "👓", KIND_ITEM),
     "打游戏手势": ("gaming_gesture", "Gaming Gesture", "🎮", KIND_ITEM),
     "话筒手势": ("microphone_gesture", "Microphone Gesture", "🎤", KIND_ITEM),
-    "法杖召唤": ("magic_wand", "Magic Wand Summon", "🪄", KIND_ITEM),
-    "帽子切换": ("hat_toggle", "Hat Toggle", "🎩", KIND_ITEM),
+    "法杖召唤": ("magic_wand", "Magic Wand", "🪄", KIND_ITEM),
+    "帽子切换": ("hat", "Hat", "🎩", KIND_ITEM),
     # VTube Studio UI action "归零" (reset-to-zero) is NOT an expression
     # file on this model — it is VTube Studio's HotkeyReset action. If a
     # future model ships a real reset exp3.json, it maps here:
@@ -397,6 +420,13 @@ def discover_model(model3_json: Path | str,
 
     # Duplicate semantic id detection (keep first occurrence, rename dupes)
     _dedupe_expression_ids(dm)
+
+    # Normalize legacy "*_toggle" ids that may come from older configs or
+    # per-model overrides (bow_toggle -> bow, glasses_toggle -> glasses, ...).
+    for exp in dm.expressions:
+        canon = ITEM_ID_ALIASES.get(exp.id)
+        if canon:
+            exp.id = canon
 
     return dm
 
