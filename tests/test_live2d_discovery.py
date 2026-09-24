@@ -146,7 +146,7 @@ def test_expression_parameter_counts_read_from_files(external_model_dir):
     assert dm.expression_by_id("angry").parameter_count == 3
     assert dm.expression_by_id("heart_eyes").parameter_count == 1
     assert dm.expression_by_id("star_eyes").parameter_count == 3
-    assert dm.expression_by_id("glasses_toggle").parameter_count == 2
+    assert dm.expression_by_id("heart_eyes").parameter_count == 2
 
 
 def test_diagnostic_output(external_model_dir):
@@ -277,20 +277,23 @@ def test_mood_map_built_from_config_defaults():
         assert emo in DEFAULT_EXPRESSIONS, f"emotion '{emo}' unmapped"
 
 
-def test_all_12_semantic_ids_reachable_via_moods():
+def test_all_facial_ids_reachable_via_moods():
+    # Legacy mood table may only target the plain reset face or one of the
+    # SIX canonical facial ids — items live on their own layer (avatar_action
+    # items_on/items_off), so they must never be mood-reachable.
     targets = set(DEFAULT_EXPRESSIONS.values())
-    assert targets == set(EXPECTED_MAP.keys()), \
-        f"mood map must cover all 12 expressions; missing {set(EXPECTED_MAP) - targets}"
+    assert targets - {""} == FACIAL_TARGETS, \
+        f"mood map must cover exactly the six faces; got {targets}"
 
 
 def test_mood_expression_map_resolves_on_model(loaded_avatar):
     mood_map = build_mood_expression_map(loaded_avatar, loaded_avatar.expressions_map)
     assert mood_map["happy"] == "star_eyes"
-    assert mood_map["sad"] == "crying"
+    assert mood_map["sad"] == "cry"
     assert mood_map["angry"] == "angry"
-    assert mood_map["surprised"] == "black_face"
+    assert mood_map["surprised"] == "dark_face"
     assert mood_map["embarrassed"] == "heart_eyes"
-    assert mood_map["neutral"] == "glasses_toggle"
+    assert mood_map["neutral"] == ""
 
 
 # --- emulated path (live2d-py 0.7.0.4 — no LoadExpression) -----------------
@@ -312,7 +315,7 @@ def test_mood_map_expression_applies_parameters(loaded_avatar):
 
 
 def test_expression_switch_releases_previous_params(loaded_avatar):
-    loaded_avatar.trigger_expression("angry")       # sets Param53 etc.
+    loaded_avatar.trigger_expression("cry")         # ku: sets Param53 etc.
     loaded_avatar.trigger_expression("heart_eyes")  # should release angry's params
     assert "Param53" not in loaded_avatar._model.params
     assert loaded_avatar._model.reset_calls          # ResetParameterValue was used
@@ -320,7 +323,7 @@ def test_expression_switch_releases_previous_params(loaded_avatar):
 
 
 def test_reset_expressions_releases_all(loaded_avatar):
-    loaded_avatar.trigger_expression("magic_wand")
+    loaded_avatar.enable_item("gamer_controller")   # zs1 -> PartWand
     assert loaded_avatar._model.params.get("PartWand") == 1.0
     assert loaded_avatar.reset_expressions() is True
     assert loaded_avatar._model.params.get("PartWand") is None
@@ -352,20 +355,20 @@ def test_native_expression_load_and_activate(native_avatar):
         native_avatar._expression_catalog["star_eyes"].path))]
     # Activation via SetExpression(<filename>, 1.0) — LoadExpression alone
     # does NOT show anything.
-    assert ("sq.exp3.json", 1.0) in native_avatar._model.set_expr
-    assert native_avatar._active_expression_name == "sq.exp3.json"
+    assert ("xx.exp3.json", 1.0) in native_avatar._model.set_expr
+    assert native_avatar._active_expression_name == "xx.exp3.json"
 
 
 def test_native_mood_switch_deactivates_previous(native_avatar):
-    native_avatar.set_expression("angry")   # ku.exp3.json
-    native_avatar.set_expression("sad")     # hdj.exp3.json
-    assert "ku.exp3.json" in native_avatar._model.deleted
-    assert ("hdj.exp3.json", 1.0) in native_avatar._model.set_expr
-    assert native_avatar._active_expression_name == "hdj.exp3.json"
+    native_avatar.set_expression("angry")   # sq.exp3.json
+    native_avatar.set_expression("sad")     # -> cry -> ku.exp3.json
+    assert "sq.exp3.json" in native_avatar._model.deleted
+    assert ("ku.exp3.json", 1.0) in native_avatar._model.set_expr
+    assert native_avatar._active_expression_name == "ku.exp3.json"
 
 
 def test_native_reset_expressions_clears_active(native_avatar):
-    native_avatar.set_expression("angry")
+    native_avatar.set_expression("cry")
     assert native_avatar.reset_expressions() is True
     assert native_avatar._active_expression_name == ""
     assert "ku.exp3.json" in native_avatar._model.deleted
@@ -376,7 +379,7 @@ def test_native_reset_expressions_clears_active(native_avatar):
 def test_config_override_changes_mood_target(external_model_dir):
     cfg = {
         "model_path": str(external_model_dir / "魔女.model3.json"),
-        "expressions": {"happy": "hat_toggle"},  # override star_eyes
+        "expressions": {"happy": "mic"},  # override star_eyes
     }
     av = Live2DAvatar(cfg)
     av._discover_model()

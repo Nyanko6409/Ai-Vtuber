@@ -22,6 +22,11 @@ from ..audio.vad import VoiceActivityDetector
 from ..audio.playback import AudioPlayer
 from ..memory.manager import MemoryManager
 from ..emotion.analyzer import analyze_response
+from ..avatar.avatar_control import (
+    AvatarController,
+    build_avatar_system_instruction,
+    parse_avatar_response,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +80,7 @@ class App:
         self._stt: Optional[WhisperSTT] = None
         self._tts: Optional[KittenTTS] = None
         self._avatar: Optional[Live2DAvatar] = None
+        self._avatar_controller: Optional[AvatarController] = None
         self._microphone: Optional[Microphone] = None
         self._vad: Optional[VoiceActivityDetector] = None
         self._player: Optional[AudioPlayer] = None
@@ -130,6 +136,13 @@ class App:
         if self._avatar is None:
             self._avatar = Live2DAvatar(self.config["avatar"])
         return self._avatar
+
+    @property
+    def avatar_controller(self) -> AvatarController:
+        """Structured avatar-action controller (single Live2D control path)."""
+        if self._avatar_controller is None:
+            self._avatar_controller = AvatarController(self.avatar)
+        return self._avatar_controller
 
     @property
     def microphone(self) -> Microphone:
@@ -739,11 +752,7 @@ class App:
                 self.current_response = response_text
                 self.current_emotion = emotion
 
-            logger.debug(f"Response emotion: {emotion}")
-
-            # Update avatar expression (already done in streaming path, but needed for non-streaming)
-            if self._avatar and not stream_enabled:
-                self.avatar.set_expression(emotion)
+            logger.debug(f"Response emotion: {emotion} (metadata only; Live2D driven by avatar_action)")
 
             # Speak (skip for streaming path since audio already played)
             if not stream_enabled:
@@ -761,8 +770,8 @@ class App:
                 # Done speaking
                 if self._avatar:
                     self.avatar.set_talking(False)
-                    self.avatar.set_expression("neutral")
-                    logger.debug("Avatar speaking finished, expression reset to neutral")
+                    # NOTE: expression/items intentionally persist until another
+                    # avatar_action changes them - no automatic neutral reset.
 
                 # Unmute microphone for next listening cycle
                 self.microphone.unmute()
@@ -795,7 +804,17 @@ class App:
         try:
             # Refresh soul prompt from memory manager before each turn
             # so any newly consolidated memories are reflected immediately.
-            self.conversation.set_soul_prompt(self.memory_manager.get_full_context())
+            # The structured avatar_action contract + current body state ride
+            # along so the LLM emits canonical semantic IDs, not [mood] tags.
+            soul = self.memory_manager.get_full_context()
+            if self._avatar:
+                try:
+                    ctrl = self.avatar_controller
+                    soul = soul + "\n\n" + build_avatar_system_instruction(ctrl) \
+                        + "\n\n" + ctrl.describe_state()
+                except Exception as e:
+                    logger.warning(f"Avatar instruction injection failed: {e}")
+            self.conversation.set_soul_prompt(soul)
 
             # Layered context: retrieve historical sessions ONLY when the
             # user's message looks like a reference to the past. Ordinary
@@ -840,12 +859,18 @@ class App:
                 import random
                 return (random.choice(fallback_responses), "neutral")
 
-            # Use the new emotion/topic analyzer
-            analysis = analyze_response(raw_response)
-            
+            # Split structured avatar_action from spoken text BEFORE anything
+            # else sees the reply (TTS/UI/history never receive the JSON block).
+            parsed = parse_avatar_response(raw_response)
+            self._apply_avatar_action(parsed.avatar_action)
+
+            # Emotion analysis runs on the CLEAN speech text only; emotion is
+            # metadata (UI/memory/logging) and no longer drives Live2D.
+            analysis = analyze_response(parsed.speech)
+
             # Extract emotion and cleaned text
             emotion = analysis.emotion
-            response_text = analysis.cleaned_text
+            response_text = analysis.cleaned_text or parsed.speech
             
             # Topic is available as analysis.topic for future use
             # For now, we just log it for debugging
@@ -886,8 +911,16 @@ class App:
             (full_response_text, emotion) tuple after full response is assembled.
         """
         try:
-            # Refresh soul prompt before generating
-            self.conversation.set_soul_prompt(self.memory_manager.get_full_context())
+            # Refresh soul prompt before generating (avatar contract + state)
+            soul = self.memory_manager.get_full_context()
+            if self._avatar:
+                try:
+                    ctrl = self.avatar_controller
+                    soul = soul + "\n\n" + build_avatar_system_instruction(ctrl) \
+                        + "\n\n" + ctrl.describe_state()
+                except Exception as e:
+                    logger.warning(f"Avatar instruction injection failed: {e}")
+            self.conversation.set_soul_prompt(soul)
 
             # Layered context: retrieve historical sessions ONLY when the
             # user's message looks like a reference to the past.
@@ -924,6 +957,12 @@ class App:
             sentence_buffer = ""  # Complete sentences ready for TTS
             raw_response = ""  # Full raw response for emotion analysis
             
+            # Streaming guard: never feed a partial/complete avatar JSON block
+            # to TTS. Buffer tokens containing the block until the full reply
+            # is in; the action is parsed/applied exactly once afterwards.
+            pending_action_text = ""
+            AVATAR_KEY_MARK = '"avatar_action"'
+
             # Queue for sending sentences to TTS producer (includes emotion context)
             # OPTIMIZATION: Increased queue size from 3 to 8 to prevent drops during long responses
             tts_input_queue: queue.Queue = queue.Queue(maxsize=8)
@@ -955,7 +994,7 @@ class App:
                 if self._avatar:
                     logger.debug("TTS playback finished")
                     self.avatar.set_talking(False)
-                    self.avatar.set_expression("neutral")
+                    # Expression/items persist until the next avatar_action.
                 # Unmute microphone for next listening cycle
                 self.microphone.unmute()
             
@@ -1136,28 +1175,37 @@ class App:
                     sentence = token_buffer[:end_pos].strip()
                     token_buffer = token_buffer[end_pos:].lstrip()
                     
+                    if AVATAR_KEY_MARK in pending_action_text + sentence:
+                        # This sentence belongs (fully or partly) to the
+                        # avatar JSON block - hold it back from TTS entirely.
+                        pending_action_text += (" " if pending_action_text else "") + sentence
+                        continue
+                    if pending_action_text:
+                        # Block still streaming in; keep buffering until the
+                        # final flush below (never emit half-written JSON).
+                        pending_action_text += " " + sentence
+                        continue
+
                     if sentence:
-                        # Strip emotion tag from first sentence if present
-                        # (same logic as non-streaming path via analyze_response/cleaned_text)
-                        if raw_response.startswith('['):
-                            first_line = raw_response.split('\n')[0]
-                            if first_line.startswith('[') and first_line.endswith(']'):
-                                # This is the first sentence and has an emotion tag prefix
-                                # The tag will be stripped by normalize_text before TTS, same as non-streaming
-                                pass  # normalize_text handles tag stripping
-                        
                         try:
                             # Send sentence with neutral emotion initially; emotion will be determined after full response
                             tts_input_queue.put((sentence, "neutral"), block=False)
                         except queue.Full:
                             logger.warning("TTS input queue full, dropping sentence")
             
-            # Handle any remaining text in buffer
-            if token_buffer.strip():
-                try:
-                    tts_input_queue.put((token_buffer.strip(), "neutral"), block=False)
-                except queue.Full:
-                    logger.warning("TTS input queue full, dropping final text")
+            # Handle any remaining text in buffer - but route anything that
+            # contains the avatar JSON block to the parser, not to TTS.
+            tail = token_buffer.strip()
+            if tail:
+                if AVATAR_KEY_MARK in pending_action_text + tail:
+                    pending_action_text += (" " if pending_action_text else "") + tail
+                elif pending_action_text:
+                    pending_action_text += " " + tail
+                else:
+                    try:
+                        tts_input_queue.put((tail, "neutral"), block=False)
+                    except queue.Full:
+                        logger.warning("TTS input queue full, dropping final text")
             
             # Signal producer to finish
             tts_input_queue.put(None)
@@ -1168,10 +1216,15 @@ class App:
             if consumer_thread:
                 consumer_thread.join(timeout=10.0)  # Allow extra time for final audio to play
             
-            # Now run emotion analysis on full response
-            analysis = analyze_response(raw_response)
+            # Parse the structured avatar action ONCE the full reply is in
+            # (raw_response contains everything streamed, including the block).
+            parsed = parse_avatar_response(raw_response)
+            self._apply_avatar_action(parsed.avatar_action)
+
+            # Now run emotion analysis on the clean spoken text only
+            analysis = analyze_response(parsed.speech)
             emotion = analysis.emotion
-            response_text = analysis.cleaned_text
+            response_text = analysis.cleaned_text or parsed.speech
             
             # Add to conversation history AND persist to the crash-safe session
             self.conversation.add_message("assistant", response_text, emotion)
@@ -1191,6 +1244,36 @@ class App:
             ]
             import random
             return (random.choice(fallbacks), "happy")
+
+    def _apply_avatar_action(self, action: Optional[dict]) -> None:
+        """Apply one parsed avatar_action through AvatarController (only Live2D path)."""
+        if action is None:
+            logger.debug("Avatar action: none in this response (state unchanged)")
+            return
+        if not self._avatar:
+            logger.debug(f"Avatar action (no avatar loaded, dropped): {action}")
+            return
+        expr = action.get("expression")
+        items_on = action.get("items_add") or action.get("items_on") or []
+        items_off = action.get("items_remove") or action.get("items_off") or []
+        modes_on = action.get("modes_on") or []
+        modes_off = action.get("modes_off") or []
+        logger.info(
+            "Avatar action: expression=%s items_on=%s items_off=%s modes_on=%s modes_off=%s",
+            expr, items_on, items_off, modes_on, modes_off,
+        )
+        try:
+            report = self.avatar_controller.apply_avatar_action(action)
+            if report.get("expression_set"):
+                logger.info("Expression applied: %s", report["expression_set"])
+            for item in report.get("added", []):
+                logger.info("Item enabled: %s", item)
+            for item in report.get("removed", []):
+                logger.info("Item disabled: %s", item)
+            for bad in report.get("rejected", []):
+                logger.warning("Unsupported avatar id %r; ignoring", bad)
+        except Exception as e:
+            logger.warning(f"Avatar action failed (conversation continues): {e}")
 
     def _speak(self, text: str) -> None:
         """Generate and play TTS audio with lip sync."""
@@ -1371,9 +1454,9 @@ class App:
             
             logger.info(f"AI response: [{emotion}] {response_text}")
             
-            # Update avatar expression
+            # Avatar face/items were already applied via avatar_action inside
+            # _generate_response(); emotion here is UI/log metadata only.
             if self._avatar:
-                self.avatar.set_expression(emotion)
                 self.avatar.set_talking(True)
             
             # Generate and play TTS
@@ -1383,7 +1466,7 @@ class App:
             # Done speaking
             if self._avatar:
                 self.avatar.set_talking(False)
-                self.avatar.set_expression("neutral")
+                # No neutral reset: actions persist until the next avatar_action.
             
             self.state_machine.force_state(State.IDLE)
             
