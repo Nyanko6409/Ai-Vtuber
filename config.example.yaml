@@ -104,17 +104,21 @@ avatar:
   #   -   : Zoom out
   #   R   : Reset zoom and position
   #   Arrow keys / WASD: Move avatar
-  # Expression mapping: emotion -> expression file name
+  # Expression mapping: emotion -> expression file name.
+  # DEFAULT IS NONE: an empty target ("") keeps the plain default face —
+  # moods no longer drive expressions automatically (the LLM's explicit
+  # avatar_action decides the face; see ai_vtuber/avatar/live2d.py).
+  # Uncomment entries below to opt a mood back in to a specific face.
   # Files are searched in model directory and expressions/ subdirectory
   expressions:
-    neutral: "neutral"
-    happy: "happy"
-    excited: "happy"
-    thinking: "neutral"
-    surprised: "surprised"
-    sad: "sad"
-    angry: "angry"
-    sleepy: "sleepy"
+    neutral: ""
+    happy: ""            # e.g. "happy" to re-enable mood-driven faces
+    excited: ""
+    thinking: ""
+    surprised: ""
+    sad: ""
+    angry: ""
+    sleepy: ""
 
 # Audio Settings
 audio:
