@@ -1,3 +1,7 @@
-# Compiled Python files
+# Python bytecode and caches
 __pycache__/
 *.pyc
+
+# Environment variables (common for AI/VTuber projects)
+.env
+.env.local

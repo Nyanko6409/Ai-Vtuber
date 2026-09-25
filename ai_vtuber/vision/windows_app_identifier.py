@@ -61,8 +61,62 @@ _WS_CHILD = 0x40000000
 _WS_EX_TOOLWINDOW = 0x00000080
 _WS_EX_APPWINDOW = 0x00040000
 
-# GetAncestor flags (GA_ROOT_OWNER) - used to skip owned helper windows.
-_GA_ROOT_OWNER = 3
+# GetAncestor flags (GA_ROOT) - used to skip owned helper windows: only the
+# top-level owner of a window chain is a real taskbar-style candidate.
+_GA_ROOT = 2
+
+# Common user-friendly names -> actual executable names (all lowercase).
+# Used by find_window_by_name() so "/look VS Code" finds Code.exe etc.
+# Matching is always case-insensitive on both sides.
+APP_ALIASES: Dict[str, str] = {
+    "discord": "discord.exe",
+    "chrome": "chrome.exe",
+    "google chrome": "chrome.exe",
+    "msedge": "msedge.exe",
+    "edge": "msedge.exe",
+    "microsoft edge": "msedge.exe",
+    "firefox": "firefox.exe",
+    "vs code": "code.exe",
+    "visual studio code": "code.exe",
+    "code": "code.exe",
+    "genshin impact": "genshinimpact.exe",
+    "genshinimpact": "genshinimpact.exe",
+    "genshin": "genshinimpact.exe",
+    "notepad": "notepad.exe",
+    "explorer": "explorer.exe",
+    "file explorer": "explorer.exe",
+    "windows terminal": "windowsterminal.exe",
+    "terminal": "windowsterminal.exe",
+    "powershell": "powershell.exe",
+}
+
+
+def _normalize_query(query: str) -> str:
+    """Lowercase + collapse whitespace for alias lookups."""
+    return " ".join((query or "").split()).lower()
+
+
+def _candidate_keys(query: str) -> Tuple[set, str]:
+    """Derive (process-name candidates, normalized query) from a user query.
+
+    ``Discord`` -> ({"discord.exe"}, "discord")
+    ``VS Code`` -> ({"code.exe"}, "vs code")
+    ``Code.exe`` -> ({"code.exe"}, "code.exe")   # already an exe name
+    """
+    norm = _normalize_query(query)
+    procs = set()
+    if not norm:
+        return procs, norm
+    aliased = APP_ALIASES.get(norm)
+    if aliased:
+        procs.add(aliased)
+    else:
+        compact = norm.replace(" ", "")
+        if compact.endswith(".exe"):
+            procs.add(compact)
+        else:
+            procs.add(compact + ".exe")
+    return procs, norm
 
 
 class _MODULEENTRY32W(ctypes.Structure):
