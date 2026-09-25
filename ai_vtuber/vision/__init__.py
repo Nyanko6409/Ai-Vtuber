@@ -28,6 +28,11 @@ from .frame_processor import FrameProcessor, FrameProcessingConfig, ProcessedFra
 from .game_cache import GameCache, CachedEntity, ScreenState
 from .analyzer import VisionAnalyzer, VisionAnalysisResult, SceneInfo, StateInfo, EntityInfo
 from .manager import VisionManager, VisionConfig
+from .windows_app_identifier import (
+    get_active_application,
+    describe_active_application,
+    Win32Bindings,
+)
 
 
 __all__ = [
@@ -47,4 +52,8 @@ __all__ = [
     'EntityInfo',
     'VisionManager',
     'VisionConfig',
+    # Windows 11 foreground application identifier (Win32 user32/kernel32)
+    'get_active_application',
+    'describe_active_application',
+    'Win32Bindings',
 ]
