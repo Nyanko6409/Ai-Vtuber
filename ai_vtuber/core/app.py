@@ -608,54 +608,6 @@ class App:
                 logger.warning("Vision analysis failed or returned no result")
                 return False
 
-    def _trigger_vision_async_if_needed(self) -> threading.Thread | None:
-        """
-        Trigger on-demand vision analysis asynchronously (non-blocking).
-        
-        Returns:
-            Thread object if vision was triggered, None otherwise.
-            Caller can join this thread later if they need to wait for completion.
-        
-        This allows the LLM to start generating a response while vision analyzes
-        in the background, reducing overall latency.
-        """
-        with self._vision_trigger_lock:
-            self._vision_context_ready = False
-            
-            if not self._vision_manager or not self._vision_manager.is_running:
-                return None
-            
-            if not self._vision_manager.config.on_demand_only:
-                return None
-            
-            # Check if already analyzing to prevent duplicate requests
-            if self._vision_manager.is_analyzing:
-                logger.debug("Vision analysis already in progress, skipping async trigger")
-                return None
-            
-            logger.info("Starting asynchronous screen analysis for visual question...")
-            
-            # Start vision analysis in background thread
-            vision_thread = threading.Thread(target=self._run_async_vision_analysis, daemon=True)
-            vision_thread.start()
-            return vision_thread
-    
-    def _run_async_vision_analysis(self) -> None:
-        """Run vision analysis in background thread."""
-        try:
-            result = self._vision_manager.analyze_screen_now()
-            with self._vision_trigger_lock:
-                if result:
-                    self._vision_context_ready = True
-                    logger.debug(f"Async vision analysis completed: {result.description[:80] if result.description else 'no description'}...")
-                else:
-                    logger.warning("Async vision analysis failed or returned no result")
-                    self._vision_context_ready = False
-        except Exception as e:
-            logger.error(f"Async vision analysis error: {e}")
-            with self._vision_trigger_lock:
-                self._vision_context_ready = False
-
     def _listen_and_process(self) -> None:
         """Full listen -> transcribe -> think -> speak pipeline."""
         try:
@@ -706,25 +658,18 @@ class App:
             # TRIGGER on-demand screen analysis BEFORE generating response
             # This allows Airi to "look at the screen" when the user asks something
             # Only trigger if vision is enabled and in on-demand mode
-            # OPTIMIZATION: Use async vision to allow LLM to start processing in parallel
-            vision_thread = self._trigger_vision_async_if_needed()
-            
-            # If using streaming, we can start LLM immediately while vision runs in background
-            # For non-streaming, we still wait for vision to complete for better context
+            #
+            # RACE CONDITION FIX: capture -> analyze -> validate -> inject must all
+            # complete BEFORE the LLM request is built, in BOTH streaming and
+            # non-streaming modes. Previously, streaming mode started the LLM while
+            # vision ran in parallel, so the first tokens were generated without the
+            # visual context Airi was supposed to receive. Vision is now triggered
+            # synchronously here; only after it finishes (or fails) do we proceed to
+            # response generation, which injects the validated result into the LLM
+            # request.
             stream_enabled = self.config.get("llm", {}).get("stream_enabled", False)
-            
-            if stream_enabled and vision_thread:
-                # Start LLM streaming immediately; vision will complete in background
-                # The LLM will have partial context initially, but vision results will be
-                # available mid-stream if needed (checked via _vision_context_ready flag)
-                logger.debug("Starting LLM streaming while vision analyzes in parallel...")
-            elif vision_thread:
-                # Non-streaming mode: wait for vision to complete before LLM
-                logger.debug("Waiting for vision analysis to complete before LLM...")
-                vision_thread.join(timeout=10.0)  # 10 second timeout max
-                if not self._vision_context_ready:
-                    logger.warning("Vision analysis timed out, proceeding without visual context")
-            
+            self._trigger_vision_if_needed()
+
             if stream_enabled:
                 # Use streaming pipeline for lower latency
                 # Note: _generate_response_streaming() handles audio playback internally,
