@@ -39,6 +39,8 @@ class Session:
     closed: bool = False
     messages: List[SessionMessage] = field(default_factory=list)
     summary: str = ""         # Populated after close / summarization
+    title: str = ""           # Human-readable semantic title (filename-safe)
+    title_attempts: int = 0   # Budget guard: max 2 deterministic renames
 
     @property
     def message_count(self) -> int:
