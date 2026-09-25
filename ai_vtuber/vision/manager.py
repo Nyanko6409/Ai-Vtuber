@@ -7,11 +7,13 @@ from dataclasses import dataclass
 from typing import Optional, Dict, Any, Callable
 
 from .screen_capture import ScreenCaptureService, ScreenCaptureConfig, CapturedFrame
-from .frame_processor import FrameProcessor, FrameProcessingConfig, ProcessedFrame
 from .game_cache import GameCache, ScreenState
 from .analyzer import VisionAnalyzer, VisionAnalysisResult
+from .look_command import LookCommand, parse_look_command
 from .windows_app_identifier import (
+    find_window_by_name,
     get_active_application,
+    get_window_rect,
     describe_active_application,
     Win32Bindings,
 )

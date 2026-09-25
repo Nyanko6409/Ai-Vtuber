@@ -193,9 +193,19 @@ class Win32Bindings:
 
     # ``c_ssize_t`` is the portable spelling of Windows' LONG_PTR.
     _LONG_PTR = ctypes.c_ssize_t
-    _WNDENUMPROC = ctypes.WINFUNCTYPE(
-        wintypes.BOOL, wintypes.HWND, wintypes.LPARAM
-    )
+
+    @property
+    def WNDENUMPROC(self):
+        """EnumWindows callback prototype (created lazily).
+
+        Built on first use instead of at class-definition time so this
+        module stays importable on non-Windows hosts where
+        ``ctypes.WINFUNCTYPE`` does not exist (mirrors the lazy
+        ``load()`` strategy used for every other Win32 binding).
+        """
+        return ctypes.WINFUNCTYPE(
+            wintypes.BOOL, wintypes.HWND, wintypes.LPARAM
+        )
 
     def load(self) -> bool:
         """Load the Win32 libraries and bind function prototypes.
@@ -243,7 +253,7 @@ class Win32Bindings:
 
                 # BOOL EnumWindows(WNDENUMPROC, LPARAM)
                 user32.EnumWindows.restype = wintypes.BOOL
-                user32.EnumWindows.argtypes = [self._WNDENUMPROC, wintypes.LPARAM]
+                user32.EnumWindows.argtypes = [self.WNDENUMPROC, wintypes.LPARAM]
 
                 # HWND GetAncestor(HWND, UINT)
                 user32.GetAncestor.restype = wintypes.HWND
@@ -556,6 +566,181 @@ def _resolve_process_info(
     if exe_path:
         result["exe_path"] = exe_path
     return result
+
+
+def _is_acceptable_candidate(b: Win32Bindings, hwnd_int: int) -> bool:
+    """Cheap visibility/style filter used while enumerating windows.
+
+    Skips invisible windows, child windows, tool windows and zero-size
+    windows (minimized windows report a (-32000, -32000) rect). Read-only:
+    never modifies any window.
+    """
+    try:
+        if not b.IsWindowVisible(wintypes.HWND(hwnd_int)):
+            return False
+    except Exception:
+        return False
+
+    try:
+        style = int(b.GetWindowLongPtrW(wintypes.HWND(hwnd_int), _GWL_STYLE)) & 0xFFFFFFFF
+        exstyle = int(b.GetWindowLongPtrW(wintypes.HWND(hwnd_int), _GWL_EXSTYLE)) & 0xFFFFFFFF
+    except Exception:
+        style, exstyle = 0, 0
+    if style & _WS_CHILD:
+        return False
+    if (exstyle & _WS_EX_TOOLWINDOW) and not (exstyle & _WS_EX_APPWINDOW):
+        return False
+
+    # Only consider the top-level owner of a window chain.
+    try:
+        root = b.GetAncestor(wintypes.HWND(hwnd_int), _GA_ROOT)
+        if _normalize_hwnd(root) != hwnd_int:
+            return False
+    except Exception:
+        pass
+
+    rect = get_window_rect(hwnd_int, bindings=b)
+    if not rect:
+        return False
+    left, top, right, bottom = rect
+    if right - left <= 0 or bottom - top <= 0:
+        return False
+    return True
+
+
+def find_window_by_name(
+    query: str,
+    bindings: Optional[Win32Bindings] = None,
+) -> Optional[Dict[str, Any]]:
+    """Find a visible top-level window whose process/title matches ``query``.
+
+    Used by the ``/look`` command ("Discord", "Chrome", "VS Code",
+    "Genshin Impact", ...). Matching is case-insensitive on both sides and
+    resolves through :data:`APP_ALIASES` plus the existing process-
+    resolution logic (QueryFullProcessImageNameW primary, Toolhelp
+    fallbacks) shared with :func:`get_active_application`.
+
+    IMPORTANT: this function only FINDS windows. It never moves, resizes,
+    focuses, activates or otherwise modifies anything (no SetWindowPos).
+
+    Returns a dict with::
+
+        {
+            "hwnd":          int window handle,
+            "pid":           int process id,
+            "window_title":  e.g. "Discord",
+            "process_name":  e.g. "Discord.exe",
+            "application":   friendly name, e.g. "Discord",
+            "exe_path":      full path when available,
+            "rect":          (left, top, right, bottom) screen rectangle,
+        }
+
+    Returns ``None`` when no matching window exists or the platform/APIs
+    are unavailable (never raises).
+    """
+    b = bindings or _bindings
+    if not b.load():
+        logger.debug("Win32 bindings unavailable; window lookup skipped")
+        return None
+
+    candidates, norm = _candidate_keys(query)
+    if not norm:
+        return None
+
+    def _title_matches(title: str) -> bool:
+        t = title.lower()
+        if norm in t:
+            return True
+        compact = norm.replace(" ", "")
+        return compact and compact in t.replace(" ", "")
+
+    found: Dict[int, Dict[str, Any]] = {}
+
+    def _callback(raw_hwnd, _lparam):
+        try:
+            hwnd_int = _normalize_hwnd(raw_hwnd)
+            if not hwnd_int or hwnd_int in found:
+                return True
+            if not _is_acceptable_candidate(b, hwnd_int):
+                return True
+            pid = _get_pid(b, hwnd_int)
+            proc_name = None
+            if pid:
+                exe_path = _query_image_path(b, pid)
+                if exe_path:
+                    proc_name = _basename(exe_path).lower()
+            title = _get_window_title(b, hwnd_int)
+            proc_hit = bool(proc_name and proc_name in candidates)
+            title_hit = bool(title and _title_matches(title))
+            if proc_hit or title_hit:
+                found[hwnd_int] = {
+                    "pid": pid,
+                    "title": title,
+                    "rank": 0 if proc_hit else 1,
+                }
+                order.append(hwnd_int)
+        except Exception as e:  # defensive: one bad window must not abort
+            logger.debug(f"EnumWindows callback error: {e}")
+        return True
+
+    try:
+        b.EnumWindows(b.WNDENUMPROC(_callback), 0)
+    except Exception as e:
+        logger.debug(f"EnumWindows failed: {e}")
+        return None
+
+    if not found:
+        logger.debug(f"No window found for query {query!r}")
+        return None
+
+    # Prefer process-name matches; among equals prefer the largest window
+    # (main app window over small helper dialogs with the same exe).
+    def _area(hwnd_int: int) -> int:
+        rect = get_window_rect(hwnd_int, bindings=b)
+        if not rect:
+            return 0
+        l, t, r, bo = rect
+        return max(0, r - l) * max(0, bo - t)
+
+    best_hwnd = min(found.keys(), key=lambda h: (found[h]["rank"], -_area(h)))
+    entry = found[best_hwnd]
+
+    info = _resolve_process_info(b, entry["pid"], entry["title"], best_hwnd)
+    info["rect"] = get_window_rect(best_hwnd, bindings=b)
+    return info
+
+
+def get_window_rect(
+    hwnd: Any,
+    bindings: Optional[Win32Bindings] = None,
+) -> Optional[Tuple[int, int, int, int]]:
+    """Return a window's screen rectangle as ``(left, top, right, bottom)``.
+
+    Read-only GetWindowRect wrapper. Returns ``None`` for invalid/closed
+    handles, non-Windows hosts, or degenerate rectangles (zero/negative
+    size, e.g. minimized windows). Never raises.
+    """
+    b = bindings or _bindings
+    if not b.load():
+        return None
+    hwnd_int = _normalize_hwnd(hwnd)
+    if not hwnd_int:
+        return None
+    try:
+        if not b.IsWindow(wintypes.HWND(hwnd_int)):
+            return None
+        rect = _RECT()
+        if not b.GetWindowRect(wintypes.HWND(hwnd_int), ctypes.byref(rect)):
+            return None
+        box = (int(rect.left), int(rect.top), int(rect.right), int(rect.bottom))
+    except Exception as e:
+        logger.debug(f"GetWindowRect failed for HWND {hwnd}: {e}")
+        return None
+    left, top, right, bottom = box
+    if right - left <= 0 or bottom - top <= 0:
+        # Invalid / minimized / off-screen garbage rectangle.
+        return None
+    return box
 
 
 def get_active_application(
