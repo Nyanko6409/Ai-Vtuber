@@ -63,3 +63,34 @@ def parse_look_command(text: str) -> Optional[LookCommand]:
     if norm in _CLEAR_WORDS:
         return LookCommand(action="clear")
     return LookCommand(action="set", query=norm)
+
+
+def handle_look_command(text: str, vision_manager) -> Optional[str]:
+    """Execute a ``/look`` command against the real VisionManager.
+
+    This is the single authoritative dispatch function every caller (UI
+    submit handler, core App message path) must use - it never re-implements
+    parsing or target logic of its own.
+
+    Args:
+        text: raw chat message text.
+        vision_manager: the live
+            :class:`ai_vtuber.vision.manager.VisionManager` instance (or
+            ``None`` when the vision system is unavailable).
+
+    Returns:
+        The response string for the status/chat UI when ``text`` was a
+        ``/look`` command, or ``None`` when it was NOT a ``/look`` command
+        (callers then continue with their normal chat pipeline).
+    """
+    cmd = parse_look_command(text)
+    if cmd is None:
+        return None
+    if vision_manager is None:
+        return ("\U0001F50E Vision system is not available. "
+                "Enable it via config (vision.enabled: true).")
+    try:
+        return vision_manager.execute_look_command(text)
+    except Exception as e:  # defensive: a bad command must never crash chat
+        logger.error(f"/look command execution failed: {e}", exc_info=True)
+        return f"\U0001F50E /look error: {e}"

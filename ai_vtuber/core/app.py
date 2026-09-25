@@ -1356,13 +1356,46 @@ class App:
         
         This is similar to the voice pipeline but triggered by text input.
         Runs in a background thread to avoid blocking the UI.
+
+        ``/look`` commands are intercepted HERE (before the normal
+        LLM/TTS pipeline): they are executed against the real VisionManager
+        through the single authoritative dispatcher
+        :func:`ai_vtuber.vision.look_command.handle_look_command` and are
+        NEVER forwarded to the LLM conversation.  The result is delivered
+        back to the UI via the ``on_status_message`` callback when set.
         """
         if not text or not text.strip():
             return
         
+        # ---- /look command interception (single parser: look_command.py) --
+        from ..vision.look_command import parse_look_command, handle_look_command
+        if parse_look_command(text) is not None:
+            response = self._execute_look_command(text, handle_look_command)
+            if response is not None:
+                cb = getattr(self, "on_status_message", None)
+                if cb:
+                    try:
+                        cb(response)
+                    except Exception as e:
+                        logger.debug(f"on_status_message callback error: {e}")
+            return
+
         # Run in background thread
         thread = threading.Thread(target=self._process_chat_message_thread, args=(text,), daemon=True)
         thread.start()
+
+    def _execute_look_command(self, text: str, dispatcher) -> Optional[str]:
+        """Run a /look command against the live VisionManager (never raises).
+
+        ``dispatcher`` is ``look_command.handle_look_command`` - imported by
+        the caller so parsing/execution logic stays in exactly ONE place.
+        Returns the human-readable response for the status UI.
+        """
+        try:
+            return dispatcher(text, self._vision_manager)
+        except Exception as e:
+            logger.error(f"/look command dispatch failed: {e}", exc_info=True)
+            return f"\U0001F50E /look error: {e}"
 
     def _process_chat_message_thread(self, text: str) -> None:
         """Background thread for processing chat messages."""
