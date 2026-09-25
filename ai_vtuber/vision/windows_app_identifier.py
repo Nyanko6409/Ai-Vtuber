@@ -454,13 +454,19 @@ def get_active_application(
     process_name = _basename(exe_path) if exe_path else None
     application = _resolve_display_name(exe_path, process_name)
 
-    return {
+    result: Dict[str, Any] = {
         "application": application,
         "process_name": process_name,
         "window_title": window_title,
         "pid": pid,
         "hwnd": hwnd,
     }
+    # Extra diagnostic field (full executable path when available). It is
+    # additive only - existing consumers read the five documented keys and
+    # ignore this one.
+    if exe_path:
+        result["exe_path"] = exe_path
+    return result
 
 
 def set_bindings(bindings: "Win32Bindings") -> None:
@@ -478,6 +484,161 @@ def set_bindings(bindings: "Win32Bindings") -> None:
 def get_bindings() -> "Win32Bindings":
     """Return the currently-used module-level Win32 bindings object."""
     return _bindings
+
+
+# ---------------------------------------------------------------------------
+# Debug report (used by ``python main.py --debug``)
+#
+# Pure presentation on top of ``get_active_application()`` - contains NO
+# Win32 detection logic of its own, so it can never diverge from what the
+# VisionManager actually sees.
+# ---------------------------------------------------------------------------
+
+REASON_NO_BINDINGS = "Win32 bindings unavailable (Windows 11 required)"
+REASON_NO_FOREGROUND_WINDOW = "No foreground window"
+REASON_PROCESS_LOOKUP_FAILED = "Process lookup failed"
+REASON_UNKNOWN_EXECUTABLE = "Unknown executable"
+
+
+def _is_placeholder(value) -> bool:
+    """True when a field carries no usable information."""
+    if value is None:
+        return True
+    text = str(value).strip()
+    if not text:
+        return True
+    lowered = text.lower()
+    return lowered.startswith("unknown") or lowered in ("none", "?")
+
+
+def diagnose_failure(info) -> str:
+    """Derive a human-readable failure reason from an identifier result.
+
+    Returns an empty string when detection succeeded fully; otherwise a
+    short reason ("No foreground window", "Process lookup failed",
+    "Unknown executable", ...). This only inspects the dict produced by
+    ``get_active_application()`` - it never touches the Win32 APIs itself.
+    """
+    if info is None:
+        b = _bindings
+        if not b.load():
+            return REASON_NO_BINDINGS
+        # Bindings loaded fine but nothing was detected: there is simply no
+        # foreground window (secure desktop, full-screen exclusive mode...).
+        return REASON_NO_FOREGROUND_WINDOW
+
+    pid = info.get("pid")
+    process_name = info.get("process_name")
+
+    if pid is None:
+        return REASON_PROCESS_LOOKUP_FAILED
+    if _is_placeholder(process_name):
+        return REASON_UNKNOWN_EXECUTABLE
+    if _is_placeholder(info.get("application")):
+        return REASON_UNKNOWN_EXECUTABLE
+    return ""
+
+
+def format_debug_report(
+    info,
+    reason_override: str = "",
+    error: Optional[BaseException] = None,
+) -> str:
+    """Render the full Windows 11 active-window debug report.
+
+    Success::
+
+        Active Windows Application Debug
+        ================================
+        Application:    Google Chrome
+        Process Name:   chrome.exe
+        PID:            12345
+        HWND:           123456
+        Window Title:   GitHub - Google Chrome
+        Executable:     C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe
+        Detection:      SUCCESS
+        Reason:         -
+
+    Failure::
+
+        Active Windows Application Debug
+        ================================
+        Application:    UNKNOWN
+        ...
+        Detection:      FAILED
+        Reason:         No foreground window
+    """
+    lines = [
+        "Active Windows Application Debug",
+        "=" * 32,
+    ]
+
+    if error is not None:
+        reason = f"detection error ({error})"
+        info = None
+    else:
+        reason = reason_override or diagnose_failure(info)
+
+    info = info or {}
+    success = not reason
+
+    application = info.get("application")
+    process_name = info.get("process_name")
+    pid = info.get("pid")
+    hwnd = info.get("hwnd")
+    window_title = info.get("window_title")
+    exe_path = info.get("exe_path")
+
+    def _val(v, unknown="UNKNOWN"):
+        return v if (v is not None and str(v) != "") else unknown
+
+    lines += [
+        f"Application:    {_val(application)}",
+        f"Process Name:   {_val(process_name)}",
+        f"PID:            {pid if pid is not None else 'N/A'}",
+        f"HWND:           {hwnd if hwnd is not None else 'N/A'}",
+        f"Window Title:   {_val(window_title, '(none)')}",
+        f"Executable:     {_val(exe_path, '(unavailable)')}",
+        f"Detection:      {'SUCCESS' if success else 'FAILED'}",
+        f"Reason:         {reason if reason else '-'}",
+    ]
+    return "\n".join(lines)
+
+
+def _run_debug_report_with(bindings, stream=None):
+    """Render one full active-window debug report using ``bindings``.
+
+    Thin wrapper that only forwards the injected bindings to the existing
+    ``get_active_application()``; all detection stays in one place. Used by
+    unit tests (fake Win32 APIs) and by ``run_debug_report()`` itself.
+    """
+    return run_debug_report(
+        stream=stream,
+        provider=lambda: get_active_application(bindings=bindings),
+    )
+
+
+def run_debug_report(stream=None, provider=None) -> int:
+    """Print one full active-window debug report and return an exit code.
+
+    ``provider`` defaults to ``get_active_application()`` - the exact same
+    entry point VisionManager uses before every capture - so this CLI path
+    adds zero duplicated detection logic. Returns 0 on successful detection,
+    1 otherwise. Never raises.
+    """
+    import sys as _sys
+
+    out = stream if stream is not None else _sys.stdout
+    get_info = provider if provider is not None else get_active_application
+    try:
+        info = get_info()
+    except Exception as e:  # defensive: the provider must never crash debug
+        print(format_debug_report(None, error=e), file=out)
+        return 1
+
+    rendered = format_debug_report(info)
+    print(rendered, file=out)
+    return 0 if diagnose_failure(info) == "" else 1
 
 
 def describe_active_application(info: Optional[Dict[str, Any]]) -> str:
