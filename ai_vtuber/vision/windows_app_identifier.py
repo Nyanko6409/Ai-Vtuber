@@ -14,6 +14,8 @@ API to derive:
 
 Public API:
     get_active_application() -> Optional[Dict[str, Any]]
+    find_window_by_name(query) -> Optional[Dict[str, Any]]
+    get_window_rect(hwnd) -> Optional[Tuple[int, int, int, int]]
 
 Design notes:
     * No pywin32 dependency: everything is done with stdlib ``ctypes`` so
@@ -25,6 +27,8 @@ Design notes:
       ``None`` - they never raise into the vision pipeline.
     * This module intentionally has NO cross-platform abstraction: it is
       Windows 11 specific, per project scope.
+    * Window lookup (``find_window_by_name``) only FINDS windows - it never
+      moves, resizes, focuses, or activates anything (no SetWindowPos).
 """
 
 import ctypes
@@ -32,7 +36,7 @@ import logging
 import sys
 import threading
 from ctypes import wintypes
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +52,17 @@ _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 _TH32CS_SNAPPROCESS = 0x00000002
 
 _MAX_PATH_LOCAL = 260
+
+# Window styles / extended styles used when enumerating candidate windows.
+_GWL_STYLE = -16
+_GWL_EXSTYLE = -20
+_WS_VISIBLE = 0x10000000
+_WS_CHILD = 0x40000000
+_WS_EX_TOOLWINDOW = 0x00000080
+_WS_EX_APPWINDOW = 0x00040000
+
+# GetAncestor flags (GA_ROOT_OWNER) - used to skip owned helper windows.
+_GA_ROOT_OWNER = 3
 
 
 class _MODULEENTRY32W(ctypes.Structure):
@@ -109,7 +124,8 @@ class Win32Bindings:
         self.IsWindow = None
         self.IsWindowVisible = None
         self.GetWindowRect = None
-        self.SetWindowPos = None
+        self.GetAncestor = None
+        self.GetWindowLongPtrW = None
         self.EnumWindows = None
         self.OpenProcess = None
         self.CloseHandle = None
@@ -120,6 +136,12 @@ class Win32Bindings:
         self.Process32FirstW = None
         self.Process32NextW = None
         self.GetLastError = None
+
+    # ``c_ssize_t`` is the portable spelling of Windows' LONG_PTR.
+    _LONG_PTR = ctypes.c_ssize_t
+    _WNDENUMPROC = ctypes.WINFUNCTYPE(
+        wintypes.BOOL, wintypes.HWND, wintypes.LPARAM
+    )
 
     def load(self) -> bool:
         """Load the Win32 libraries and bind function prototypes.
@@ -165,19 +187,22 @@ class Win32Bindings:
                     wintypes.HWND, ctypes.POINTER(_RECT)
                 ]
 
-                # BOOL SetWindowPos(HWND, HWND, int, int, int, int, UINT)
-                user32.SetWindowPos.restype = wintypes.BOOL
-                user32.SetWindowPos.argtypes = [
-                    wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
-                    ctypes.c_int, ctypes.c_int, ctypes.c_uint,
-                ]
-
                 # BOOL EnumWindows(WNDENUMPROC, LPARAM)
-                _WNDENUMPROC = ctypes.WINFUNCTYPE(
-                    wintypes.BOOL, wintypes.HWND, wintypes.LPARAM
-                )
                 user32.EnumWindows.restype = wintypes.BOOL
-                user32.EnumWindows.argtypes = [_WNDENUMPROC, wintypes.LPARAM]
+                user32.EnumWindows.argtypes = [self._WNDENUMPROC, wintypes.LPARAM]
+
+                # HWND GetAncestor(HWND, UINT)
+                user32.GetAncestor.restype = wintypes.HWND
+                user32.GetAncestor.argtypes = [wintypes.HWND, ctypes.c_uint]
+
+                # LONG_PTR GetWindowLongPtrW(HWND, int)  (64-bit correct;
+                # falls back to the 32-bit GetWindowLongW on WoW64 Python)
+                if hasattr(user32, "GetWindowLongPtrW"):
+                    getter = user32.GetWindowLongPtrW
+                else:  # pragma: no cover - 32-bit Python only
+                    getter = user32.GetWindowLongW
+                getter.restype = self._LONG_PTR
+                getter.argtypes = [wintypes.HWND, ctypes.c_int]
 
                 kernel32.OpenProcess.restype = wintypes.HANDLE
                 kernel32.OpenProcess.argtypes = [
@@ -225,7 +250,8 @@ class Win32Bindings:
                 self.IsWindow = user32.IsWindow
                 self.IsWindowVisible = user32.IsWindowVisible
                 self.GetWindowRect = user32.GetWindowRect
-                self.SetWindowPos = user32.SetWindowPos
+                self.GetAncestor = user32.GetAncestor
+                self.GetWindowLongPtrW = getter
                 self.EnumWindows = user32.EnumWindows
                 self.OpenProcess = kernel32.OpenProcess
                 self.CloseHandle = kernel32.CloseHandle
@@ -431,6 +457,53 @@ def _resolve_display_name(exe_path: Optional[str], exe_name: Optional[str]) -> s
     return display
 
 
+def _resolve_process_info(
+    b: Win32Bindings, pid: Optional[int], window_title: str, hwnd: int
+) -> Dict[str, Any]:
+    """Resolve app name / process name / exe path for a window's PID.
+
+    Shared by the foreground identifier and the ``/look`` window lookup so
+    there is exactly ONE process-resolution path (QueryFullProcessImageNameW
+    primary, Toolhelp module snapshot second, Toolhelp process-name last).
+    Handles inaccessible processes and permission errors gracefully -
+    never raises.
+    """
+    if pid is None:
+        return {
+            "application": "Unknown Application",
+            "process_name": None,
+            "window_title": window_title,
+            "pid": None,
+            "hwnd": hwnd,
+        }
+
+    # Executable path from the actual process (primary then fallbacks).
+    exe_path = _query_image_path(b, pid)
+    if not exe_path:
+        exe_path = _toolhelp_primary_module_path(b, pid)
+    if not exe_path:
+        fallback_name = _toolhelp_process_name(b, pid)
+        if fallback_name:
+            exe_path = fallback_name  # name only; still resolves display name
+
+    process_name = _basename(exe_path) if exe_path else None
+    application = _resolve_display_name(exe_path, process_name)
+
+    result: Dict[str, Any] = {
+        "application": application,
+        "process_name": process_name,
+        "window_title": window_title,
+        "pid": pid,
+        "hwnd": hwnd,
+    }
+    # Extra diagnostic field (full executable path when available). It is
+    # additive only - existing consumers read the five documented keys and
+    # ignore this one.
+    if exe_path:
+        result["exe_path"] = exe_path
+    return result
+
+
 def get_active_application(
     bindings: Optional[Win32Bindings] = None
 ) -> Optional[Dict[str, Any]]:
@@ -471,42 +544,9 @@ def get_active_application(
     # 2. Window title.
     window_title = _get_window_title(b, hwnd)
 
-    # 3. Owning process id.
+    # 3. Owning process id + 4. executable resolution (shared helper).
     pid = _get_pid(b, hwnd)
-    if pid is None:
-        return {
-            "application": "Unknown Application",
-            "process_name": None,
-            "window_title": window_title,
-            "pid": None,
-            "hwnd": hwnd,
-        }
-
-    # 4. Executable path from the actual process (primary then fallbacks).
-    exe_path = _query_image_path(b, pid)
-    if not exe_path:
-        exe_path = _toolhelp_primary_module_path(b, pid)
-    if not exe_path:
-        fallback_name = _toolhelp_process_name(b, pid)
-        if fallback_name:
-            exe_path = fallback_name  # name only; still resolves display name
-
-    process_name = _basename(exe_path) if exe_path else None
-    application = _resolve_display_name(exe_path, process_name)
-
-    result: Dict[str, Any] = {
-        "application": application,
-        "process_name": process_name,
-        "window_title": window_title,
-        "pid": pid,
-        "hwnd": hwnd,
-    }
-    # Extra diagnostic field (full executable path when available). It is
-    # additive only - existing consumers read the five documented keys and
-    # ignore this one.
-    if exe_path:
-        result["exe_path"] = exe_path
-    return result
+    return _resolve_process_info(b, pid, window_title, hwnd)
 
 
 def set_bindings(bindings: "Win32Bindings") -> None:
