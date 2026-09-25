@@ -10,6 +10,11 @@ from .screen_capture import ScreenCaptureService, ScreenCaptureConfig, CapturedF
 from .frame_processor import FrameProcessor, FrameProcessingConfig, ProcessedFrame
 from .game_cache import GameCache, ScreenState
 from .analyzer import VisionAnalyzer, VisionAnalysisResult
+from .windows_app_identifier import (
+    get_active_application,
+    describe_active_application,
+    Win32Bindings,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +77,8 @@ class VisionManager:
         self,
         config: VisionConfig,
         llm_client=None,
-        vision_model: str = "google/gemma-4-e2b"
+        vision_model: str = "google/gemma-4-e2b",
+        active_app_provider=None,
     ):
         """
         Initialize vision manager.
@@ -81,10 +87,16 @@ class VisionManager:
             config: Vision configuration
             llm_client: LLM client instance for vision analysis (must support images)
             vision_model: Model name for vision analysis (from config)
+            active_app_provider: Optional callable returning the foreground
+                Windows application info dict (injectable for tests). Defaults
+                to windows_app_identifier.get_active_application().
         """
         self.config = config
         self._llm_client = llm_client
         self._vision_model = vision_model
+        # Windows 11 foreground-application identifier (native Win32 APIs).
+        # Injectable so unit tests never depend on real desktop state.
+        self._active_app_provider = active_app_provider or get_active_application
         
         self._running = False
         self._lock = threading.RLock()  # Reentrant lock for nested calls
@@ -112,6 +124,11 @@ class VisionManager:
         self._last_capture_time: float = 0.0
         self._last_context_injection_time: float = 0.0
         self._last_observation_id: Optional[str] = None  # Deduplication
+        
+        # Windows 11 foreground application captured at analysis time.
+        # Populated by the native Win32 identifier BEFORE each capture;
+        # exposed to the LLM via get_current_state()/get_context_summary().
+        self._active_application: Optional[Dict[str, Any]] = None
         
         # Store latest analysis result for retrieval
         self._latest_result: Optional[VisionAnalysisResult] = None
@@ -206,6 +223,47 @@ class VisionManager:
         
         logger.info("Vision system stopped")
     
+    def _refresh_active_application(self, request_id: str = "unknown") -> Optional[Dict[str, Any]]:
+        """
+        Detect the Windows 11 foreground application via native Win32 APIs.
+
+        Must be called BEFORE each screen capture so the identifier reflects
+        the application that was actually in front when the frame was taken.
+        The vision model / LLM is never asked to identify the application -
+        it is resolved from the real process executable.
+
+        Never raises: on any failure (no foreground window, inaccessible
+        process, permission error) the stored value becomes None and analysis
+        continues normally.
+        """
+        try:
+            info = self._active_app_provider()
+        except Exception as e:
+            logger.debug(f"[VISION {request_id}] Active app detection failed: {e}")
+            info = None
+
+        with self._lock:
+            self._active_application = info
+
+        if info:
+            logger.info(
+                f"[VISION {request_id}] Foreground app: "
+                f"{info.get('application')} ({info.get('process_name')}, "
+                f"PID {info.get('pid')})"
+            )
+        return info
+
+    def get_active_application_info(self) -> Optional[Dict[str, Any]]:
+        """
+        Thread-safe access to the Windows foreground application info
+        captured during the most recent screen analysis.
+
+        Returns dict with keys: application, process_name, window_title,
+        pid, hwnd - or None if unavailable.
+        """
+        with self._lock:
+            return self._active_application
+
     def analyze_screen_now(self) -> Optional[VisionAnalysisResult]:
         """
         Synchronous screen capture and analysis.
@@ -250,6 +308,10 @@ class VisionManager:
                 logger.error(f"[VISION {request_id}] Capture service not initialized")
                 return None
             
+            # Detect the Windows 11 foreground application BEFORE capture so
+            # each analysis knows which app was active when the frame was taken.
+            self._refresh_active_application(request_id=request_id)
+
             image_bytes = self._capture_service.capture_once()
             
             if not image_bytes:
@@ -388,6 +450,10 @@ class VisionManager:
                 self._errors += 1
                 return
             
+            # Detect the Windows 11 foreground application BEFORE capture so
+            # each analysis knows which app was active when the frame was taken.
+            self._refresh_active_application(request_id=request_id)
+
             image_bytes = self._capture_service.capture_once()
             
             if not image_bytes:
@@ -505,6 +571,11 @@ class VisionManager:
             state['vision_active'] = self._running
             state['last_update'] = self._current_state.last_update
             
+            # Windows 11 foreground application captured with this analysis
+            # (resolved from the real process executable, not the vision model)
+            if self._active_application:
+                state['active_application'] = dict(self._active_application)
+            
             return state
     
     def get_context_summary(self) -> str:
@@ -520,6 +591,15 @@ class VisionManager:
         self._last_context_injection_time = time.time()
         
         parts = []
+
+        # Windows 11 foreground application (native Win32 identifier, resolved
+        # from the actual process executable). Listed first so Airi always
+        # knows which app was active when the screen was captured.
+        active_app = state.get('active_application')
+        if active_app:
+            app_line = describe_active_application(active_app)
+            if app_line:
+                parts.append(app_line)
         
         # Game-specific fields (if playing a game)
         if state.get('game_name'):
@@ -639,11 +719,23 @@ class VisionManager:
             observation_id: Unique ID for this observation (for provenance)
         """
         with self._lock:
+            # Prefer the NATIVE Windows 11 foreground-application identifier
+            # (resolved from the actual process executable via Win32 APIs)
+            # over whatever the vision model guessed from the screenshot.
+            # This does not change the vision prompt or model - it only
+            # overrides the app name in our internal state when we know the
+            # real answer from the OS.
+            native_app = None
+            if self._active_application:
+                native_app = self._active_application.get('application')
+
             # Use structured scene and state from new JSON output
             if result.scene:
                 if result.scene.game_name:
                     self._current_state.game_name = result.scene.game_name
-                if result.scene.application:
+                if native_app:
+                    self._current_state.app_name = native_app
+                elif result.scene.application:
                     self._current_state.app_name = result.scene.application
                 if result.scene.location:
                     self._current_state.location = result.scene.location
