@@ -10,13 +10,13 @@
 # LLM Settings (LM Studio OpenAI-compatible API)
 llm:
   base_url: "http://localhost:1234/v1"
-  model: "google/gemma-4-e2b"  # Primary LLM model for text chat
-  vision_model: "google/gemma-4-e2b"  # Vision-capable model for screen analysis (same or different)
-  temperature: 0.8
+  model: "google/gemma-4-e4b"  # Primary LLM model for text chat
+  vision_model: "google/gemma-4-e4b"  # Vision-capable model for screen analysis (same or different)
+  temperature: 0.7
   max_tokens: 2000
-  max_context: 64000
+  max_context: 16000  # Maximum context window for LLM (in tokens)
   max_history: 10  # Number of messages to keep in conversation history
-  timeout: null  # No timeout - wait for LLM reply
+  timeout:       # No timeout - wait for LLM reply
   stream_enabled: true  # Enable streaming LLM responses for lower latency
   system_prompt: |
     You are a friendly AI VTuber assistant. You are chatting with a user in real-time.
@@ -31,20 +31,20 @@ llm:
     gamer_controller, mic. Sending {"avatar_action": null} (or no block)
     means "change nothing". NEVER invent ids and NEVER put personality words
     (happy, sad, smug, performing, ...) in the expression field.
-    
+
     IMPORTANT RULES:
     - NEVER respond with phrases like "I'm not sure what to say", "I don't know", or similar evasive responses unless genuinely asked about something impossible.
     - Always provide a thoughtful, engaging response that continues the conversation naturally.
     - If you don't have specific information, share your perspective, ask a follow-up question, or relate to the topic creatively.
     - Your responses should be 2-4 sentences minimum to create natural conversation flow.
-    
+
     Example:
     That sounds really fun! I'd love to hear more about what happened.
     Did anything surprising occur during that experience?
     ```json
     {"avatar_action": {"expression": "star_eyes", "items_on": [], "items_off": [], "modes_on": [], "modes_off": []}}
     ```
-  
+
   # Note: Bot personality and character traits are defined in the SINGLE
   # canonical file personality/soul.md at the PROJECT ROOT (see "memory"
   # section below). The system prompt above contains only technical/
@@ -58,13 +58,13 @@ ollama:
   model: "gemma2:2b"  # Make sure to pull this model first: ollama pull gemma2:2b
   temperature: 0.8
   max_tokens: 2000
-  timeout: null  # No timeout - wait for LLM reply
+  timeout:       # No timeout - wait for LLM reply
   vision_model: "google/gemma-4-e2b"  # Vision-capable model for screen analysis (if using Ollama)
 
 # Screen Vision Settings (for Airi's desktop/game watching)
 # Uses LM Studio with vision-capable model (e.g., google/gemma-4-e2b)
 vision:
-  enabled: false  # Set true to enable screen watching
+  enabled: true   # Set true to enable screen watching
   source: "screen"  # 'screen' or 'window'
   monitor_index: 0  # Monitor to capture (0 = primary)
   capture_interval: 2.0  # Seconds between screen captures (increased for on-demand mode)
@@ -74,8 +74,8 @@ vision:
   ocr_enabled: false  # Reserved for future OCR integration
   game_cache_enabled: true  # Cache recognized entities across sessions
   inject_into_conversation: false  # Don't auto-inject visual context into chat (uses on-demand instead)
-  max_width: 1920  # Full HD resolution for better screen analysis
-  max_height: 1080
+  max_width: 800   # Full HD resolution for better screen analysis
+  max_height: 600
   on_demand_only: true  # CRITICAL: Only capture screen when user asks something (recommended)
                         # When true: No continuous capture, only triggered before LLM responses
                         # When false: Continuous background capture (can cause queue overflow)
@@ -107,8 +107,8 @@ tts:
   #   "KittenML/kitten-tts-micro-0.8"  # 40M params, balanced
   #   "KittenML/kitten-tts-nano-0.8"   # 15M params, fastest
   voice: "Bella"  # Bella, Jasper, Luna, Bruno, Rosie, Hugo, Kiki, Leo
-  speed: 1.25
-  backend: "cpu"  # cpu or cuda (only for official 0.8.1)
+  speed: 1.5
+  backend: "cuda" # cpu or cuda (only for official 0.8.1)
                   # Windows tip: Use "cpu" for better compatibility
   sample_rate: 24000
 
@@ -144,7 +144,10 @@ avatar:
   window_height: 600
   fps: 30
   scale: 2.0
-  background_color: [0, 0, 0]  # RGB values (0-255) for Live2D renderer background (independent of Qt UI background)
+  background_color:            # RGB values (0-255) for Live2D renderer background (independent of Qt UI background)
+  - 0
+  - 0
+  - 0
   opacity: 1.0  # Canvas opacity (0.0-1.0): 1.0 = fully opaque, 0.0 = fully transparent
   # Zoom and movement controls:
   #   +/= : Zoom in
@@ -251,12 +254,18 @@ fillers:
 ui:
   show_fps: true
   show_debug: true
-  transparent: false  # true = click-through-free transparent window (only avatar visible).
+  transparent: true   # true = click-through-free transparent window (only avatar visible).
                        # Requires a compositing window manager (GNOME/KDE default, or picom on
                        # tiling WMs). Frameless while enabled - press ESC to quit.
                        # In OBS: use "Window Capture (Xcomposite)" and check "Allow Transparency".
-  background_color: [0, 0, 0]  # RGB values (0-255) for main background (ignored if transparent: true)
-  text_color: [255, 255, 255]  # RGB values (0-255) for all text
+  background_color:            # RGB values (0-255) for main background (ignored if transparent: true)
+  - 0
+  - 0
+  - 0
+  text_color:                  # RGB values (0-255) for all text
+  - 255
+  - 255
+  - 255
   font_family: "Arial"         # Font family name (e.g., Arial, Times New Roman, Segoe UI)
   font_size: 14                # Font size in pixels
   status_bar_height: 30
