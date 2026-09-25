@@ -66,6 +66,16 @@ class _MODULEENTRY32W(ctypes.Structure):
     ]
 
 
+class _RECT(ctypes.Structure):
+    """Corresponds to Win32 RECT from windef.h (used by GetWindowRect)."""
+    _fields_ = [
+        ("left", ctypes.c_long),
+        ("top", ctypes.c_long),
+        ("right", ctypes.c_long),
+        ("bottom", ctypes.c_long),
+    ]
+
+
 class _PROCESSENTRY32W(ctypes.Structure):
     """Corresponds to Win32 PROCESSENTRY32W (unicode) from tlhelp32.h."""
     _fields_ = [
@@ -97,6 +107,10 @@ class Win32Bindings:
         self.GetWindowTextLengthW = None
         self.GetWindowThreadProcessId = None
         self.IsWindow = None
+        self.IsWindowVisible = None
+        self.GetWindowRect = None
+        self.SetWindowPos = None
+        self.EnumWindows = None
         self.OpenProcess = None
         self.CloseHandle = None
         self.QueryFullProcessImageNameW = None
@@ -143,6 +157,28 @@ class Win32Bindings:
                 user32.IsWindow.restype = wintypes.BOOL
                 user32.IsWindow.argtypes = [wintypes.HWND]
 
+                user32.IsWindowVisible.restype = wintypes.BOOL
+                user32.IsWindowVisible.argtypes = [wintypes.HWND]
+
+                user32.GetWindowRect.restype = wintypes.BOOL
+                user32.GetWindowRect.argtypes = [
+                    wintypes.HWND, ctypes.POINTER(_RECT)
+                ]
+
+                # BOOL SetWindowPos(HWND, HWND, int, int, int, int, UINT)
+                user32.SetWindowPos.restype = wintypes.BOOL
+                user32.SetWindowPos.argtypes = [
+                    wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
+                    ctypes.c_int, ctypes.c_int, ctypes.c_uint,
+                ]
+
+                # BOOL EnumWindows(WNDENUMPROC, LPARAM)
+                _WNDENUMPROC = ctypes.WINFUNCTYPE(
+                    wintypes.BOOL, wintypes.HWND, wintypes.LPARAM
+                )
+                user32.EnumWindows.restype = wintypes.BOOL
+                user32.EnumWindows.argtypes = [_WNDENUMPROC, wintypes.LPARAM]
+
                 kernel32.OpenProcess.restype = wintypes.HANDLE
                 kernel32.OpenProcess.argtypes = [
                     wintypes.DWORD, wintypes.BOOL, wintypes.DWORD
@@ -187,6 +223,10 @@ class Win32Bindings:
                 self.GetWindowTextLengthW = user32.GetWindowTextLengthW
                 self.GetWindowThreadProcessId = user32.GetWindowThreadProcessId
                 self.IsWindow = user32.IsWindow
+                self.IsWindowVisible = user32.IsWindowVisible
+                self.GetWindowRect = user32.GetWindowRect
+                self.SetWindowPos = user32.SetWindowPos
+                self.EnumWindows = user32.EnumWindows
                 self.OpenProcess = kernel32.OpenProcess
                 self.CloseHandle = kernel32.CloseHandle
                 self.QueryFullProcessImageNameW = kernel32.QueryFullProcessImageNameW
