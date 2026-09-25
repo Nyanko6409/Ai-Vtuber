@@ -360,9 +360,58 @@ class QtMainWindow(QMainWindow):
         logger.info("Window recreated successfully with new transparency setting")
 
     def _handle_chat_message(self, text: str):
-        """Handle chat message from overlay."""
+        """Handle chat message from overlay.
+
+        ``/look`` commands are intercepted here (BEFORE forwarding to the
+        App / LLM / TTS pipeline) and executed against the REAL backend
+        VisionManager via the single authoritative dispatcher in
+        ``ai_vtuber.vision.look_command``.  The result is shown in the
+        existing status bar area.  Parsing happens ONLY in that module -
+        this method never re-implements the syntax.
+        """
+        try:
+            stripped = (text or "").strip()
+            if stripped.lower() == "/look" or stripped.lower().startswith("/look "):
+                handled = self._execute_look_command(stripped)
+                if handled:
+                    return
+        except Exception as e:  # never break the normal chat path
+            logger.error(f"/look UI dispatch failed: {e}", exc_info=True)
+
         if self.on_chat_message:
             self.on_chat_message(text)
+
+    def _execute_look_command(self, text: str) -> bool:
+        """Run a /look command against the live VisionManager.
+
+        Returns True when the command was handled (so it is NOT forwarded
+        to the LLM conversation), False otherwise (fall through to chat).
+        """
+        app = self.app_instance
+        vision_manager = getattr(app, "_vision_manager", None) if app else None
+        if vision_manager is None:
+            # No vision backend available: let App.process_chat_message
+            # produce its standard "vision disabled" response instead of
+            # faking success here.
+            return False
+
+        from ..vision.look_command import handle_look_command
+        try:
+            response = handle_look_command(text, vision_manager)
+        except Exception as e:
+            logger.error(f"/look execution error: {e}", exc_info=True)
+            response = f"\U0001F50E /look error: {e}"
+        if response is None:
+            return False
+
+        # Show the result in the EXISTING status bar area (small label,
+        # no new panels; multi-line responses render as one compact line).
+        try:
+            self.status_bar.update_vision_status(response)
+        except Exception as e:
+            logger.debug(f"update_vision_status failed: {e}")
+        logger.info(f"/look handled locally: {response!r}")
+        return True
 
     def _handle_chat_message_from_widget(self, text: str):
         """Handle chat message from chat widget."""

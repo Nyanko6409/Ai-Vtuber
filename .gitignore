@@ -1,1 +1,10 @@
-(empty)
+# Python compiled files
+__pycache__/
+*.pyc
+
+# IDE/Editor files
+.vscode/
+.idea/
+
+# System files
+.DS_Store
