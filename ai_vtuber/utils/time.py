@@ -9,19 +9,84 @@ from __future__ import annotations
 
 import logging
 from datetime import date as _date
-from datetime import datetime, time as _time
+from datetime import datetime, time as _time, timedelta
+from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 
 INDIA_TZ_NAME = "Asia/Kolkata"
 
+
+def _resolve_zone(name: str) -> Optional[ZoneInfo]:
+    """Resolve a named timezone, trying several sources in order.
+
+    On Windows the system IANA tz database is usually absent, so
+    ``zoneinfo`` needs the ``tzdata`` PyPI package.  If it is not
+    installed we attempt a lazy install (pip may be blocked by an
+    externally-managed environment, hence the try/except) and retry.
+    Returns ``None`` only if every strategy fails.
+    """
+    try:
+        return ZoneInfo(name)
+    except Exception:
+        pass
+
+    # Try to auto-install the tzdata package, then retry.
+    try:
+        import importlib
+        import subprocess
+        import sys
+
+        logger.info(
+            "[Time] IANA tz database missing; attempting `pip install tzdata`"
+        )
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--quiet", "tzdata"],
+            check=True,
+            timeout=120,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        importlib.invalidate_caches()
+        try:
+            return ZoneInfo(name)
+        except Exception:
+            pass
+    except Exception as exc:  # pip blocked, offline, externally-managed...
+        logger.debug("[Time] tzdata auto-install failed: %s", exc)
+
+    return None
+
+
+def _fixed_offset_fallback() -> Any:
+    """Last-resort tzinfo for India when no IANA data exists anywhere.
+
+    India has had a constant UTC+05:30 offset since 1962 (no DST), so a
+    ``datetime.timezone`` is exact for wall-clock purposes.  This path is
+    only taken on systems where even the ``tzdata`` PyPI package cannot be
+    installed, and it still returns timezone-aware datetimes.
+    """
+    from datetime import timezone
+
+    return timezone(timedelta(hours=5, minutes=30), name=INDIA_TZ_NAME)
+
+
 try:
-    INDIA_TZ = ZoneInfo(INDIA_TZ_NAME)
-except Exception:  # pragma: no cover - tzdata missing on exotic systems
-    logger.warning("[Time] zoneinfo %s unavailable; falling back to UTC",
-                   INDIA_TZ_NAME)
-    INDIA_TZ = ZoneInfo("UTC")
+    INDIA_TZ = _resolve_zone(INDIA_TZ_NAME)
+except Exception:  # pragma: no cover - defensive (e.g. no UTC zone either)
+    INDIA_TZ = None
+
+if INDIA_TZ is None:  # pragma: no cover - truly exotic systems
+    logger.warning(
+        "[Time] Could not load IANA zone %s (missing system tz database and "
+        "`tzdata` package). Falling back to fixed IST offset. "
+        "Fix with: pip install tzdata",
+        INDIA_TZ_NAME,
+    )
+    INDIA_TZ = _fixed_offset_fallback()
+else:
+    logger.info("[Time] Current timezone: %s", INDIA_TZ_NAME)
 
 
 def now_india() -> datetime:
