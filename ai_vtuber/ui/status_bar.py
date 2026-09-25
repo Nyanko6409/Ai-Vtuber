@@ -3,6 +3,8 @@
 Provides a status bar with FPS counter, microphone status, and action buttons.
 """
 
+from typing import Optional
+
 from PySide6.QtWidgets import QFrame, QWidget, QHBoxLayout, QLabel, QPushButton
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QCursor
