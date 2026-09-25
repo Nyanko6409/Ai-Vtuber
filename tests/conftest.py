@@ -36,3 +36,15 @@ if sys.platform != "win32":
 
     if not hasattr(ctypes, "get_last_error"):
         ctypes.get_last_error = lambda: 0
+
+    if not hasattr(ctypes, "WINFUNCTYPE"):
+        # Windows-only calling convention; CFUNCTYPE is equivalent for the
+        # purposes of tests that never call real Win32 APIs.
+        ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE
+
+    _wt = sys.modules["wintypes"]
+    for _attr in ("LPARAM", "WPARAM"):
+        if not hasattr(_wt, _attr):
+            setattr(_wt, _attr, ctypes.c_ssize_t)
+    if not hasattr(_wt, "UINT"):
+        _wt.UINT = ctypes.c_uint
