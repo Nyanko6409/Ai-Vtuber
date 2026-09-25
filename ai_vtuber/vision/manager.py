@@ -105,13 +105,9 @@ class VisionManager:
         
         # On-demand mode: don't auto-capture, wait for explicit requests
         self._on_demand_mode = config.on_demand_only
-        self._capture_requested = threading.Event()
         
         # Single capture service instance for on-demand use
         self._capture_service: Optional[ScreenCaptureService] = None
-        
-        # No frame processor in on-demand mode - direct to analyzer
-        self._frame_processor = None
         
         self._game_cache: Optional[GameCache] = None
         if config.game_cache_enabled:
@@ -144,7 +140,250 @@ class VisionManager:
         self._frames_processed = 0
         self._analyses_completed = 0
         self._errors = 0
-    
+
+        # ------------------------------------------------------------------
+        # /look vision target (persistent, independent of the foreground app)
+        # ------------------------------------------------------------------
+        # Once the user types "/look Discord" the vision system locks onto
+        # that application's window: every subsequent capture grabs the
+        # target window's rectangle instead of the full screen, even when a
+        # different application is in the foreground.  The target REMAINS
+        # locked even while it cannot be found on screen (status
+        # "NOT FOUND") and is re-resolved automatically on each capture, so
+        # the window only has to exist at capture time - not at set time.
+        # Protected by ``self._lock``.
+        self._vision_target_name: Optional[str] = None   # display name typed by user
+        self._vision_target_query: Optional[str] = None  # normalized lowercase query
+        self._vision_target_status: str = ""             # "Found" | "NOT FOUND" | ""
+        self._vision_target_info: Optional[Dict[str, Any]] = None  # last successful match
+        self._vision_target_window_provider: Callable[[str], Optional[Dict[str, Any]]] = \
+            find_window_by_name  # injectable for tests
+
+    # ------------------------------------------------------------------
+    # /look command execution (parsing lives ONLY in look_command.py)
+    # ------------------------------------------------------------------
+
+    def execute_look_command(self, text: str) -> str:
+        """Execute a parsed ``/look`` chat command against this manager.
+
+        This is the single authoritative executor for ``/look``; both the
+        UI submit path and the core App message path call it through
+        :func:`handle_look_command` (which itself delegates here).
+
+        Returns the human-readable response for the existing status/chat
+        UI, e.g.::
+
+            "\U0001F50E Vision target: Discord\nStatus: Found"
+            "\U0001F50E Vision target: Discord\nStatus: NOT FOUND"
+            "\U0001F50E Vision target cleared."
+
+        Raises ``ValueError`` if ``text`` is not a ``/look`` command.
+        """
+        cmd = parse_look_command(text)
+        if cmd is None:
+            raise ValueError(f"Not a /look command: {text!r}")
+
+        if cmd.action == "clear":
+            self.clear_vision_target()
+            return "\U0001F50E Vision target cleared."
+
+        if cmd.action == "status":
+            with self._lock:
+                name = self._vision_target_name
+                query = self._vision_target_query
+            if not name:
+                return "\U0001F50E No vision target set. Use \"/look <app>\" (e.g. \"/look Discord\") or \"/look off\"."
+            # Re-check current availability without changing the lock.
+            info = self._find_target_window(query)
+            with self._lock:
+                self._vision_target_status = "Found" if info else "NOT FOUND"
+                if info:
+                    self._vision_target_info = info
+                status = self._vision_target_status
+            return f"\U0001F50E Vision target: {name}\nStatus: {status}\nWindow: {name}"
+
+        # action == "set"
+        display_name, status = self.set_vision_target(cmd.query)
+        return f"\U0001F50E Vision target: {display_name}\nStatus: {status}"
+
+    def set_vision_target(self, query: str) -> tuple:
+        """Lock vision capture onto the window matching ``query``.
+
+        The query must already be normalized (lowercase, whitespace
+        collapsed) - :func:`ai_vtuber.vision.look_command.parse_look_command`
+        does that.  Matching is case-insensitive and resolves through
+        ``APP_ALIASES`` (``discord`` -> Discord.exe, ``vs code`` ->
+        Code.exe, ``genshin impact`` -> GenshinImpact.exe, ...).
+
+        IMPORTANT: the target persists independently of the foreground
+        application and stays locked even when the window is currently
+        missing (status ``NOT FOUND``); it is re-resolved on every capture.
+        There is NO fallback to whatever happens to be in front.
+
+        Returns ``(display_name, status)`` where status is ``"Found"`` or
+        ``"NOT FOUND"``.
+        """
+        norm = " ".join((query or "").split()).lower()
+        if not norm:
+            raise ValueError("Vision target query must not be empty")
+
+        info = self._find_target_window(norm)
+        display_name = (info.get("application") if info else None) or norm.title()
+
+        with self._lock:
+            self._vision_target_name = display_name
+            self._vision_target_query = norm
+            self._vision_target_status = "Found" if info else "NOT FOUND"
+            self._vision_target_info = info
+
+        logger.info(
+            f"Vision target set: {display_name!r} (query={norm!r}) -> "
+            f"{self._vision_target_status}"
+        )
+        return display_name, self._vision_target_status
+
+    def get_vision_target(self) -> Optional[Dict[str, Any]]:
+        """Return the current vision target state (or ``None`` when unset).
+
+        Keys: ``name``, ``query``, ``status`` ("Found"/"NOT FOUND"),
+        ``window_title``, ``process_name``, ``hwnd``, ``rect`` (last known).
+        """
+        with self._lock:
+            if not self._vision_target_name:
+                return None
+            info = self._vision_target_info or {}
+            return {
+                "name": self._vision_target_name,
+                "query": self._vision_target_query,
+                "status": self._vision_target_status,
+                "window_title": info.get("window_title"),
+                "process_name": info.get("process_name"),
+                "hwnd": info.get("hwnd"),
+                "rect": info.get("rect"),
+            }
+
+    def clear_vision_target(self) -> None:
+        """Clear the vision target; capture returns to the full screen."""
+        with self._lock:
+            had = self._vision_target_name
+            self._vision_target_name = None
+            self._vision_target_query = None
+            self._vision_target_status = ""
+            self._vision_target_info = None
+        if had:
+            logger.info(f"Vision target cleared (was {had!r})")
+
+    def _find_target_window(self, norm_query: Optional[str]) -> Optional[Dict[str, Any]]:
+        """Resolve a normalized query to a live window dict (never raises)."""
+        if not norm_query:
+            return None
+        try:
+            return self._vision_target_window_provider(norm_query)
+        except Exception as e:
+            logger.debug(f"Vision target window lookup failed for {norm_query!r}: {e}")
+            return None
+
+    @staticmethod
+    def _describe_vision_target(target: Dict[str, Any]) -> str:
+        """Format vision-target metadata as a line suitable for LLM context.
+
+        Example::
+
+            'Vision Target: Discord | Window: Discord | Process: Discord.exe | '
+            'Window Title: #general - Discord | Status: Found'
+        """
+        name = target.get("name") or "Unknown"
+        parts = [f"Vision Target: {name}"]
+        parts.append(f"Window: {name}")
+        if target.get("process_name"):
+            parts.append(f"Process: {target['process_name']}")
+        if target.get("window_title"):
+            parts.append(f'Window Title: "{target["window_title"][:120]}"')
+        if target.get("status"):
+            parts.append(f"Status: {target['status']}")
+        return " | ".join(parts)
+
+    def _resolve_target_for_capture(self) -> Optional[Dict[str, Any]]:
+        """Re-resolve the locked target right before a capture.
+
+        Returns the fresh window info when the target window currently
+        exists (updating status to ``Found``), otherwise ``None`` (status
+        updated to ``NOT FOUND``).  When no target is set at all this also
+        returns ``None`` and leaves the status untouched.  A disappearing
+        or minimized window between resolution and capture is handled
+        safely downstream (the region-limited capture validates the rect
+        against the monitor bounds; an out-of-bounds frame falls back to
+        nothing rather than capturing the wrong area).
+        """
+        with self._lock:
+            query = self._vision_target_query
+        if not query:
+            return None
+
+        info = self._find_target_window(query)
+        with self._lock:
+            if not self._vision_target_query:  # cleared concurrently
+                return None
+            self._vision_target_status = "Found" if info else "NOT FOUND"
+            if info:
+                self._vision_target_info = info
+        return info
+
+    def _capture_image_bytes(self) -> Optional[bytes]:
+        """Capture one JPEG frame honoring the persistent /look target.
+
+        - No target set           -> full-screen capture (existing path).
+        - Target found            -> capture exactly the target window's
+                                     rectangle via the existing
+                                     ScreenCaptureService region support.
+        - Target locked but NOT FOUND -> capture NOTHING (returns None).
+                                     Never falls back to the foreground
+                                     application or the full screen.
+        """
+        target_info = self._resolve_target_for_capture()
+
+        with self._lock:
+            has_target = bool(self._vision_target_query)
+
+        if has_target and target_info is None:
+            name = self._vision_target_name or self._vision_target_query
+            logger.info(
+                f"Vision target {name!r} window not found; skipping capture "
+                "(no fallback to foreground app)"
+            )
+            return None
+
+        service = self._capture_service
+        if service is None:
+            logger.error("Capture service not initialized")
+            return None
+
+        if target_info is None:
+            # Un-targeted: original full-monitor capture path.
+            if service.config.region is not None:
+                service.config.region = None
+            return service.capture_once()
+
+        rect = target_info.get("rect") or get_window_rect(target_info.get("hwnd"))
+        if not rect:
+            # Window vanished/minimized between resolve and rect read.
+            with self._lock:
+                self._vision_target_status = "NOT FOUND"
+            logger.info("Vision target window rectangle unavailable; skipping capture")
+            return None
+
+        old_region = service.config.region
+        service.config.region = tuple(int(v) for v in rect)
+        try:
+            image_bytes = service.capture_once()
+        finally:
+            service.config.region = old_region
+        if not image_bytes:
+            with self._lock:
+                self._vision_target_status = "NOT FOUND"
+            logger.info("Region capture of vision target returned no data")
+        return image_bytes
+
     def start(self) -> bool:
         """Start all vision services."""
         if not self.config.enabled:
@@ -314,7 +553,10 @@ class VisionManager:
             # each analysis knows which app was active when the frame was taken.
             self._refresh_active_application(request_id=request_id)
 
-            image_bytes = self._capture_service.capture_once()
+            # Capture honoring the persistent /look vision target (window
+            # region capture, or no capture at all while the locked target
+            # window is missing - never a fallback to the foreground app).
+            image_bytes = self._capture_image_bytes()
             
             if not image_bytes:
                 logger.error(f"[VISION {request_id}] Capture failed: no image data")
@@ -456,7 +698,10 @@ class VisionManager:
             # each analysis knows which app was active when the frame was taken.
             self._refresh_active_application(request_id=request_id)
 
-            image_bytes = self._capture_service.capture_once()
+            # Capture honoring the persistent /look vision target (window
+            # region capture, or no capture at all while the locked target
+            # window is missing - never a fallback to the foreground app).
+            image_bytes = self._capture_image_bytes()
             
             if not image_bytes:
                 logger.error(f"[VISION {request_id}] Capture failed: no image data")
@@ -577,7 +822,18 @@ class VisionManager:
             # (resolved from the real process executable, not the vision model)
             if self._active_application:
                 state['active_application'] = dict(self._active_application)
-            
+
+            # /look vision target (persistent; independent of the foreground app)
+            if self._vision_target_name:
+                info = self._vision_target_info or {}
+                state['vision_target'] = {
+                    'name': self._vision_target_name,
+                    'query': self._vision_target_query,
+                    'status': self._vision_target_status,
+                    'window_title': info.get('window_title'),
+                    'process_name': info.get('process_name'),
+                }
+
             return state
     
     def get_context_summary(self) -> str:
@@ -593,6 +849,13 @@ class VisionManager:
         self._last_context_injection_time = time.time()
         
         parts = []
+
+        # /look vision target metadata (locked window; independent of which
+        # application happens to be in the foreground). Listed FIRST so the
+        # LLM always knows exactly which window the captured frame shows.
+        vision_target = state.get('vision_target')
+        if vision_target:
+            parts.append(self._describe_vision_target(vision_target))
 
         # Windows 11 foreground application (native Win32 identifier, resolved
         # from the actual process executable). Listed first so Airi always
@@ -822,9 +1085,6 @@ class VisionManager:
         
         if self._capture_service:
             stats['capture'] = self._capture_service.stats
-        
-        if self._frame_processor:
-            stats['processing'] = self._frame_processor.stats
         
         if self._analyzer:
             stats['analysis'] = self._analyzer.stats

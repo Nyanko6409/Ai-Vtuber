@@ -68,6 +68,14 @@ class StatusBar(QFrame):
         self.mic_label = QLabel("🎤 ON")
         self.mic_label.setStyleSheet("color: #81C784; font-size: 15px; font-weight: bold; padding: 5px;")
         layout.addWidget(self.mic_label)
+
+        # Vision target status (populated by the /look chat command).
+        # Hidden until a target message arrives so the default layout is
+        # pixel-identical to before.
+        self.vision_label = QLabel("")
+        self.vision_label.setVisible(False)
+        self.vision_label.setStyleSheet("color: #a0b0ff; font-size: 13px; padding: 5px;")
+        layout.addWidget(self.vision_label)
         
         # Separator line
         separator = QFrame()
@@ -139,3 +147,19 @@ class StatusBar(QFrame):
         else:
             self.mic_label.setText("🎤 ON")
             self.mic_label.setStyleSheet("color: #81C784; font-size: 15px; font-weight: bold; padding: 5px;")
+
+    def update_vision_status(self, message: Optional[str]):
+        """Show a small /look result in the existing status area.
+
+        Accepts the multi-line command response (e.g.
+        "🔎 Vision target: Discord\\nStatus: Found") and renders it as a
+        compact single line ("🔎 Vision target: Discord · Status: Found").
+        Pass ``None``/empty to hide the label again (default layout).
+        """
+        if not message:
+            self.vision_label.setText("")
+            self.vision_label.setVisible(False)
+            return
+        text = " · ".join(part.strip() for part in message.splitlines() if part.strip())
+        self.vision_label.setText(text)
+        self.vision_label.setVisible(True)

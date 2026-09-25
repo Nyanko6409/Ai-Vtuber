@@ -654,6 +654,8 @@ def find_window_by_name(
         compact = norm.replace(" ", "")
         return compact and compact in t.replace(" ", "")
 
+    # Insertion-ordered mapping of matching HWNDs (Python dicts preserve
+    # insertion order; the EnumWindows callback runs on this thread only).
     found: Dict[int, Dict[str, Any]] = {}
 
     def _callback(raw_hwnd, _lparam):
@@ -678,7 +680,6 @@ def find_window_by_name(
                     "title": title,
                     "rank": 0 if proc_hit else 1,
                 }
-                order.append(hwnd_int)
         except Exception as e:  # defensive: one bad window must not abort
             logger.debug(f"EnumWindows callback error: {e}")
         return True
