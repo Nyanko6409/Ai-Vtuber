@@ -227,19 +227,14 @@ def main() -> None:
         "--debug", "-d",
         action="store_true",
         help=(
-            "Print the Windows 11 active-window debug report (current "
-            "foreground application detected via the vision system's native "
-            "Win32 identifier) and exit."
+            "Start the full AI VTuber normally AND enable verbose logging "
+            "plus Windows 11 active-window diagnostics: while the app runs, "
+            "a [DEBUG] Active Windows Application block is printed whenever "
+            "the foreground window changes (via the vision system's existing "
+            "get_active_application(); no separate command, never exits)."
         )
     )
     args = parser.parse_args()
-
-    # Debug mode: run the exact same get_active_application() used by
-    # VisionManager (no Win32 logic duplicated here), print the full
-    # active-window report, and exit before Qt loads.
-    if args.debug:
-        from ai_vtuber.vision.windows_app_identifier import run_debug_report
-        sys.exit(run_debug_report())
 
     # Reconfigure logging with debug mode if requested
     setup_logging(debug=args.debug)
@@ -448,6 +443,38 @@ def main() -> None:
 
     # Start the application (loads STT/TTS models, starts microphone)
     app.start()
+
+    # --debug: Windows 11 active-window diagnostics. This ONLY adds a
+    # background change-watcher; the full application (Qt/UI, Live2D, LLM,
+    # STT, TTS, Vision) has already started normally and keeps running.
+    # All detection is delegated to the existing get_active_application()
+    # used by VisionManager - no Win32 logic lives here - and blocks are
+    # printed only when the foreground window actually changes.
+    active_window_watcher = None
+    if args.debug:
+        try:
+            from ai_vtuber.vision.windows_app_identifier import (
+                ActiveWindowDebugWatcher,
+            )
+            active_window_watcher = ActiveWindowDebugWatcher(interval=1.0)
+            active_window_watcher.start()
+            logger.info(
+                "Active-window debug watcher started "
+                "(prints [DEBUG] blocks on foreground changes)"
+            )
+        except Exception as e:
+            logger.warning(f"Active-window debug watcher unavailable: {e}")
+            active_window_watcher = None
+
+    def shutdown_debug_watcher():
+        """Stop the debug watcher if it was created (no-op otherwise)."""
+        if active_window_watcher is not None:
+            try:
+                active_window_watcher.stop()
+            except Exception:
+                pass
+
+    qt_app.aboutToQuit.connect(shutdown_debug_watcher)
 
     logger.info("Entering main loop. Press ESC or close window to quit.")
     

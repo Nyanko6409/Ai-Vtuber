@@ -511,16 +511,19 @@ def _is_placeholder(value) -> bool:
     return lowered.startswith("unknown") or lowered in ("none", "?")
 
 
-def diagnose_failure(info) -> str:
+def diagnose_failure(info, bindings=None) -> str:
     """Derive a human-readable failure reason from an identifier result.
 
     Returns an empty string when detection succeeded fully; otherwise a
     short reason ("No foreground window", "Process lookup failed",
     "Unknown executable", ...). This only inspects the dict produced by
     ``get_active_application()`` - it never touches the Win32 APIs itself.
+    ``bindings`` lets tooling (e.g. the --debug watcher running against
+    injected/mock bindings on a test host) state which API set was actually
+    consulted; it defaults to the module-level real bindings.
     """
     if info is None:
-        b = _bindings
+        b = bindings if bindings is not None else _bindings
         if not b.load():
             return REASON_NO_BINDINGS
         # Bindings loaded fine but nothing was detected: there is simply no
@@ -605,40 +608,161 @@ def format_debug_report(
     return "\n".join(lines)
 
 
-def _run_debug_report_with(bindings, stream=None):
-    """Render one full active-window debug report using ``bindings``.
+def render_active_window_debug_line(
+    info: Optional[Dict[str, Any]],
+    reason_override: str = "",
+    error: Optional[BaseException] = None,
+) -> str:
+    """Render ONE compact ``[DEBUG] Active Windows Application`` block.
 
-    Thin wrapper that only forwards the injected bindings to the existing
-    ``get_active_application()``; all detection stays in one place. Used by
-    unit tests (fake Win32 APIs) and by ``run_debug_report()`` itself.
+    Pure presentation on top of a ``get_active_application()`` result - it
+    contains no Win32 detection logic of its own. Used by the in-app
+    foreground-change watcher enabled with ``python main.py --debug``.
+
+    Success::
+
+        [DEBUG] Active Windows Application
+          Application:    Google Chrome
+          Process Name:   chrome.exe
+          PID:            12345
+          HWND:           123456
+          Window Title:   GitHub - Google Chrome
+          Executable:     C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe
+
+    Failure::
+
+        [DEBUG] Active Windows Application: UNKNOWN
+          Reason: No foreground window / process lookup failed
+
+    ``Process Name`` / ``Executable`` always describe the actual owning
+    process and ``Window Title`` the actual foreground window title - both
+    exactly as Windows reports them (they may legitimately differ, e.g.
+    WindowsTerminal.exe showing a PowerShell path as its tab title).
     """
-    return run_debug_report(
-        stream=stream,
-        provider=lambda: get_active_application(bindings=bindings),
-    )
+    if error is not None:
+        reason = f"detection error ({error})"
+        info = None
+    else:
+        reason = reason_override or diagnose_failure(info)
+
+    data = info or {}
+
+    def _val(v, unknown="UNKNOWN"):
+        return v if (v is not None and str(v) != "") else unknown
+
+    if reason:
+        return "\n".join([
+            "[DEBUG] Active Windows Application: UNKNOWN",
+            f"  Reason: {reason}",
+        ])
+
+    exe_path = data.get("exe_path") or data.get("process_name") or "(unavailable)"
+    return "\n".join([
+        "[DEBUG] Active Windows Application",
+        f"  Application:    {_val(data.get('application'))}",
+        f"  Process Name:   {_val(data.get('process_name'))}",
+        f"  PID:            {data.get('pid') if data.get('pid') is not None else 'N/A'}",
+        f"  HWND:           {data.get('hwnd') if data.get('hwnd') is not None else 'N/A'}",
+        f"  Window Title:   {_val(data.get('window_title'), '(none)')}",
+        f"  Executable:     {exe_path}",
+    ])
 
 
-def run_debug_report(stream=None, provider=None) -> int:
-    """Print one full active-window debug report and return an exit code.
+class ActiveWindowDebugWatcher:
+    """Periodically poll the foreground window while the app runs (--debug).
 
-    ``provider`` defaults to ``get_active_application()`` - the exact same
-    entry point VisionManager uses before every capture - so this CLI path
-    adds zero duplicated detection logic. Returns 0 on successful detection,
-    1 otherwise. Never raises.
+    Windows-11-only diagnostic helper. It reuses the existing
+    ``get_active_application()`` implementation for *all* detection - no
+    Win32 logic lives here - and prints a debug block ONLY when the active
+    window actually changes, so the console is never spammed per frame.
+
+    The watcher runs on a daemon thread and stops cleanly via ``stop()``,
+    which the application calls during shutdown. Detection failures are
+    reported once (with a reason) instead of raising into the app.
     """
-    import sys as _sys
 
-    out = stream if stream is not None else _sys.stdout
-    get_info = provider if provider is not None else get_active_application
-    try:
-        info = get_info()
-    except Exception as e:  # defensive: the provider must never crash debug
-        print(format_debug_report(None, error=e), file=out)
-        return 1
+    #: identity key: change of any of these fields triggers a new print
+    _IDENTITY_FIELDS = ("hwnd", "pid", "process_name", "window_title")
 
-    rendered = format_debug_report(info)
-    print(rendered, file=out)
-    return 0 if diagnose_failure(info) == "" else 1
+    def __init__(self, interval: float = 1.0, provider=None, printer=None,
+                 bindings=None):
+        self.interval = max(0.2, float(interval))
+        # Same entry point VisionManager uses before every capture.
+        self._get_info = provider if provider is not None else get_active_application
+        self._print = printer if printer is not None else print
+        # Optional: which Win32 binding set the provider consults (used only
+        # to phrase failure reasons; detection logic is never touched here).
+        self._bindings = bindings
+        self._thread: Optional[threading.Thread] = None
+        self._stop_event = threading.Event()
+        self._last_key: Optional[tuple] = None
+        self._last_reason: Optional[str] = None
+
+    @classmethod
+    def _identity(cls, info: Dict[str, Any]) -> tuple:
+        return tuple(info.get(f) for f in cls._IDENTITY_FIELDS)
+
+    def check_once(self) -> Optional[str]:
+        """Poll the foreground window once; return printed text (or None).
+
+        Prints only when the active window changed since the last call (or
+        when the failure state changed after a previous failure). Never
+        raises: any provider exception is reported as a FAILED block once.
+        """
+        try:
+            info = self._get_info()
+        except Exception as e:  # defensive: debug must never crash the app
+            reason = f"detection error ({e})"
+            if reason != self._last_reason:
+                self._last_reason = reason
+                self._last_key = None
+                text = render_active_window_debug_line(None, error=e)
+                self._print(text)
+                return text
+            return None
+
+        if not info:
+            reason = diagnose_failure(None, bindings=self._bindings)
+            if reason != self._last_reason:
+                self._last_reason = reason
+                self._last_key = None
+                text = render_active_window_debug_line(None, reason_override=reason)
+                self._print(text)
+                return text
+            return None
+
+        self._last_reason = None
+        key = self._identity(info)
+        if key == self._last_key:
+            return None  # unchanged: stay silent
+        self._last_key = key
+        text = render_active_window_debug_line(info)
+        self._print(text)
+        return text
+
+    def start(self) -> None:
+        """Start the polling daemon thread (idempotent)."""
+        if self._thread is not None and self._thread.is_alive():
+            return
+        self._stop_event.clear()
+        self._thread = threading.Thread(
+            target=self._run, name="ActiveWindowDebugWatcher", daemon=True
+        )
+        self._thread.start()
+
+    def _run(self) -> None:
+        while not self._stop_event.wait(self.interval):
+            try:
+                self.check_once()
+            except Exception as e:  # pragma: no cover - belt & braces
+                logger.debug(f"Active-window debug watcher error: {e}")
+
+    def stop(self, timeout: float = 2.0) -> None:
+        """Signal the watcher to stop and join its thread."""
+        self._stop_event.set()
+        if self._thread is not None:
+            self._thread.join(timeout=timeout)
+            self._thread = None
 
 
 def describe_active_application(info: Optional[Dict[str, Any]]) -> str:
