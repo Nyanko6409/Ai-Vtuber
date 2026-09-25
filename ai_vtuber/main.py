@@ -228,7 +228,39 @@ def main() -> None:
         action="store_true",
         help="Enable debug logging"
     )
+    parser.add_argument(
+        "--debug-active-app",
+        action="store_true",
+        help=(
+            "Windows 11 only: print the current foreground window detected by "
+            "the vision system's active-application identifier and exit. "
+            "Combine with --watch to live-refresh while alt-tabbing."
+        )
+    )
+    parser.add_argument(
+        "--watch", "-w",
+        action="store_true",
+        help="With --debug-active-app: keep refreshing (Ctrl+C to stop)"
+    )
+    parser.add_argument(
+        "--interval",
+        type=float,
+        default=0.5,
+        help="With --debug-active-app --watch: refresh interval seconds"
+    )
     args = parser.parse_args()
+
+    # CLI debug mode for the Windows 11 active-window identifier: runs the
+    # exact same get_active_application() used by VisionManager (no Win32
+    # logic duplicated here), prints the result, and exits before Qt loads.
+    if args.debug_active_app:
+        from ai_vtuber.vision.windows_app_cli import (
+            run_debug_once,
+            run_debug_watch,
+        )
+        if args.watch:
+            sys.exit(run_debug_watch(interval=args.interval))
+        sys.exit(run_debug_once())
 
     # Reconfigure logging with debug mode if requested
     setup_logging(debug=args.debug)
