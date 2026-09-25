@@ -463,6 +463,23 @@ def get_active_application(
     }
 
 
+def set_bindings(bindings: "Win32Bindings") -> None:
+    """Replace the module-level default Win32 bindings.
+
+    Intended for debugging tooling and unit tests so ``get_active_application()``
+    can run against injected/mock API bindings without duplicating any of the
+    detection logic below. Pass a real ``Win32Bindings()`` instance to restore
+    normal behaviour.
+    """
+    global _bindings
+    _bindings = bindings
+
+
+def get_bindings() -> "Win32Bindings":
+    """Return the currently-used module-level Win32 bindings object."""
+    return _bindings
+
+
 def describe_active_application(info: Optional[Dict[str, Any]]) -> str:
     """Format identifier output as a short line suitable for LLM context.
 
